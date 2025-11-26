@@ -18,7 +18,7 @@ TEAM_CONFIG = [
     },
     {
         "name": "Estela Peng",
-        "id": "1RGNgOz_fRjWtdW7dj5F0QpnwRk1fK8GN",
+        "id": "1sUkffAXzWnpzhhmklqBuwtoQylpR1U18zqBQ-lsp7Z4",
         "tab": "Reporte Simple",  # 请确认Tab名字
         "keyword": "姓名"  # 请确认关键词
     },
@@ -167,3 +167,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
