@@ -96,7 +96,7 @@ st.markdown("""
         position: relative;
         margin-top: 10px;
         margin-bottom: 30px;
-        box-shadow: 6px 6px 0px #000000; /* Shadow added */
+        box-: 6px 6px 0px #000000; /*  added */
     }
     
     .pit-fill-month {
@@ -124,11 +124,11 @@ st.markdown("""
         white-space: nowrap;
     }
 
-    /* 🔥 STATS CARDS (Updated Borders & Shadows) */
+    /* 🔥 STATS CARDS (Updated Borders & s) */
     .stat-card {
         background-color: #FFA500;
         border: 4px solid #FFFFFF; /* 4px Border */
-        box-shadow: 6px 6px 0px #000000; /* Shadow */
+        box-: 6px 6px 0px #000000; /*  */
         padding: 15px;
         text-align: center;
         margin-bottom: 15px;
@@ -146,12 +146,12 @@ st.markdown("""
         line-height: 1.5;
     }
 
-    /* 🔥 MVP Card (Updated Borders & Shadows) */
+    /* 🔥 MVP Card (Updated Borders & s) */
     .mvp-card {
         background-color: #333; 
         padding: 15px; 
         border: 4px solid #FFD700; /* 4px Border */
-        box-shadow: 8px 8px 0px rgba(255, 15, 0, 0.3); /* Shadow 粉色还挺好看*/
+        box-: 8px 8px 0px rgba(255, 15, 0, 0.3); /*  粉色还挺好看*/
         text-align: center;
         margin-top: 20px;
     }
@@ -163,10 +163,10 @@ st.markdown("""
         margin-bottom: 5px;
     }
 
-    /* 🔥 HEADER BORDERED (Updated Shadows) */
+    /* 🔥 HEADER BORDERED (Updated s) */
     .header-bordered {
         border: 4px solid #FFFFFF;
-        box-shadow: 6px 6px 0px #000000; /* Shadow */
+        box-: 6px 6px 0px #000000; /*  */
         padding: 15px;
         text-align: center;
         margin-bottom: 20px;
@@ -376,7 +376,7 @@ def main():
         if not df_q.empty and quarterly_total_count > 0:
             mvp_q = df_q.sort_values(by="count", ascending=False).iloc[0]
             mvp_season_ph.markdown(f"""
-            <div class="mvp-card" style="border-color: #00FFFF; box-shadow: 8px 8px 0px rgba(0, 255, 255, 0.3);">
+            <div class="mvp-card" style="border-color: #00FFFF; box-shadow: 8px 8px 0px rgba(39, 149, 245,0);">
                 <h3 style="color: #00FFFF; margin:0; font-size: 1em;">🌊 SEASON MVP</h3>
                 <h2 style="color: white; margin: 10px 0;">{mvp_q['name']}</h2>
                 <h1 style="color: #FFFFFF; margin:0;">{mvp_q['count']}</h1>
@@ -388,6 +388,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
