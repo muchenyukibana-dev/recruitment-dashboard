@@ -126,7 +126,7 @@ st.markdown("""
 
     /* 🔥 STATS CARDS (Updated Borders & Shadows) */
     .stat-card {
-        background-color: #222;
+        background-color: #FFA500;
         border: 4px solid #FFFFFF; /* 4px Border */
         box-shadow: 6px 6px 0px #000000; /* Shadow */
         padding: 15px;
@@ -303,7 +303,7 @@ def main():
         stats_month_ph = st.empty()
         
         # --- SECTION 2: QUARTERLY ---
-        st.markdown(f'<div class="header-bordered" style="margin-top: 30px; border-color: #00FFFF; color: #00FFFF;">SEASON CAMPAIGN (Q{quarter_num})</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="header-bordered" style="margin-top: 30px; border-color: #00FFFF; color: #FFA500;">SEASON CAMPAIGN (Q{quarter_num})</div>', unsafe_allow_html=True)
         pit_quarter_ph = st.empty()
         
         # 🔥 新增：季度明细占位符
@@ -388,6 +388,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
