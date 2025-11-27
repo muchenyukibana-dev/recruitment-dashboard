@@ -445,36 +445,35 @@ def main():
             st.balloons()
 
         # ==========================================
-        # 📝 PHASE 4: MISSION LOGS (AGGREGATED & PARTITIONED)
+        # 📝 PHASE 4: MISSION LOGS (INTERACTIVE TABS)
         # ==========================================
         if all_month_details:
             st.markdown("---")
             st.markdown(f'<div class="header-bordered" style="border-color: #FFFFFF; color: #FFFFFF;">📜 MISSION LOGS ({current_month_tab})</div>', unsafe_allow_html=True)
             
-            # 1. 转换为 DataFrame
+            # 1. 准备数据
             df_all = pd.DataFrame(all_month_details)
             
-            # 2. 创建分列，每个顾问一列
-            cols = st.columns(len(TEAM_CONFIG))
+            # 2. 创建标签页：提取所有顾问名字
+            # 这会在页面上生成一排可点击的名字
+            tab_names = [c['name'] for c in TEAM_CONFIG]
+            tabs = st.tabs(tab_names)
             
-            for idx, consultant in enumerate(TEAM_CONFIG):
-                c_name = consultant['name']
-                
-                # 3. 筛选当前顾问的数据
-                df_c = df_all[df_all['Consultant'] == c_name]
-                
-                with cols[idx]:
-                    # 显示顾问名字的表头
-                    st.markdown(f'<div class="consultant-log-header">{c_name}</div>', unsafe_allow_html=True)
+            # 3. 填充每个标签页的内容
+            for idx, tab in enumerate(tabs):
+                with tab:
+                    # 获取当前标签页对应的顾问名字
+                    current_consultant = tab_names[idx]
+                    
+                    # 筛选数据
+                    df_c = df_all[df_all['Consultant'] == current_consultant]
                     
                     if not df_c.empty:
-                        # 4. 核心聚合：按公司和岗位分组，计算数量 (隐藏候选人名字)
+                        # 聚合统计：只看公司和岗位
                         df_agg = df_c.groupby(['Company', 'Position'])['Count'].sum().reset_index()
-                        
-                        # 按数量倒序排列，好看一点
                         df_agg = df_agg.sort_values(by='Count', ascending=False)
                         
-                        # 5. 展示表格
+                        # 显示表格
                         st.dataframe(
                             df_agg, 
                             use_container_width=True,
@@ -486,13 +485,13 @@ def main():
                             }
                         )
                     else:
-                        st.markdown("<div style='text-align:center; color:#555;'>NO DATA</div>", unsafe_allow_html=True)
+                        st.info("NO MISSION DATA RECORDED.")
 
         elif monthly_total == 0:
             st.markdown("---")
             st.info("NO DATA FOUND FOR THIS MONTH YET.")
-
 if __name__ == "__main__":
     main()
+
 
 
