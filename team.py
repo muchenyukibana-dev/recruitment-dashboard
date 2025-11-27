@@ -376,7 +376,7 @@ def main():
         if not df_q.empty and quarterly_total_count > 0:
             mvp_q = df_q.sort_values(by="count", ascending=False).iloc[0]
             mvp_season_ph.markdown(f"""
-            <div class="mvp-card" style="border-color: #00FFFF; box-shadow: 8px 8px 0px rgba(39, 149, 245,0);">
+            <div class="mvp-card" style="border-color: #00FFFF; box-shadow: 8px 8px 0px rgba(255, 15, 0, 0.3);">
                 <h3 style="color: #00FFFF; margin:0; font-size: 1em;">🌊 SEASON MVP</h3>
                 <h2 style="color: white; margin: 10px 0;">{mvp_q['name']}</h2>
                 <h1 style="color: #FFFFFF; margin:0;">{mvp_q['count']}</h1>
@@ -388,6 +388,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
