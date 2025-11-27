@@ -67,7 +67,7 @@ st.markdown("""
         justify-content: center;
         width: 100%;
         /* 🔥 右移 40px */
-        margin-left: 200px; 
+        margin-left: 180px; 
     }
     .stButton>button {
         background-color: #FF0055;
@@ -151,7 +151,7 @@ st.markdown("""
         background-color: #333; 
         padding: 15px; 
         border: 4px solid #FFD700; /* 4px Border */
-        box-shadow: 8px 8px 0px rgba(255, 215, 0, 0.3); /* Shadow */
+        box-shadow: 8px 8px 0px rgba(255, 15, 0, 0.3); /* Shadow */
         text-align: center;
         margin-top: 20px;
     }
@@ -388,5 +388,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
