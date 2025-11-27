@@ -67,7 +67,7 @@ st.markdown("""
         justify-content: center;
         width: 100%;
         /* 🔥 右移 40px */
-        margin-left: 400px; 
+        margin-left: 200px; 
     }
     .stButton>button {
         background-color: #FF0055;
@@ -388,4 +388,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
