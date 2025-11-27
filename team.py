@@ -304,7 +304,7 @@ def main():
         
         # --- SECTION 2: QUARTERLY ---
         st.markdown(f'<div class="header-bordered" style="margin-top: 30px; border-color: #00FFFF; color: #FFA500;">SEASON CAMPAIGN (Q{quarter_num})</div>', unsafe_allow_html=True)
-        pit_quarter_ph = st.empty()
+        pit_quarter_ph = st.empty() /* 这是边框*/
         
         # 🔥 新增：季度明细占位符
         stats_quarter_ph = st.empty()
@@ -349,7 +349,7 @@ def main():
                         st.markdown(f"""
                         <div class="stat-card" style="border-color: #00FFFF;">
                             <div class="stat-name">{res['name']}</div>
-                            <div class="stat-val" style="color: #00FFFF;">{res['count']}</div>
+                            <div class="stat-val" style="color: #000000;">{res['count']}</div> /* 改的什么？*/
                         </div>
                         """, unsafe_allow_html=True)
             
@@ -388,6 +388,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
