@@ -134,7 +134,7 @@ st.markdown("""
         margin-bottom: 15px;
     }
     .stat-val {
-        color: #00FF41;
+        color: #000000;
         font-size: 1.5em;
         margin-top: 10px;
     }
@@ -367,7 +367,7 @@ def main():
             <div class="mvp-card">
                 <h3 style="color: #FFD700; margin:0; font-size: 1em;">🏆 MONTHLY MVP</h3>
                 <h2 style="color: white; margin: 10px 0;">{mvp_m['name']}</h2>
-                <h1 style="color: #00FF41; margin:0;">{mvp_m['count']}</h1>
+                <h1 style="color: #000000; margin:0;">{mvp_m['count']}</h1>
             </div>
             """, unsafe_allow_html=True)
 
@@ -388,6 +388,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
