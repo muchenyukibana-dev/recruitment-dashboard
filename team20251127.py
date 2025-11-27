@@ -227,14 +227,21 @@ def connect_to_google():
             except Exception: return None
         else: return None
 
-# --- FETCH DATA (Updated for Aggregation) ---
+# --- FETCH DATA (With Details & Multi-language Support) ---
 def fetch_consultant_data(client, consultant_config, target_tab):
     sheet_id = consultant_config['id']
     target_key = consultant_config.get('keyword', 'Name')
     
-    # 兼容多种表头写法
-    COMPANY_KEYS = ["Company", "公司", "Client", "Cliente"]
-    POSITION_KEYS = ["Position", "职位", "Role", "Posición"]
+    # 📝在此处扩充识别关键词
+    # 只要表格第一列包含以下任意词汇，程序就会认为这一行是在记录公司或职位
+    COMPANY_KEYS = [
+        "Company", "Client", "Cliente",       # 英文/西语
+        "公司", "客户", "客户名称", "公司名称"   # 中文
+    ]
+    POSITION_KEYS = [
+        "Position", "Role", "Posición",       # 英文/西语
+        "职位", "岗位", "职位名称", "岗位名称"   # 中文
+    ]
 
     try:
         sheet = client.open_by_key(sheet_id)
@@ -254,36 +261,40 @@ def fetch_consultant_data(client, consultant_config, target_tab):
         for row in rows:
             if not row: continue
             
+            # 去除首尾空格，防止 "公司 " 这种带空格的情况匹配失败
             first_cell = row[0].strip()
             
-            # 1. 记录公司
+            # 1. 识别公司行
             if first_cell in COMPANY_KEYS:
+                # 获取 B 列的内容作为公司名
                 current_company = row[1].strip() if len(row) > 1 else "Unknown"
                 
-            # 2. 记录职位
+            # 2. 识别职位行
             elif first_cell in POSITION_KEYS:
+                # 获取 B 列的内容作为岗位名
                 current_position = row[1].strip() if len(row) > 1 else "Unknown"
                 
-            # 3. 记录数据 (这里是修改的关键点！)
+            # 3. 识别候选人行 (Name/姓名)
+            # 这里对比的是你在 TEAM_CONFIG 里设置的 keyword (Estela的是"姓名")
             elif first_cell == target_key:
                 candidates = [x for x in row[1:] if x.strip()]
                 num_candidates = len(candidates)
                 count += num_candidates
                 
-                # 关键修改：生成 Count 字段，而不是 Candidate 名字
                 if num_candidates > 0:
                     for _ in range(num_candidates):
                         details.append({
                             "Consultant": consultant_config['name'],
                             "Company": current_company,
                             "Position": current_position,
-                            "Count": 1  # 👈 必须有这个，后面的程序才能求和！
+                            "Count": 1
                         })
                     
         return count, details
         
     except Exception:
         return 0, []
+
 
 # --- RENDER PIT ---
 def render_pit(placeholder, current_total, goal, color_class, label):
@@ -496,6 +507,7 @@ def main():
             st.info("NO DATA FOUND FOR THIS MONTH YET.")
 if __name__ == "__main__":
     main()
+
 
 
 
