@@ -38,7 +38,7 @@ MONTHLY_GOAL = 114
 QUARTERLY_GOAL = 342  # 114 * 3
 # ==========================================
 
-st.set_page_config(page_title="Team Mission", page_icon="🐱", layout="wide")
+st.set_page_config(page_title="Fill The Pit", page_icon="🐱", layout="wide")
 
 # --- 🎨 CSS STYLING ---
 st.markdown("""
@@ -57,14 +57,8 @@ st.markdown("""
         text-shadow: 4px 4px #000000;
         color: #FFD700 !important;
         text-align: center;
-        font-size: 2.5em !important;
+        font-size: 3em !important;
         margin-bottom: 20px;
-    }
-    h2 {
-        text-align: center;
-        color: #00FFFF !important;
-        font-size: 1.5em !important;
-        margin-top: 40px;
     }
 
     /* CENTERED BUTTON */
@@ -104,7 +98,7 @@ st.markdown("""
     }
     
     .pit-fill-month {
-        background-color: #8B4513; /* Brown for Month */
+        background-color: #8B4513; 
         height: 100%;
         display: flex;
         align-items: center; 
@@ -112,7 +106,7 @@ st.markdown("""
     }
 
     .pit-fill-season {
-        background-color: #0000FF; /* Blue for Season */
+        background-color: #0000FF; 
         height: 100%;
         display: flex;
         align-items: center; 
@@ -132,19 +126,22 @@ st.markdown("""
     .stat-card {
         background-color: #222;
         border: 2px solid #555;
-        padding: 10px;
+        padding: 15px; /* Increased padding */
         text-align: center;
         margin-bottom: 10px;
     }
     .stat-val {
         color: #00FF41;
-        font-size: 1.2em;
-        margin-top: 5px;
+        font-size: 1.5em;
+        margin-top: 10px;
     }
+    /* 🔥 BIGGER NAMES */
     .stat-name {
         color: #FFF;
-        font-size: 0.6em;
+        font-size: 1.3em; /* Made much bigger */
+        font-weight: bold;
         text-transform: uppercase;
+        line-height: 1.5;
     }
 
     /* MVP Card */
@@ -163,27 +160,30 @@ st.markdown("""
         text-align: center; 
         margin-bottom: 5px;
     }
+
+    /* 🔥 BORDERED HEADER */
+    .header-bordered {
+        border: 4px solid #FFFFFF;
+        padding: 15px;
+        text-align: center;
+        margin-bottom: 20px;
+        background-color: #222;
+        color: #FFD700;
+        font-size: 1.5em;
+    }
     </style>
     """, unsafe_allow_html=True)
 
 # --- HELPER: GET QUARTER MONTHS ---
 def get_quarter_tabs():
-    """返回本季度包含的3个月份Tab名字，例如 ['202510', '202511', '202512']"""
     today = datetime.now()
     year = today.year
     month = today.month
-    
-    # 计算当前季度 (1-4)
     quarter = (month - 1) // 3 + 1
-    
-    # 该季度的第一个月
     start_month = (quarter - 1) * 3 + 1
-    
     tabs = []
     for m in range(start_month, start_month + 3):
-        # 格式化为 YYYYMM
         tabs.append(f"{year}{m:02d}")
-        
     return tabs, quarter
 
 # --- GOOGLE CONNECTION ---
@@ -209,14 +209,12 @@ def connect_to_google():
 def fetch_consultant_data(client, consultant_config, target_tab):
     sheet_id = consultant_config['id']
     target_key = consultant_config.get('keyword', 'Name')
-
     try:
         sheet = client.open_by_key(sheet_id)
         try:
             worksheet = sheet.worksheet(target_tab)
         except gspread.exceptions.WorksheetNotFound:
-            return 0 # Tab not found = 0 CVs
-            
+            return 0 
         rows = worksheet.get_all_values()
         count = 0
         for row in rows:
@@ -234,12 +232,10 @@ def fetch_consultant_data(client, consultant_config, target_tab):
 def render_pit(placeholder, current_total, goal, color_class, label):
     percent = (current_total / goal) * 100
     if percent > 100: percent = 100
-    
     cats = "🐈" 
     if percent > 30: cats = "🐈🐈"
     if percent > 60: cats = "🐈🐈🐈"
     if percent >= 100: cats = "😻🎉"
-
     html = f"""
     <div class="section-label">{label}: {int(current_total)} / {goal}</div>
     <div class="pit-container">
@@ -252,15 +248,14 @@ def render_pit(placeholder, current_total, goal, color_class, label):
 
 # --- MAIN APP ---
 def main():
-    # 1. 计算时间
     current_month_tab = datetime.now().strftime("%Y%m")
     quarter_tabs, quarter_num = get_quarter_tabs()
     
-    st.title("🔥 TEAM MISSION 🔥")
+    st.title("🔥 FILL THE PIT 🔥")
     
     col1, col2, col3 = st.columns([1, 3, 1])
     with col2:
-        start_btn = st.button(f"🚩 START MISSION")
+        start_btn = st.button(f"🚩 START THE GAME")
 
     if start_btn:
         client = connect_to_google()
@@ -272,6 +267,7 @@ def main():
         # 📡 PHASE 1: DATA SCANNING
         # ==========================================
         monthly_results = []
+        quarterly_results = [] # Store individual quarter stats
         quarterly_total_count = 0
         
         with st.spinner(f"🛰️ SCANNING MONTH & Q{quarter_num} DATA..."):
@@ -280,19 +276,16 @@ def main():
                 # 1. Fetch Month Data
                 m_count = fetch_consultant_data(client, consultant, current_month_tab)
                 
-                # 2. Fetch Quarter Data (Sum of 3 months)
+                # 2. Fetch Quarter Data
                 q_count = 0
                 for q_tab in quarter_tabs:
-                    # 如果是当前月，直接复用刚才取到的数据，省一次API请求
                     if q_tab == current_month_tab:
                         q_count += m_count
                     else:
                         q_count += fetch_consultant_data(client, consultant, q_tab)
                 
-                monthly_results.append({
-                    "name": consultant['name'], 
-                    "count": m_count
-                })
+                monthly_results.append({"name": consultant['name'], "count": m_count})
+                quarterly_results.append({"name": consultant['name'], "count": q_count}) # Store for Season MVP
                 quarterly_total_count += q_count
 
         time.sleep(0.5)
@@ -302,14 +295,20 @@ def main():
         # ==========================================
         
         # --- SECTION 1: MONTHLY ---
-        st.markdown("## MONTHLY GOAL")
+        st.markdown(f'<div class="header-bordered">MONTHLY GOAL ({current_month_tab})</div>', unsafe_allow_html=True)
         pit_month_ph = st.empty()
         stats_month_ph = st.empty()
-        mvp_ph = st.empty()
         
         # --- SECTION 2: QUARTERLY ---
-        st.markdown(f"## SEASON CAMPAIGN (Q{quarter_num})")
+        st.markdown(f'<div class="header-bordered" style="margin-top: 30px; border-color: #00FFFF; color: #00FFFF;">SEASON CAMPAIGN (Q{quarter_num})</div>', unsafe_allow_html=True)
         pit_quarter_ph = st.empty()
+        
+        # Placeholders for MVPs at bottom
+        mvp_col1, mvp_col2 = st.columns(2)
+        with mvp_col1:
+            mvp_month_ph = st.empty()
+        with mvp_col2:
+            mvp_season_ph = st.empty()
 
         monthly_total = sum([r['count'] for r in monthly_results])
         
@@ -318,11 +317,11 @@ def main():
         for step in range(steps + 1):
             # Animate Month
             curr_m = (monthly_total / steps) * step
-            render_pit(pit_month_ph, curr_m, MONTHLY_GOAL, "pit-fill-month", f"TAB {current_month_tab}")
+            render_pit(pit_month_ph, curr_m, MONTHLY_GOAL, "pit-fill-month", "MONTH TOTAL")
             
             # Animate Quarter
             curr_q = (quarterly_total_count / steps) * step
-            render_pit(pit_quarter_ph, curr_q, QUARTERLY_GOAL, "pit-fill-season", "QUARTER TOTAL")
+            render_pit(pit_quarter_ph, curr_q, QUARTERLY_GOAL, "pit-fill-season", "SEASON TOTAL")
             
             # Show stats at end
             if step == steps:
@@ -341,31 +340,34 @@ def main():
         # ==========================================
         # 🏆 PHASE 3: MVP & RESULTS
         # ==========================================
-        df = pd.DataFrame(monthly_results)
-        if not df.empty and monthly_total > 0:
-            df_sorted = df.sort_values(by="count", ascending=False)
-            mvp = df_sorted.iloc[0]
-            
-            mvp_ph.markdown(f"""
+        
+        # 1. Monthly MVP
+        df_m = pd.DataFrame(monthly_results)
+        if not df_m.empty and monthly_total > 0:
+            mvp_m = df_m.sort_values(by="count", ascending=False).iloc[0]
+            mvp_month_ph.markdown(f"""
             <div class="mvp-card">
-                <h3 style="color: #FFD700; margin:0;">🏆 MONTHLY MVP 🏆</h3>
-                <h2 style="color: white; margin: 10px 0;">{mvp['name']}</h2>
-                <h1 style="color: #00FF41; margin:0;">{mvp['count']}</h1>
+                <h3 style="color: #FFD700; margin:0; font-size: 1em;">🏆 MONTHLY MVP</h3>
+                <h2 style="color: white; margin: 10px 0;">{mvp_m['name']}</h2>
+                <h1 style="color: #00FF41; margin:0;">{mvp_m['count']}</h1>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # 2. Quarterly MVP
+        df_q = pd.DataFrame(quarterly_results)
+        if not df_q.empty and quarterly_total_count > 0:
+            mvp_q = df_q.sort_values(by="count", ascending=False).iloc[0]
+            mvp_season_ph.markdown(f"""
+            <div class="mvp-card" style="border-color: #00FFFF; box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);">
+                <h3 style="color: #00FFFF; margin:0; font-size: 1em;">🌊 SEASON MVP</h3>
+                <h2 style="color: white; margin: 10px 0;">{mvp_q['name']}</h2>
+                <h1 style="color: #FFFFFF; margin:0;">{mvp_q['count']}</h1>
             </div>
             """, unsafe_allow_html=True)
 
         # Celebrations
         if monthly_total >= MONTHLY_GOAL:
             st.balloons()
-            st.success("MONTHLY GOAL ACHIEVED!")
-        
-        if quarterly_total_count >= QUARTERLY_GOAL:
-            st.balloons()
-            st.markdown("""
-            <div style="text-align: center; border: 4px solid #00FFFF; padding: 20px; margin-top: 20px;">
-                <h1 style="color: #00FFFF !important;">🌊 SEASON VICTORY! 🌊</h1>
-            </div>
-            """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
