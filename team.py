@@ -303,7 +303,7 @@ def main():
         stats_month_ph = st.empty()
         
         # --- SECTION 2: QUARTERLY ---
-        st.markdown(f'<div class="header-bordered" style="margin-top: 30px; border-color: #00FFFF; color: #FFA500;">SEASON CAMPAIGN (Q{quarter_num})</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="header-bordered" style="margin-top: 30px; border-color: #FFFF00; color: #FFA500;">SEASON CAMPAIGN (Q{quarter_num})</div>', unsafe_allow_html=True)
         pit_quarter_ph = st.empty() 
         
         # 🔥 新增：季度明细占位符
@@ -388,6 +388,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
