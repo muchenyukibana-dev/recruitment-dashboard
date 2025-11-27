@@ -61,11 +61,13 @@ st.markdown("""
         margin-bottom: 20px;
     }
 
-    /* CENTERED BUTTON */
+    /* CENTERED BUTTON WITH OFFSET */
     .stButton {
         display: flex;
         justify-content: center;
         width: 100%;
+        /* 🔥 右移 40px */
+        margin-left: 40px; 
     }
     .stButton>button {
         background-color: #FF0055;
@@ -74,7 +76,7 @@ st.markdown("""
         font-family: 'Press Start 2P', monospace;
         font-size: 28px !important; 
         padding: 25px 50px !important; 
-        box-shadow: 8px 8px 0px #000000;
+        box-shadow: 8px 8px 0px #000000; /* Shadow */
         transition: transform 0.1s;
         width: 100%;
     }
@@ -94,7 +96,7 @@ st.markdown("""
         position: relative;
         margin-top: 10px;
         margin-bottom: 30px;
-        box-shadow: 0 0 15px rgba(0,0,0,0.8);
+        box-shadow: 6px 6px 0px #000000; /* Shadow added */
     }
     
     .pit-fill-month {
@@ -122,36 +124,36 @@ st.markdown("""
         white-space: nowrap;
     }
 
-    /* Stats Cards */
+    /* 🔥 STATS CARDS (Updated Borders & Shadows) */
     .stat-card {
         background-color: #222;
-        border: 2px solid #555;
-        padding: 15px; /* Increased padding */
+        border: 4px solid #FFFFFF; /* 4px Border */
+        box-shadow: 6px 6px 0px #000000; /* Shadow */
+        padding: 15px;
         text-align: center;
-        margin-bottom: 10px;
+        margin-bottom: 15px;
     }
     .stat-val {
         color: #00FF41;
         font-size: 1.5em;
         margin-top: 10px;
     }
-    /* 🔥 BIGGER NAMES */
     .stat-name {
         color: #FFF;
-        font-size: 1.3em; /* Made much bigger */
+        font-size: 1.2em;
         font-weight: bold;
         text-transform: uppercase;
         line-height: 1.5;
     }
 
-    /* MVP Card */
+    /* 🔥 MVP Card (Updated Borders & Shadows) */
     .mvp-card {
         background-color: #333; 
         padding: 15px; 
-        border: 4px solid #FFD700; 
+        border: 4px solid #FFD700; /* 4px Border */
+        box-shadow: 8px 8px 0px rgba(255, 215, 0, 0.3); /* Shadow */
         text-align: center;
         margin-top: 20px;
-        box-shadow: 0 0 20px rgba(255, 215, 0, 0.3);
     }
     
     .section-label {
@@ -161,9 +163,10 @@ st.markdown("""
         margin-bottom: 5px;
     }
 
-    /* 🔥 BORDERED HEADER */
+    /* 🔥 HEADER BORDERED (Updated Shadows) */
     .header-bordered {
         border: 4px solid #FFFFFF;
+        box-shadow: 6px 6px 0px #000000; /* Shadow */
         padding: 15px;
         text-align: center;
         margin-bottom: 20px;
@@ -267,7 +270,7 @@ def main():
         # 📡 PHASE 1: DATA SCANNING
         # ==========================================
         monthly_results = []
-        quarterly_results = [] # Store individual quarter stats
+        quarterly_results = [] 
         quarterly_total_count = 0
         
         with st.spinner(f"🛰️ SCANNING MONTH & Q{quarter_num} DATA..."):
@@ -285,7 +288,7 @@ def main():
                         q_count += fetch_consultant_data(client, consultant, q_tab)
                 
                 monthly_results.append({"name": consultant['name'], "count": m_count})
-                quarterly_results.append({"name": consultant['name'], "count": q_count}) # Store for Season MVP
+                quarterly_results.append({"name": consultant['name'], "count": q_count})
                 quarterly_total_count += q_count
 
         time.sleep(0.5)
@@ -302,6 +305,9 @@ def main():
         # --- SECTION 2: QUARTERLY ---
         st.markdown(f'<div class="header-bordered" style="margin-top: 30px; border-color: #00FFFF; color: #00FFFF;">SEASON CAMPAIGN (Q{quarter_num})</div>', unsafe_allow_html=True)
         pit_quarter_ph = st.empty()
+        
+        # 🔥 新增：季度明细占位符
+        stats_quarter_ph = st.empty()
         
         # Placeholders for MVPs at bottom
         mvp_col1, mvp_col2 = st.columns(2)
@@ -323,15 +329,27 @@ def main():
             curr_q = (quarterly_total_count / steps) * step
             render_pit(pit_quarter_ph, curr_q, QUARTERLY_GOAL, "pit-fill-season", "SEASON TOTAL")
             
-            # Show stats at end
+            # Show stats at end of animation
             if step == steps:
-                cols = stats_month_ph.columns(len(monthly_results))
+                # 1. Monthly Cards
+                cols_m = stats_month_ph.columns(len(monthly_results))
                 for idx, res in enumerate(monthly_results):
-                    with cols[idx]:
+                    with cols_m[idx]:
                         st.markdown(f"""
                         <div class="stat-card">
                             <div class="stat-name">{res['name']}</div>
                             <div class="stat-val">{res['count']}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                
+                # 2. Quarterly Cards (🔥 NEW)
+                cols_q = stats_quarter_ph.columns(len(quarterly_results))
+                for idx, res in enumerate(quarterly_results):
+                    with cols_q[idx]:
+                        st.markdown(f"""
+                        <div class="stat-card" style="border-color: #00FFFF;">
+                            <div class="stat-name">{res['name']}</div>
+                            <div class="stat-val" style="color: #00FFFF;">{res['count']}</div>
                         </div>
                         """, unsafe_allow_html=True)
             
@@ -358,15 +376,14 @@ def main():
         if not df_q.empty and quarterly_total_count > 0:
             mvp_q = df_q.sort_values(by="count", ascending=False).iloc[0]
             mvp_season_ph.markdown(f"""
-            <div class="mvp-card" style="border-color: #00FFFF; box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);">
+            <div class="mvp-card" style="border-color: #00FFFF; box-shadow: 8px 8px 0px rgba(0, 255, 255, 0.3);">
                 <h3 style="color: #00FFFF; margin:0; font-size: 1em;">🌊 SEASON MVP</h3>
                 <h2 style="color: white; margin: 10px 0;">{mvp_q['name']}</h2>
                 <h1 style="color: #FFFFFF; margin:0;">{mvp_q['count']}</h1>
             </div>
             """, unsafe_allow_html=True)
-
-        # Celebrations
-        if monthly_total >= MONTHLY_GOAL:
+            
+            # 🔥 BALLOONS TRIGGER HERE (At the moment MVP is shown)
             st.balloons()
 
 if __name__ == "__main__":
