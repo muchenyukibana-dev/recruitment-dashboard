@@ -180,6 +180,19 @@ st.markdown("""
         font-size: 0.8em !important;
         color: white !important;
     }
+    /* Consultant Header in Logs 新增*/
+    .consultant-log-header {
+        color: #000000;           /* 黑色文字 */
+        background-color: #FFFFFF; /* 白色背景 */
+        padding: 10px;
+        font-size: 0.9em;         /* 字体大小 */
+        border: 4px solid #000000; /* 黑色边框 */
+        margin-top: 10px;
+        margin-bottom: 10px;
+        text-align: center;       /* 文字居中 */
+        font-weight: bold;
+        box-shadow: 4px 4px 0px #333; /* 加一点阴影更有质感 */
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -434,31 +447,53 @@ def main():
             st.balloons()
 
         # ==========================================
-        # 📝 PHASE 4: DETAILED MISSION LOGS (NEW!)
+        # 📝 PHASE 4: MISSION LOGS (AGGREGATED & PARTITIONED)
         # ==========================================
         if all_month_details:
             st.markdown("---")
             st.markdown(f'<div class="header-bordered" style="border-color: #FFFFFF; color: #FFFFFF;">📜 MISSION LOGS ({current_month_tab})</div>', unsafe_allow_html=True)
             
-            # 转换为 DataFrame
-            df_details = pd.DataFrame(all_month_details)
+            # 1. 转换为 DataFrame
+            df_all = pd.DataFrame(all_month_details)
             
-            # 简单的样式处理，让表格看起来稍微复古一点
-            # 使用 Streamlit 原生表格，但支持排序
-            st.dataframe(
-                df_details, 
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Consultant": st.column_config.TextColumn("AGENT"),
-                    "Company": st.column_config.TextColumn("TARGET COMPANY"),
-                    "Position": st.column_config.TextColumn("TARGET ROLE"),
-                    "Candidate": st.column_config.TextColumn("CANDIDATE ID")
-                }
-            )
+            # 2. 创建分列，每个顾问一列
+            cols = st.columns(len(TEAM_CONFIG))
+            
+            for idx, consultant in enumerate(TEAM_CONFIG):
+                c_name = consultant['name']
+                
+                # 3. 筛选当前顾问的数据
+                df_c = df_all[df_all['Consultant'] == c_name]
+                
+                with cols[idx]:
+                    # 显示顾问名字的表头
+                    st.markdown(f'<div class="consultant-log-header">{c_name}</div>', unsafe_allow_html=True)
+                    
+                    if not df_c.empty:
+                        # 4. 核心聚合：按公司和岗位分组，计算数量 (隐藏候选人名字)
+                        df_agg = df_c.groupby(['Company', 'Position'])['Count'].sum().reset_index()
+                        
+                        # 按数量倒序排列，好看一点
+                        df_agg = df_agg.sort_values(by='Count', ascending=False)
+                        
+                        # 5. 展示表格
+                        st.dataframe(
+                            df_agg, 
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                "Company": st.column_config.TextColumn("TARGET COMPANY"),
+                                "Position": st.column_config.TextColumn("TARGET ROLE"),
+                                "Count": st.column_config.NumberColumn("CVs", format="%d")
+                            }
+                        )
+                    else:
+                        st.markdown("<div style='text-align:center; color:#555;'>NO DATA</div>", unsafe_allow_html=True)
+
         elif monthly_total == 0:
             st.markdown("---")
             st.info("NO DATA FOUND FOR THIS MONTH YET.")
 
 if __name__ == "__main__":
     main()
+
