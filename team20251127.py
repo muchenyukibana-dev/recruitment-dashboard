@@ -227,12 +227,12 @@ def connect_to_google():
             except Exception: return None
         else: return None
 
-# --- FETCH DATA (With Details) ---
+# --- FETCH DATA (Updated for Aggregation) ---
 def fetch_consultant_data(client, consultant_config, target_tab):
     sheet_id = consultant_config['id']
     target_key = consultant_config.get('keyword', 'Name')
     
-    # 定义可能的表头关键词 (中英文兼容)
+    # 兼容多种表头写法
     COMPANY_KEYS = ["Company", "公司", "Client", "Cliente"]
     POSITION_KEYS = ["Position", "职位", "Role", "Posición"]
 
@@ -246,7 +246,7 @@ def fetch_consultant_data(client, consultant_config, target_tab):
         rows = worksheet.get_all_values()
         
         count = 0
-        details = [] # 用于存储详细记录
+        details = [] 
         
         current_company = "Unknown Company"
         current_position = "Unknown Position"
@@ -254,33 +254,31 @@ def fetch_consultant_data(client, consultant_config, target_tab):
         for row in rows:
             if not row: continue
             
-            # 清理单元格内容，去除空格
             first_cell = row[0].strip()
             
-            # 1. 识别公司行
+            # 1. 记录公司
             if first_cell in COMPANY_KEYS:
                 current_company = row[1].strip() if len(row) > 1 else "Unknown"
                 
-            # 2. 识别职位行
+            # 2. 记录职位
             elif first_cell in POSITION_KEYS:
                 current_position = row[1].strip() if len(row) > 1 else "Unknown"
                 
-            # 3. 识别候选人行 (Name/姓名)
+            # 3. 记录数据 (这里是修改的关键点！)
             elif first_cell == target_key:
-                # 找到该行所有非空的候选人
-                # 假设格式是: Name | 张三 | 李四 | ...
                 candidates = [x for x in row[1:] if x.strip()]
                 num_candidates = len(candidates)
                 count += num_candidates
                 
-                # 将每个候选人记录下来
-                for cand in candidates:
-                    details.append({
-                        "Consultant": consultant_config['name'],
-                        "Company": current_company,
-                        "Position": current_position,
-                        "Candidate": cand
-                    })
+                # 关键修改：生成 Count 字段，而不是 Candidate 名字
+                if num_candidates > 0:
+                    for _ in range(num_candidates):
+                        details.append({
+                            "Consultant": consultant_config['name'],
+                            "Company": current_company,
+                            "Position": current_position,
+                            "Count": 1  # 👈 必须有这个，后面的程序才能求和！
+                        })
                     
         return count, details
         
@@ -496,4 +494,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
