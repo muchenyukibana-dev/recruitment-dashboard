@@ -445,53 +445,58 @@ def main():
             st.balloons()
 
         # ==========================================
-        # 📝 PHASE 4: MISSION LOGS (INTERACTIVE TABS)
+        # 📝 PHASE 4: MISSION LOGS (HIDDEN BY DEFAULT & LEFT ALIGNED)
         # ==========================================
         if all_month_details:
             st.markdown("---")
-            st.markdown(f'<div class="header-bordered" style="border-color: #FFFFFF; color: #FFFFFF;">📜 MISSION LOGS ({current_month_tab})</div>', unsafe_allow_html=True)
             
-            # 1. 准备数据
-            df_all = pd.DataFrame(all_month_details)
-            
-            # 2. 创建标签页：提取所有顾问名字
-            # 这会在页面上生成一排可点击的名字
-            tab_names = [c['name'] for c in TEAM_CONFIG]
-            tabs = st.tabs(tab_names)
-            
-            # 3. 填充每个标签页的内容
-            for idx, tab in enumerate(tabs):
-                with tab:
-                    # 获取当前标签页对应的顾问名字
-                    current_consultant = tab_names[idx]
-                    
-                    # 筛选数据
-                    df_c = df_all[df_all['Consultant'] == current_consultant]
-                    
-                    if not df_c.empty:
-                        # 聚合统计：只看公司和岗位
-                        df_agg = df_c.groupby(['Company', 'Position'])['Count'].sum().reset_index()
-                        df_agg = df_agg.sort_values(by='Count', ascending=False)
+            # 使用折叠框 (Expander) 包裹整个区域，expanded=False 表示默认关闭
+            with st.expander(f"📜 MISSION LOGS ({current_month_tab}) - CLICK TO OPEN", expanded=False):
+                
+                # 1. 准备数据
+                df_all = pd.DataFrame(all_month_details)
+                
+                # 2. 创建标签页
+                tab_names = [c['name'] for c in TEAM_CONFIG]
+                tabs = st.tabs(tab_names)
+                
+                # 3. 填充每个标签页
+                for idx, tab in enumerate(tabs):
+                    with tab:
+                        current_consultant = tab_names[idx]
+                        df_c = df_all[df_all['Consultant'] == current_consultant]
                         
-                        # 显示表格
-                        st.dataframe(
-                            df_agg, 
-                            use_container_width=True,
-                            hide_index=True,
-                            column_config={
-                                "Company": st.column_config.TextColumn("TARGET COMPANY"),
-                                "Position": st.column_config.TextColumn("TARGET ROLE"),
-                                "Count": st.column_config.NumberColumn("CVs", format="%d")
-                            }
-                        )
-                    else:
-                        st.info("NO MISSION DATA RECORDED.")
+                        if not df_c.empty:
+                            # 聚合数据
+                            df_agg = df_c.groupby(['Company', 'Position'])['Count'].sum().reset_index()
+                            df_agg = df_agg.sort_values(by='Count', ascending=False)
+                            
+                            # 🔥 关键技巧：把数字列转为字符串 (String)
+                            # 这样 Streamlit 就会把它当作文字处理，自动左对齐
+                            df_agg['Count'] = df_agg['Count'].astype(str)
+                            
+                            # 显示表格
+                            st.dataframe(
+                                df_agg, 
+                                use_container_width=True,
+                                hide_index=True,
+                                column_config={
+                                    "Company": st.column_config.TextColumn("TARGET COMPANY"),
+                                    "Position": st.column_config.TextColumn("TARGET ROLE"),
+                                    # 这里用 TextColumn 来展示数字，就能完美左对齐了
+                                    "Count": st.column_config.TextColumn("CVs") 
+                                }
+                            )
+                        else:
+                            st.info(f"NO DATA FOR {current_consultant}")
 
         elif monthly_total == 0:
             st.markdown("---")
+            # 如果完全没数据，就不显示折叠框了，直接提示
             st.info("NO DATA FOUND FOR THIS MONTH YET.")
 if __name__ == "__main__":
     main()
+
 
 
 
