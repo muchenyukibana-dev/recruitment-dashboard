@@ -348,10 +348,8 @@ def main():
                     with cols_q[idx]:
                         st.markdown(f"""
                         <div class="stat-card" style="border-color: #FFFF00;"> 
-#边框改成黄色
                             <div class="stat-name">{res['name']}</div>
                             <div class="stat-val" style="color: #000000;">{res['count']}</div> 
-#改的字体改成黑色了
                         </div>
                         """, unsafe_allow_html=True)
             
@@ -390,6 +388,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
