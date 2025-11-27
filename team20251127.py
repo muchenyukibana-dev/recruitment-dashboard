@@ -5,6 +5,7 @@ import pandas as pd
 import os
 import time
 import json
+from datetime import datetime
 
 # ==========================================
 # 🔧 TEAM CONFIGURATION
@@ -13,76 +14,70 @@ TEAM_CONFIG = [
     {
         "name": "Raul Solis",
         "id": "1vQuN-iNBRUug5J6gBMX-52jp6oogbA77SaeAf9j_zYs",
-        "tab": "Reporte Simple",
         "keyword": "Name"
     },
     {
         "name": "Estela Peng",
         "id": "1sUkffAXzWnpzhhmklqBuwtoQylpR1U18zqBQ-lsp7Z4",
-        "tab": "Reporte Simple",
         "keyword": "姓名" 
     },
     {
         "name": "Ana Cruz",
         "id": "1VMVw5YCV12eI8I-VQSXEKg86J2IVZJEgjPJT7ggAFD0",
-        "tab": "Reporte Simple",
         "keyword": "Name"
     },
     {
         "name": "Karina Albarran",
         "id": "1zc4ghvfjIxH0eJ2aXfopOWHqiyTDlD8yFNjBzpH07D8",
-        "tab": "Reporte Simple",
         "keyword": "Name"
     },
 ]
 
-# 🎯 设置团队周目标 (修改为 114)
-TEAM_GOAL = 114
+# 🎯 目标设置
+MONTHLY_GOAL = 114
+QUARTERLY_GOAL = 342  # 114 * 3
 # ==========================================
 
-st.set_page_config(page_title="Team Mission", page_icon="🐱", layout="wide")
+st.set_page_config(page_title="Fill The Pit", page_icon="🐱", layout="wide")
 
-# --- 🎨 CSS STYLING: HIGH CONTRAST & BIG UI ---
+# --- 🎨 CSS STYLING ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
 
-    /* 1. Global High Contrast Settings */
+    /* Global */
     html, body, [class*="css"] {
         font-family: 'Press Start 2P', monospace;
-        background-color: #111111; /* Almost Black */
-        color: #FFFFFF; /* Pure White Text */
+        background-color: #FFA500;
+        color: #FFFFFF;
     }
     
-    /* 2. Big Title */
+    /* Title */
     h1 {
         text-shadow: 4px 4px #000000;
-        color: #FFD700 !important; /* Gold */
+        color: #FFD700 !important;
         text-align: center;
         font-size: 3em !important;
         margin-bottom: 20px;
-        margin-top: 10px;
     }
 
-    /* 3. CENTERED GIANT BUTTON */
+    /* CENTERED BUTTON WITH OFFSET */
     .stButton {
         display: flex;
         justify-content: center;
         width: 100%;
+        margin-left: 180px; 
     }
     .stButton>button {
-        background-color: #FF0055; /* Neon Pink */
+        background-color: #FF0055;
         color: white;
         border: 4px solid #FFFFFF;
         font-family: 'Press Start 2P', monospace;
-        
-        /* 🔥 MAKE IT HUGE */
-        font-size: 30px !important; 
-        padding: 30px 60px !important; 
-        
+        font-size: 28px !important; 
+        padding: 25px 50px !important; 
         box-shadow: 8px 8px 0px #000000;
         transition: transform 0.1s;
-        width: 100%; /* Fill the column */
+        width: 100%;
     }
     .stButton>button:hover {
         background-color: #FF5599;
@@ -90,85 +85,125 @@ st.markdown("""
         color: yellow;
         border-color: yellow;
     }
-    .stButton>button:active {
-        transform: scale(0.98);
-        box-shadow: 4px 4px 0px #000000;
-    }
 
-    /* 4. THE GIANT PIT (Progress Bar) */
+    /* THE PITS (Progress Bars) */
     .pit-container {
-        background-color: #333;
-        border: 6px solid #fff;
-        height: 80px; /* Taller bar */
+        background-color: #222;
+        border: 4px solid #fff;
+        height: 60px;
         width: 100%;
         position: relative;
-        margin-top: 20px;
-        margin-bottom: 40px;
-        box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        margin-top: 10px;
+        margin-bottom: 30px;
+        box-shadow: 6px 6px 0px #000000;
     }
     
-    .pit-fill {
-        background-color: #8B4513; /* Dirt Brown */
+    .pit-fill-month {
+        background-color: #8B4513; 
         height: 100%;
-        position: relative;
         display: flex;
         align-items: center; 
         justify-content: flex-end; 
-        overflow: visible;
+    }
+
+    .pit-fill-season {
+        background-color: #0000FF; 
+        height: 100%;
+        display: flex;
+        align-items: center; 
+        justify-content: flex-end; 
     }
     
-    /* Cats pushing the dirt */
     .cat-squad {
         position: absolute;
-        right: -40px; 
-        top: -35px;
-        font-size: 40px;
+        right: -30px; 
+        top: -25px;
+        font-size: 30px;
         z-index: 10;
         white-space: nowrap;
     }
 
-    /* 5. Stats Cards */
+    /* Stats Cards */
     .stat-card {
-        background-color: #222;
-        border: 2px solid #555;
+        background-color: #FFA500;
+        border: 4px solid #FFFFFF;
+        box-shadow: 6px 6px 0px #000000;
         padding: 15px;
         text-align: center;
-        margin-bottom: 10px;
+        margin-bottom: 15px;
     }
     .stat-val {
-        color: #00FF41; /* Neon Green */
+        color: #000000;
         font-size: 1.5em;
         margin-top: 10px;
     }
     .stat-name {
         color: #FFF;
-        font-size: 0.8em;
+        font-size: 1.2em;
+        font-weight: bold;
         text-transform: uppercase;
+        line-height: 1.5;
     }
 
-    /* 6. MVP Card */
+    /* MVP Card */
     .mvp-card {
         background-color: #333; 
-        padding: 20px; 
-        border: 4px solid #FFD700; 
+        padding: 15px; 
+        border: 4px solid #FFD700;
+        box-shadow: 8px 8px 0px rgba(255, 15, 0, 0.3);
         text-align: center;
-        margin-top: 30px;
-        box-shadow: 0 0 30px rgba(255, 215, 0, 0.3);
+        margin-top: 20px;
+    }
+    
+    .section-label {
+        font-size: 0.8em; 
+        color: #888; 
+        text-align: center; 
+        margin-bottom: 5px;
+    }
+
+    /* HEADER BORDERED */
+    .header-bordered {
+        border: 4px solid #FFFFFF;
+        box-shadow: 6px 6px 0px #000000;
+        padding: 15px;
+        text-align: center;
+        margin-bottom: 20px;
+        background-color: #222;
+        color: #FFD700;
+        font-size: 1.5em;
+    }
+    
+    /* 🔥 DETAILED LOG TABLE STYLE */
+    .dataframe {
+        font-family: 'Press Start 2P', monospace !important;
+        font-size: 0.8em !important;
+        color: white !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
+# --- HELPER: GET QUARTER MONTHS ---
+def get_quarter_tabs():
+    today = datetime.now()
+    year = today.year
+    month = today.month
+    quarter = (month - 1) // 3 + 1
+    start_month = (quarter - 1) * 3 + 1
+    tabs = []
+    for m in range(start_month, start_month + 3):
+        tabs.append(f"{year}{m:02d}")
+    return tabs, quarter
+
 # --- GOOGLE CONNECTION ---
 def connect_to_google():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-
     if "gcp_service_account" in st.secrets:
         try:
             creds_dict = dict(st.secrets["gcp_service_account"])
             creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
             return gspread.authorize(creds)
-        except Exception:
-            return None
+        except Exception: return None
     else:
         current_dir = os.path.dirname(os.path.abspath(__file__))
         json_path = os.path.join(current_dir, 'credentials.json')
@@ -176,50 +211,81 @@ def connect_to_google():
             try:
                 creds = ServiceAccountCredentials.from_json_keyfile_name(json_path, scope)
                 return gspread.authorize(creds)
-            except Exception:
-                return None
-        else:
-            return None
+            except Exception: return None
+        else: return None
 
-# --- FETCH DATA (Silent Mode) ---
-def fetch_consultant_data(client, consultant_config):
+# --- FETCH DATA (With Details) ---
+def fetch_consultant_data(client, consultant_config, target_tab):
     sheet_id = consultant_config['id']
-    tab_name = consultant_config['tab']
     target_key = consultant_config.get('keyword', 'Name')
+    
+    # 定义可能的表头关键词 (中英文兼容)
+    COMPANY_KEYS = ["Company", "公司", "Client", "Cliente"]
+    POSITION_KEYS = ["Position", "职位", "Role", "Posición"]
 
     try:
         sheet = client.open_by_key(sheet_id)
-        worksheet = sheet.worksheet(tab_name)
+        try:
+            worksheet = sheet.worksheet(target_tab)
+        except gspread.exceptions.WorksheetNotFound:
+            return 0, []
+            
         rows = worksheet.get_all_values()
+        
         count = 0
+        details = [] # 用于存储详细记录
+        
+        current_company = "Unknown Company"
+        current_position = "Unknown Position"
+
         for row in rows:
             if not row: continue
-            cleaned_row = [cell.strip() for cell in row]
-            if target_key in cleaned_row:
-                key_index = cleaned_row.index(target_key)
-                candidates = [x for x in row[key_index + 1:] if x.strip()]
-                count += len(candidates)
-        return count
+            
+            # 清理单元格内容，去除空格
+            first_cell = row[0].strip()
+            
+            # 1. 识别公司行
+            if first_cell in COMPANY_KEYS:
+                current_company = row[1].strip() if len(row) > 1 else "Unknown"
+                
+            # 2. 识别职位行
+            elif first_cell in POSITION_KEYS:
+                current_position = row[1].strip() if len(row) > 1 else "Unknown"
+                
+            # 3. 识别候选人行 (Name/姓名)
+            elif first_cell == target_key:
+                # 找到该行所有非空的候选人
+                # 假设格式是: Name | 张三 | 李四 | ...
+                candidates = [x for x in row[1:] if x.strip()]
+                num_candidates = len(candidates)
+                count += num_candidates
+                
+                # 将每个候选人记录下来
+                for cand in candidates:
+                    details.append({
+                        "Consultant": consultant_config['name'],
+                        "Company": current_company,
+                        "Position": current_position,
+                        "Candidate": cand
+                    })
+                    
+        return count, details
+        
     except Exception:
-        return 0
+        return 0, []
 
-# --- RENDER GIANT PIT ---
-def render_giant_pit(placeholder, current_total, goal):
+# --- RENDER PIT ---
+def render_pit(placeholder, current_total, goal, color_class, label):
     percent = (current_total / goal) * 100
     if percent > 100: percent = 100
-    
-    # Choose cats based on progress
     cats = "🐈" 
     if percent > 30: cats = "🐈🐈"
     if percent > 60: cats = "🐈🐈🐈"
     if percent >= 100: cats = "😻🎉"
-
     html = f"""
-    <div style="text-align: center; margin-bottom: 10px; font-size: 1.2em;">
-        MISSION PROGRESS: {int(current_total)} / {goal}
-    </div>
+    <div class="section-label">{label}: {int(current_total)} / {goal}</div>
     <div class="pit-container">
-        <div class="pit-fill" style="width: {percent}%;">
+        <div class="{color_class}" style="width: {percent}%;">
             <div class="cat-squad">{cats}</div>
         </div>
     </div>
@@ -228,14 +294,14 @@ def render_giant_pit(placeholder, current_total, goal):
 
 # --- MAIN APP ---
 def main():
+    current_month_tab = datetime.now().strftime("%Y%m")
+    quarter_tabs, quarter_num = get_quarter_tabs()
+    
     st.title("🔥 FILL THE PIT 🔥")
     
-    # Use layout [1, 3, 1] to make the middle column wider
-    # This ensures the Big Button aligns better with the Title
     col1, col2, col3 = st.columns([1, 3, 1])
-    
     with col2:
-        start_btn = st.button("🚩 START MISSION")
+        start_btn = st.button(f"🚩 START THE GAME")
 
     if start_btn:
         client = connect_to_google()
@@ -243,75 +309,156 @@ def main():
             st.error("CONNECTION ERROR")
             return
 
-        # 1. Loading Phase
-        with st.spinner("🛰️ SCANNING TEAM DATA..."):
-            results = []
-            for consultant in TEAM_CONFIG:
-                count = fetch_consultant_data(client, consultant)
-                results.append({"name": consultant['name'], "count": count})
+        # ==========================================
+        # 📡 PHASE 1: DATA SCANNING
+        # ==========================================
+        monthly_results = []
+        quarterly_results = [] 
+        quarterly_total_count = 0
+        all_month_details = [] # 用于存储本月所有详细数据
+        
+        with st.spinner(f"🛰️ SCANNING MONTH & Q{quarter_num} DATA..."):
             
-        # HIDDEN: st.success("DATA SECURED.")
+            for consultant in TEAM_CONFIG:
+                # 1. Fetch Month Data (包含详细记录)
+                m_count, m_details = fetch_consultant_data(client, consultant, current_month_tab)
+                
+                # 收集详细记录
+                all_month_details.extend(m_details)
+                
+                # 2. Fetch Quarter Data (只统计数量，为了速度不抓太细)
+                q_count = 0
+                for q_tab in quarter_tabs:
+                    if q_tab == current_month_tab:
+                        q_count += m_count
+                    else:
+                        # 对于非本月的Tab，我们只需要数字，不需要detail
+                        c, _ = fetch_consultant_data(client, consultant, q_tab)
+                        q_count += c
+                
+                monthly_results.append({"name": consultant['name'], "count": m_count})
+                quarterly_results.append({"name": consultant['name'], "count": q_count})
+                quarterly_total_count += q_count
+
         time.sleep(0.5)
 
-        # 2. Setup Animation
-        pit_placeholder = st.empty()
-        stats_placeholder = st.empty()
-        mvp_placeholder = st.empty() # Placeholder for MVP
+        # ==========================================
+        # 🎬 PHASE 2: ANIMATION
+        # ==========================================
+        
+        # --- SECTION 1: MONTHLY ---
+        st.markdown(f'<div class="header-bordered">MONTHLY GOAL ({current_month_tab})</div>', unsafe_allow_html=True)
+        pit_month_ph = st.empty()
+        stats_month_ph = st.empty()
+        
+        # --- SECTION 2: QUARTERLY ---
+        st.markdown(f'<div class="header-bordered" style="margin-top: 30px; border-color: #FFFF00; color: #FFA500;">SEASON CAMPAIGN (Q{quarter_num})</div>', unsafe_allow_html=True)
+        pit_quarter_ph = st.empty() 
+        
+        stats_quarter_ph = st.empty()
+        
+        # Placeholders for MVPs at bottom
+        mvp_col1, mvp_col2 = st.columns(2)
+        with mvp_col1:
+            mvp_month_ph = st.empty()
+        with mvp_col2:
+            mvp_season_ph = st.empty()
 
-        total_cvs = sum([r['count'] for r in results])
+        monthly_total = sum([r['count'] for r in monthly_results])
         
-        # Animation Loop (0 -> Total)
-        animation_steps = 25
-        
-        for step in range(animation_steps + 1):
-            current_animated_total = (total_cvs / animation_steps) * step
+        # Animation
+        steps = 25
+        for step in range(steps + 1):
+            # Animate Month
+            curr_m = (monthly_total / steps) * step
+            render_pit(pit_month_ph, curr_m, MONTHLY_GOAL, "pit-fill-month", "MONTH TOTAL")
             
-            # Render The Pit
-            render_giant_pit(pit_placeholder, current_animated_total, TEAM_GOAL)
+            # Animate Quarter
+            curr_q = (quarterly_total_count / steps) * step
+            render_pit(pit_quarter_ph, curr_q, QUARTERLY_GOAL, "pit-fill-season", "SEASON TOTAL")
             
-            # Render Individual Stats (Static while animating pit)
-            if step == animation_steps: # Final Frame
-                cols = stats_placeholder.columns(len(results))
-                for idx, res in enumerate(results):
-                    with cols[idx]:
+            # Show stats at end of animation
+            if step == steps:
+                # 1. Monthly Cards
+                cols_m = stats_month_ph.columns(len(monthly_results))
+                for idx, res in enumerate(monthly_results):
+                    with cols_m[idx]:
                         st.markdown(f"""
                         <div class="stat-card">
                             <div class="stat-name">{res['name']}</div>
                             <div class="stat-val">{res['count']}</div>
                         </div>
                         """, unsafe_allow_html=True)
+                
+                # 2. Quarterly Cards
+                cols_q = stats_quarter_ph.columns(len(quarterly_results))
+                for idx, res in enumerate(quarterly_results):
+                    with cols_q[idx]:
+                        st.markdown(f"""
+                        <div class="stat-card" style="border-color: #FFFF00;"> 
+                            <div class="stat-name">{res['name']}</div>
+                            <div class="stat-val" style="color: #000000;">{res['count']}</div> 
+                        </div>
+                        """, unsafe_allow_html=True)
             
-            time.sleep(0.04) # Speed
+            time.sleep(0.04)
 
-        # 3. MVP & Success Message (Restored)
-        df = pd.DataFrame(results)
-        if not df.empty:
-            df_sorted = df.sort_values(by="count", ascending=False)
-            mvp = df_sorted.iloc[0]
-            
-            # Show MVP Card (Restored Logic)
-            mvp_placeholder.markdown(f"""
+        # ==========================================
+        # 🏆 PHASE 3: MVP & RESULTS
+        # ==========================================
+        
+        # 1. Monthly MVP
+        df_m = pd.DataFrame(monthly_results)
+        if not df_m.empty and monthly_total > 0:
+            mvp_m = df_m.sort_values(by="count", ascending=False).iloc[0]
+            mvp_month_ph.markdown(f"""
             <div class="mvp-card">
-                <h3 style="color: #FFD700; margin:0;">🏆 MVP 🏆</h3>
-                <h2 style="color: white; margin: 10px 0;">{mvp['name']}</h2>
-                <h1 style="color: #00FF41; margin:0;">{mvp['count']}</h1>
+                <h3 style="color: #FFD700; margin:0; font-size: 1em;">🏆 MONTHLY MVP</h3>
+                <h2 style="color: white; margin: 10px 0;">{mvp_m['name']}</h2>
+                <h1 style="color: #000000; margin:0;">{mvp_m['count']}</h1>
             </div>
             """, unsafe_allow_html=True)
 
-        if total_cvs >= TEAM_GOAL:
+        # 2. Quarterly MVP
+        df_q = pd.DataFrame(quarterly_results)
+        if not df_q.empty and quarterly_total_count > 0:
+            mvp_q = df_q.sort_values(by="count", ascending=False).iloc[0]
+            mvp_season_ph.markdown(f"""
+            <div class="mvp-card" style="border-color: #00FFFF; ">
+                <h3 style="color: #00FFFF; margin:0; font-size: 1em;">🌊 SEASON MVP</h3>
+                <h2 style="color: white; margin: 10px 0;">{mvp_q['name']}</h2>
+                <h1 style="color: #FFFFFF; margin:0;">{mvp_q['count']}</h1>
+            </div>
+            """, unsafe_allow_html=True)
+            
             st.balloons()
-            st.markdown("""
-            <div style="text-align: center; margin-top: 20px; border: 4px solid #00FF41; padding: 20px;">
-                <h1 style="color: #00FF41 !important;">MISSION ACCOMPLISHED!</h1>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            remaining = TEAM_GOAL - total_cvs
-            st.markdown(f"""
-            <div style="text-align: center; margin-top: 20px; color: #FFFF00;">
-                KEEP PUSHING! {remaining} MORE TO GO!
-            </div>
-            """, unsafe_allow_html=True)
+
+        # ==========================================
+        # 📝 PHASE 4: DETAILED MISSION LOGS (NEW!)
+        # ==========================================
+        if all_month_details:
+            st.markdown("---")
+            st.markdown(f'<div class="header-bordered" style="border-color: #FFFFFF; color: #FFFFFF;">📜 MISSION LOGS ({current_month_tab})</div>', unsafe_allow_html=True)
+            
+            # 转换为 DataFrame
+            df_details = pd.DataFrame(all_month_details)
+            
+            # 简单的样式处理，让表格看起来稍微复古一点
+            # 使用 Streamlit 原生表格，但支持排序
+            st.dataframe(
+                df_details, 
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Consultant": st.column_config.TextColumn("AGENT"),
+                    "Company": st.column_config.TextColumn("TARGET COMPANY"),
+                    "Position": st.column_config.TextColumn("TARGET ROLE"),
+                    "Candidate": st.column_config.TextColumn("CANDIDATE ID")
+                }
+            )
+        elif monthly_total == 0:
+            st.markdown("---")
+            st.info("NO DATA FOUND FOR THIS MONTH YET.")
 
 if __name__ == "__main__":
     main()
