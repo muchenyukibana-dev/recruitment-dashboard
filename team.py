@@ -48,7 +48,7 @@ st.markdown("""
     /* Global */
     html, body, [class*="css"] {
         font-family: 'Press Start 2P', monospace;
-        background-color: #111111;
+        background-color: #FFA500;/* 之前是#111111 */
         color: #FFFFFF;
     }
     
@@ -151,7 +151,7 @@ st.markdown("""
         background-color: #333; 
         padding: 15px; 
         border: 4px solid #FFD700; /* 4px Border */
-        box-shadow: 8px 8px 0px rgba(255, 15, 0, 0.3); /* Shadow */
+        box-shadow: 8px 8px 0px rgba(255, 15, 0, 0.3); /* Shadow 粉色还挺好看*/
         text-align: center;
         margin-top: 20px;
     }
@@ -388,6 +388,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
