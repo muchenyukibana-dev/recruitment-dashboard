@@ -39,7 +39,7 @@ QUARTERLY_GOAL = 342
 
 st.set_page_config(page_title="Fill The Pit", page_icon="🐱", layout="wide")
 
-# --- 🎨 CSS STYLING (保持不变) ---
+# --- 🎨 CSS STYLING ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
@@ -60,13 +60,62 @@ st.markdown("""
         margin-bottom: 20px;
     }
     
-    /* Sidebar Styling */
+    /* =========================================
+       🔥 NEW SIDEBAR STYLING (标签页风格)
+       ========================================= */
     section[data-testid="stSidebar"] {
-        background-color: #222;
-        border-right: 4px solid #FFF;
+        background-color: #111111; /* 深黑背景 */
+        border-right: 4px solid #FFFFFF;
+    }
+    
+    /* 隐藏原本的圆点单选框 */
+    section[data-testid="stSidebar"] .stRadio div[role="radiogroup"] > label > div:first-child {
+        display: none;
+    }
+    
+    /* 侧边栏标题 */
+    section[data-testid="stSidebar"] h1 {
+        font-size: 1.5em !important;
+        color: #00FFFF !important;
+        text-align: left;
+        margin-left: 10px;
     }
 
-    /* CENTERED BUTTON WITH OFFSET */
+    /* 选项按钮样式 */
+    section[data-testid="stSidebar"] .stRadio label {
+        background-color: #333333;
+        color: #FFFFFF !important; /* 字体改白，清晰可见 */
+        padding: 15px 20px;
+        margin-bottom: 10px;
+        border: 2px solid #FFFFFF;
+        border-radius: 0px;
+        cursor: pointer;
+        transition: all 0.3s;
+        font-family: 'Press Start 2P', monospace;
+        font-size: 0.8em;
+        display: block; /* 让它占满一行 */
+    }
+
+    /* 鼠标放上去变粉色 */
+    section[data-testid="stSidebar"] .stRadio label:hover {
+        background-color: #FF0055;
+        color: #FFFFFF !important;
+        border-color: #FFFF00;
+        transform: translate(2px, -2px); /* 轻微浮动效果 */
+        box-shadow: 4px 4px 0px #000000;
+    }
+
+    /* 选中状态变黄色 */
+    section[data-testid="stSidebar"] .stRadio label[data-checked="true"] {
+        background-color: #FFD700;
+        color: #000000 !important;
+        border-color: #000000;
+        box-shadow: inset 4px 4px 0px rgba(0,0,0,0.2);
+    }
+
+    /* ========================================= */
+
+    /* CENTERED BUTTON */
     .stButton {
         display: flex;
         justify-content: center;
@@ -91,7 +140,7 @@ st.markdown("""
         border-color: yellow;
     }
 
-    /* THE PITS (Progress Bars) */
+    /* PITS */
     .pit-container {
         background-color: #222;
         border: 4px solid #fff;
@@ -102,15 +151,11 @@ st.markdown("""
         margin-bottom: 30px;
         box-shadow: 6px 6px 0px #000000;
     }
-    
     .pit-fill-month { background-color: #8B4513; height: 100%; display: flex; align-items: center; justify-content: flex-end; }
     .pit-fill-season { background-color: #0000FF; height: 100%; display: flex; align-items: center; justify-content: flex-end; }
-    
-    .cat-squad {
-        position: absolute; right: -30px; top: -25px; font-size: 30px; z-index: 10; white-space: nowrap;
-    }
+    .cat-squad { position: absolute; right: -30px; top: -25px; font-size: 30px; z-index: 10; white-space: nowrap; }
 
-    /* Stats Cards */
+    /* CARDS */
     .stat-card {
         background-color: #FFA500;
         border: 4px solid #FFFFFF;
@@ -122,42 +167,26 @@ st.markdown("""
     .stat-val { color: #000000; font-size: 1.5em; margin-top: 10px; }
     .stat-name { color: #FFF; font-size: 1.2em; font-weight: bold; text-transform: uppercase; line-height: 1.5; }
 
-    /* MVP Card */
     .mvp-card {
-        background-color: #333; 
-        padding: 15px; 
-        border: 4px solid #FFD700;
-        box-shadow: 8px 8px 0px rgba(255, 15, 0, 0.3);
-        text-align: center;
-        margin-top: 20px;
+        background-color: #333; padding: 15px; border: 4px solid #FFD700;
+        box-shadow: 8px 8px 0px rgba(255, 15, 0, 0.3); text-align: center; margin-top: 20px;
     }
-    
     .section-label { font-size: 0.8em; color: #888; text-align: center; margin-bottom: 5px; }
-
-    /* HEADER BORDERED */
     .header-bordered {
-        border: 4px solid #FFFFFF;
-        box-shadow: 6px 6px 0px #000000;
-        padding: 15px;
-        text-align: center;
-        margin-bottom: 20px;
-        background-color: #222;
-        color: #FFD700;
-        font-size: 1.5em;
+        border: 4px solid #FFFFFF; box-shadow: 6px 6px 0px #000000;
+        padding: 15px; text-align: center; margin-bottom: 20px;
+        background-color: #222; color: #FFD700; font-size: 1.5em;
     }
     
-    /* Consultant Header in Logs */
-    .consultant-log-header {
-        color: #000000;
-        background-color: #FFFFFF;
-        padding: 10px;
-        font-size: 0.9em;
-        border: 4px solid #000000;
-        margin-top: 10px;
-        margin-bottom: 10px;
-        text-align: center;
-        font-weight: bold;
-        box-shadow: 4px 4px 0px #333;
+    /* TABLE & EXPANDER STYLING */
+    .dataframe { font-family: 'Press Start 2P', monospace !important; font-size: 0.8em !important; color: white !important; }
+    
+    /* History Summary Table Styling */
+    div[data-testid="stTable"] {
+        font-family: 'Press Start 2P', monospace;
+        color: white;
+        background-color: #222;
+        border: 4px solid white;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -175,13 +204,18 @@ def get_quarter_tabs():
     return tabs, quarter
 
 def get_last_6_months():
-    """生成过去6个月的Tab名字列表"""
     months = []
     today = datetime.now()
+    # 生成过去6个月，例如 202511, 202510...
     for i in range(6):
-        d = today - timedelta(days=30 * i)
-        months.append(d.strftime("%Y%m"))
-    return sorted(list(set(months)), reverse=True) # 去重并倒序
+        # 处理跨年逻辑
+        year = today.year
+        month = today.month - i
+        while month <= 0:
+            month += 12
+            year -= 1
+        months.append(f"{year}{month:02d}")
+    return months
 
 def connect_to_google():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -322,7 +356,6 @@ def page_game():
         for step in range(steps + 1):
             curr_m = (monthly_total / steps) * step
             render_pit(pit_month_ph, curr_m, MONTHLY_GOAL, "pit-fill-month", "MONTH TOTAL")
-            
             curr_q = (quarterly_total_count / steps) * step
             render_pit(pit_quarter_ph, curr_q, QUARTERLY_GOAL, "pit-fill-season", "SEASON TOTAL")
             
@@ -350,7 +383,7 @@ def page_game():
             mvp_season_ph.markdown(f"""<div class="mvp-card" style="border-color: #00FFFF;"><h3 style="color: #00FFFF; margin:0; font-size: 1em;">🌊 SEASON MVP</h3><h2 style="color: white; margin: 10px 0;">{mvp_q['name']}</h2><h1 style="color: #FFFFFF; margin:0;">{mvp_q['count']}</h1></div>""", unsafe_allow_html=True)
             st.balloons()
 
-        # MISSION LOGS
+        # MISSION LOGS (TABBED)
         if all_month_details:
             st.markdown("---")
             with st.expander(f"📜 MISSION LOGS ({current_month_tab}) - CLICK TO OPEN", expanded=False):
@@ -373,46 +406,66 @@ def page_game():
             st.info("NO DATA FOUND FOR THIS MONTH YET.")
 
 # ==========================================
-# 📜 PAGE 2: HISTORY (NEW!)
+# 📜 PAGE 2: HISTORY (NEW ARCHIVE STYLE)
 # ==========================================
 def page_history():
-    st.title("📜 HISTORY LOGS")
-    st.markdown("Analyze past performance and mission details.")
-
-    client = connect_to_google()
-    if not client:
-        st.error("CONNECTION ERROR")
-        return
-
-    # 1. Select Month
-    past_months = get_last_6_months()
-    selected_month = st.selectbox("📅 SELECT MONTH TO ANALYZE", past_months)
+    st.title("📜 HISTORY ARCHIVES")
     
-    if st.button("🔎 FETCH HISTORY DATA"):
-        with st.spinner(f"RETRIEVING ARCHIVES FROM {selected_month}..."):
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        load_btn = st.button("🔎 LOAD LAST 6 MONTHS")
+
+    if load_btn:
+        client = connect_to_google()
+        if not client:
+            st.error("CONNECTION ERROR")
+            return
+
+        months = get_last_6_months()
+        
+        # 准备一个总表数据结构
+        # Index: Month, Columns: Consultant Names
+        summary_data = {month: {} for month in months}
+        detailed_data_map = {month: [] for month in months} # 存储每个月的详细logs
+
+        with st.spinner("⏳ RETRIEVING ARCHIVES FROM DATABASE..."):
+            progress_bar = st.progress(0)
             
-            # 扫描该月所有顾问的数据
-            history_results = []
-            history_details = []
-            
-            for consultant in TEAM_CONFIG:
-                c, d = fetch_consultant_data(client, consultant, selected_month)
-                history_results.append({"name": consultant['name'], "count": c})
-                history_details.extend(d)
+            for i, month in enumerate(months):
+                # 扫描所有顾问
+                for consultant in TEAM_CONFIG:
+                    count, details = fetch_consultant_data(client, consultant, month)
+                    summary_data[month][consultant['name']] = count
+                    detailed_data_map[month].extend(details)
                 
-            # 1. 概览数据
-            total = sum([r['count'] for r in history_results])
-            st.markdown(f'<div class="header-bordered">TOTAL CVS: {total}</div>', unsafe_allow_html=True)
+                progress_bar.progress((i + 1) / len(months))
             
-            if total > 0:
-                # 2. 图表展示
-                df_res = pd.DataFrame(history_results)
-                st.bar_chart(df_res.set_index("name")["count"], color="#00FF41")
+            progress_bar.empty()
+
+        # 1. 展示总览大表格 (Overview Table)
+        st.markdown(f'<div class="header-bordered" style="color: #00FF41; border-color: #00FF41;">📊 OVERVIEW (CVs SENT)</div>', unsafe_allow_html=True)
+        
+        # 转换为 DataFrame 并整理格式
+        df_summary = pd.DataFrame.from_dict(summary_data, orient='index')
+        # 把月份放到第一列
+        df_summary.index.name = 'MONTH'
+        
+        st.dataframe(df_summary, use_container_width=True)
+
+        st.markdown("---")
+        st.markdown(f'<div class="header-bordered" style="color: #FFFF00; border-color: #FFFF00;">📂 MONTHLY DETAILS (CLICK TO EXPAND)</div>', unsafe_allow_html=True)
+
+        # 2. 循环生成每个月的折叠详情
+        for month in months:
+            # 计算该月总数
+            monthly_total = df_summary.loc[month].sum()
+            
+            # 创建折叠箱
+            with st.expander(f"📅 {month} | TOTAL: {monthly_total}"):
                 
-                # 3. 详细 Mission Logs
-                st.markdown("### 📝 DETAILED LOGS")
-                if history_details:
-                    df_all = pd.DataFrame(history_details)
+                details = detailed_data_map[month]
+                if details:
+                    df_all = pd.DataFrame(details)
                     tab_names = [c['name'] for c in TEAM_CONFIG]
                     tabs = st.tabs(tab_names)
                     
@@ -420,26 +473,34 @@ def page_history():
                         with tab:
                             current_consultant = tab_names[idx]
                             df_c = df_all[df_all['Consultant'] == current_consultant]
+                            
                             if not df_c.empty:
                                 df_agg = df_c.groupby(['Company', 'Position'])['Count'].sum().reset_index()
                                 df_agg = df_agg.sort_values(by='Count', ascending=False)
                                 df_agg['Count'] = df_agg['Count'].astype(str)
-                                st.dataframe(df_agg, use_container_width=True, hide_index=True, 
-                                             column_config={"Company": st.column_config.TextColumn("COMPANY"), 
-                                                            "Position": st.column_config.TextColumn("ROLE"), 
-                                                            "Count": st.column_config.TextColumn("CVs")})
+                                st.dataframe(
+                                    df_agg, 
+                                    use_container_width=True, 
+                                    hide_index=True, 
+                                    column_config={
+                                        "Company": st.column_config.TextColumn("TARGET COMPANY"), 
+                                        "Position": st.column_config.TextColumn("TARGET ROLE"), 
+                                        "Count": st.column_config.TextColumn("CVs")
+                                    }
+                                )
                             else:
-                                st.info("No data recorded.")
-            else:
-                st.warning(f"No data found for {selected_month}. Did you create the tab?")
+                                st.caption(f"No mission data for {current_consultant}")
+                else:
+                    st.warning("No data recorded for this month.")
 
 # ==========================================
 # 🧭 MAIN NAVIGATION
 # ==========================================
 def main():
-    # 侧边栏导航
     st.sidebar.title("🕹️ MENU")
-    page = st.sidebar.radio("Go to", ["🎮 Current Mission", "📜 History Archives"])
+    
+    # 使用 Radio Button 作为导航
+    page = st.sidebar.radio("SELECT MODE", ["🎮 Current Mission", "📜 History Archives"])
     
     if page == "🎮 Current Mission":
         page_game()
