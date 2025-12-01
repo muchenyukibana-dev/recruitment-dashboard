@@ -51,7 +51,7 @@ st.markdown("""
         font-family: 'Arial', sans-serif;
     }
     
-    /* 按钮样式 - 商务蓝 */
+    /* 按钮样式 - 商务蓝 (左对齐优化) */
     .stButton>button {
         background-color: #0056b3;
         color: white;
@@ -112,7 +112,6 @@ def connect_to_google():
 
 # --- HELPER: Logic for Current Quarter ---
 def get_quarter_months():
-    """自动获取当前季度的3个月份列表"""
     today = datetime.now()
     year = today.year
     month = today.month
@@ -120,14 +119,13 @@ def get_quarter_months():
     # 计算当前是第几季度 (1-4)
     quarter = (month - 1) // 3 + 1
     
-    # 计算该季度的起始月份 (1, 4, 7, 10)
+    # 计算该季度的起始月份
     start_month = (quarter - 1) * 3 + 1
     
     months = []
     for m in range(start_month, start_month + 3):
         months.append(f"{year}{m:02d}")
     
-    # 返回列表 以及 当前月份字符串(用于筛选)
     current_month_str = today.strftime("%Y%m")
     return months, current_month_str, quarter
 
@@ -212,9 +210,9 @@ def fetch_consultant_data(client, consultant_config, target_tab):
 def main():
     st.title("📈 Recruitment Management Dashboard")
     
-    # 1. Button Logic
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
+    # 1. Button Logic (Left Aligned)
+    col1, col2 = st.columns([1, 5]) # 小列放按钮，大列留白
+    with col1:
         load_btn = st.button("🔄 LOAD HISTORY")
 
     if load_btn:
@@ -223,7 +221,7 @@ def main():
             st.error("API Connection Failed.")
             return
 
-        # 获取本季度的月份列表 (例如 Q4: ['202510', '202511', '202512'])
+        # 获取本季度列表
         months, current_month_str, quarter_num = get_quarter_months()
         
         all_stats = [] 
@@ -265,21 +263,20 @@ def main():
         with col_m:
             st.subheader(f"📅 Current Month ({current_month_str})")
             
-            # Filter for current month
             month_df = stats_df[stats_df['Month'] == current_month_str].copy()
             if not month_df.empty:
-                # Select only columns we need and sort
                 month_view = month_df[['Consultant', 'Sent', 'Interviewed', 'Offered']].sort_values(by='Sent', ascending=False)
                 
+                # 🔥 表头修改点：Sent/M, Interviewed/M, Offered/M
                 st.dataframe(
                     month_view,
                     use_container_width=True,
                     hide_index=True,
                     column_config={
                         "Consultant": st.column_config.TextColumn("Consultant", width="medium"),
-                        "Sent": st.column_config.NumberColumn("Sent", format="%d"),
-                        "Interviewed": st.column_config.NumberColumn("Int", format="%d"),
-                        "Offered": st.column_config.NumberColumn("Off", format="%d"),
+                        "Sent": st.column_config.NumberColumn("Sent/M", format="%d"),
+                        "Interviewed": st.column_config.NumberColumn("Interviewed/M", format="%d"),
+                        "Offered": st.column_config.NumberColumn("Offered/M", format="%d"),
                     }
                 )
             else:
@@ -289,36 +286,33 @@ def main():
         with col_q:
             st.subheader(f"🚀 Current Quarter (Q{quarter_num} Total)")
             
-            # Group by Consultant (Sum all loaded months)
             quarter_view = stats_df.groupby('Consultant')[['Sent', 'Interviewed', 'Offered']].sum().reset_index()
             quarter_view = quarter_view.sort_values(by='Sent', ascending=False)
             
+            # 🔥 表头修改点：Sent/Q, Interviewed/Q, Offered/Q
             st.dataframe(
                 quarter_view,
                 use_container_width=True,
                 hide_index=True,
                 column_config={
                     "Consultant": st.column_config.TextColumn("Consultant", width="medium"),
-                    "Sent": st.column_config.ProgressColumn("Total Sent", format="%d", min_value=0, max_value=int(quarter_view['Sent'].max() or 100)),
-                    "Interviewed": st.column_config.NumberColumn("Total Int", format="%d"),
-                    "Offered": st.column_config.NumberColumn("Total Off", format="%d"),
+                    "Sent": st.column_config.ProgressColumn("Sent/Q", format="%d", min_value=0, max_value=int(quarter_view['Sent'].max() or 100)),
+                    "Interviewed": st.column_config.NumberColumn("Interviewed/Q", format="%d"),
+                    "Offered": st.column_config.NumberColumn("Offered/Q", format="%d"),
                 }
             )
 
         st.divider()
 
         # ==========================================
-        # SECTION 2: CONSULTANT DETAILS (UNCHANGED)
+        # SECTION 2: CONSULTANT DETAILS
         # ==========================================
         st.markdown("### 👤 Consultant Details")
 
-        # Use the Quarterly Totals to determine list order (Top performer first)
         consultants_order = quarter_view['Consultant'].tolist()
         
         for consultant in consultants_order:
-            # Get totals for this consultant
             c_data = quarter_view[quarter_view['Consultant'] == consultant].iloc[0]
-            
             expander_title = f"{consultant} | Q{quarter_num} Total: Sent {c_data['Sent']} | Int {c_data['Interviewed']} | Off {c_data['Offered']}"
             
             with st.expander(expander_title):
