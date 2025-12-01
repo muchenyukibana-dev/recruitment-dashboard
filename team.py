@@ -36,58 +36,33 @@ TEAM_CONFIG = [
 
 st.set_page_config(page_title="Management Report", page_icon="📈", layout="wide")
 
-# --- 🎨 CSS STYLING (CLEAN WHITE THEME) ---
+# --- 🎨 CSS STYLING ---
 st.markdown("""
     <style>
-    /* 强制白底黑字 */
-    .stApp {
-        background-color: #FFFFFF;
-        color: #000000;
-    }
+    .stApp { background-color: #FFFFFF; color: #000000; }
+    h1, h2, h3, h4 { color: #333333 !important; font-family: 'Arial', sans-serif; }
     
-    /* 标题样式 */
-    h1, h2, h3, h4 {
-        color: #333333 !important;
-        font-family: 'Arial', sans-serif;
-    }
-    
-    /* 按钮样式 - 商务蓝 (左对齐优化) */
+    /* 按钮左对齐 */
+    .stButton { display: flex; justify-content: flex-start; }
     .stButton>button {
-        background-color: #0056b3;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        padding: 10px 24px;
-        font-weight: bold;
+        background-color: #0056b3; color: white; border: none; border-radius: 4px;
+        padding: 10px 24px; font-weight: bold;
     }
-    .stButton>button:hover {
-        background-color: #004494;
-        color: white;
-    }
+    .stButton>button:hover { background-color: #004494; color: white; }
 
-    /* 表格样式优化 */
-    .dataframe {
-        font-size: 14px !important;
-        font-family: 'Arial', sans-serif !important;
-        border: 1px solid #ddd !important;
-    }
+    .dataframe { font-size: 14px !important; font-family: 'Arial', sans-serif !important; border: 1px solid #ddd !important; }
     
-    /* Expander 样式 */
     .streamlit-expanderHeader {
-        background-color: #f8f9fa;
-        color: #000;
-        font-weight: bold;
-        border: 1px solid #ddd;
-        border-radius: 4px;
+        background-color: #f8f9fa; color: #000; font-weight: bold; border: 1px solid #ddd; border-radius: 4px;
     }
     
-    /* 分隔线 */
-    hr {
-        margin-top: 20px;
-        margin-bottom: 20px;
-        border: 0;
-        border-top: 1px solid #eee;
+    /* Metrics box */
+    div[data-testid="metric-container"] {
+        background-color: #f1f3f5; border: 1px solid #dee2e6; padding: 10px; border-radius: 5px; color: #333; text-align: center;
     }
+    div[data-testid="metric-container"] label { font-size: 0.8rem; }
+    
+    hr { margin-top: 20px; margin-bottom: 20px; border: 0; border-top: 1px solid #eee; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -115,17 +90,11 @@ def get_quarter_months():
     today = datetime.now()
     year = today.year
     month = today.month
-    
-    # 计算当前是第几季度 (1-4)
     quarter = (month - 1) // 3 + 1
-    
-    # 计算该季度的起始月份
     start_month = (quarter - 1) * 3 + 1
-    
     months = []
     for m in range(start_month, start_month + 3):
         months.append(f"{year}{m:02d}")
-    
     current_month_str = today.strftime("%Y%m")
     return months, current_month_str, quarter
 
@@ -148,7 +117,6 @@ def fetch_consultant_data(client, consultant_config, target_tab):
         rows = worksheet.get_all_values()
         details = []
         count_sent, count_int, count_off = 0, 0, 0
-        
         current_block = {"company": "Unknown", "position": "Unknown", "candidates": {}}
 
         def process_block(block):
@@ -210,8 +178,8 @@ def fetch_consultant_data(client, consultant_config, target_tab):
 def main():
     st.title("📈 Recruitment Management Dashboard")
     
-    # 1. Button Logic (Left Aligned)
-    col1, col2 = st.columns([1, 5]) # 小列放按钮，大列留白
+    # 1. Button Logic
+    col1, col2 = st.columns([1, 5]) 
     with col1:
         load_btn = st.button("🔄 LOAD HISTORY")
 
@@ -221,7 +189,6 @@ def main():
             st.error("API Connection Failed.")
             return
 
-        # 获取本季度列表
         months, current_month_str, quarter_num = get_quarter_months()
         
         all_stats = [] 
@@ -249,29 +216,21 @@ def main():
             
             progress_bar.empty()
 
-        # Create Master DataFrame
         stats_df = pd.DataFrame(all_stats)
 
         # ==========================================
-        # SECTION 1: SUMMARY (Current Month & Quarter)
+        # SECTION 1: SUMMARY 
         # ==========================================
         st.header("Summary")
-        
         col_m, col_q = st.columns(2)
         
-        # --- A. Current Month Table ---
         with col_m:
             st.subheader(f"📅 Current Month ({current_month_str})")
-            
             month_df = stats_df[stats_df['Month'] == current_month_str].copy()
             if not month_df.empty:
                 month_view = month_df[['Consultant', 'Sent', 'Interviewed', 'Offered']].sort_values(by='Sent', ascending=False)
-                
-                # 🔥 表头修改点：Sent/M, Interviewed/M, Offered/M
                 st.dataframe(
-                    month_view,
-                    use_container_width=True,
-                    hide_index=True,
+                    month_view, use_container_width=True, hide_index=True,
                     column_config={
                         "Consultant": st.column_config.TextColumn("Consultant", width="medium"),
                         "Sent": st.column_config.NumberColumn("Sent/M", format="%d"),
@@ -282,18 +241,12 @@ def main():
             else:
                 st.info("No data found for the current month yet.")
 
-        # --- B. Quarterly Table (Total) ---
         with col_q:
             st.subheader(f"🚀 Current Quarter (Q{quarter_num} Total)")
-            
             quarter_view = stats_df.groupby('Consultant')[['Sent', 'Interviewed', 'Offered']].sum().reset_index()
             quarter_view = quarter_view.sort_values(by='Sent', ascending=False)
-            
-            # 🔥 表头修改点：Sent/Q, Interviewed/Q, Offered/Q
             st.dataframe(
-                quarter_view,
-                use_container_width=True,
-                hide_index=True,
+                quarter_view, use_container_width=True, hide_index=True,
                 column_config={
                     "Consultant": st.column_config.TextColumn("Consultant", width="medium"),
                     "Sent": st.column_config.ProgressColumn("Sent/Q", format="%d", min_value=0, max_value=int(quarter_view['Sent'].max() or 100)),
@@ -312,15 +265,41 @@ def main():
         consultants_order = quarter_view['Consultant'].tolist()
         
         for consultant in consultants_order:
-            c_data = quarter_view[quarter_view['Consultant'] == consultant].iloc[0]
-            expander_title = f"{consultant} | Q{quarter_num} Total: Sent {c_data['Sent']} | Int {c_data['Interviewed']} | Off {c_data['Offered']}"
+            # 1. 标题简化：因为很难对齐，我们只放名字和最重要的 Total Sent，引导用户点击
+            c_q_data = quarter_view[quarter_view['Consultant'] == consultant].iloc[0]
             
-            with st.expander(expander_title):
-                st.caption("📅 Monthly Breakdown")
-                c_monthly_stats = stats_df[stats_df['Consultant'] == consultant][['Month', 'Sent', 'Interviewed', 'Offered']]
-                st.dataframe(c_monthly_stats, use_container_width=True, hide_index=True)
+            expander_label = f"🧑‍💼 {consultant}  (Quarter Total: {c_q_data['Sent']} Sent)"
+            
+            with st.expander(expander_label):
                 
-                st.caption("📝 Project Details (All Loaded Data)")
+                # 2. 内部第一部分：季度汇总大数字 (这里是完美对齐的)
+                k1, k2, k3 = st.columns(3)
+                k1.metric("Quarterly Sent", c_q_data['Sent'])
+                k2.metric("Quarterly Interviewed", c_q_data['Interviewed'])
+                k3.metric("Quarterly Offered", c_q_data['Offered'])
+                
+                st.markdown("---")
+
+                # 3. 内部第二部分：月度趋势明细 (您要求的“每个月具体的统计”)
+                st.markdown("#### 📅 Monthly Breakdown (月度明细)")
+                c_monthly_stats = stats_df[stats_df['Consultant'] == consultant][['Month', 'Sent', 'Interviewed', 'Offered']]
+                # 按月份倒序排列
+                c_monthly_stats = c_monthly_stats.sort_values(by='Month', ascending=False)
+                
+                st.dataframe(
+                    c_monthly_stats, 
+                    use_container_width=True, 
+                    hide_index=True,
+                    column_config={
+                        "Month": st.column_config.TextColumn("Month"),
+                        "Sent": st.column_config.NumberColumn("Sent", format="%d"),
+                        "Interviewed": st.column_config.NumberColumn("Interviewed", format="%d"),
+                        "Offered": st.column_config.NumberColumn("Offered", format="%d"),
+                    }
+                )
+                
+                # 4. 内部第三部分：具体的项目明细 (Tabs)
+                st.markdown("#### 📝 Project Details")
                 if not all_details_df.empty:
                     c_details = all_details_df[all_details_df['Consultant'] == consultant]
                     
@@ -331,8 +310,9 @@ def main():
                             if filtered_df.empty:
                                 st.info("No data recorded.")
                             else:
-                                agg = filtered_df.groupby(['Company', 'Position'])['Count'].sum().reset_index()
-                                agg = agg.sort_values(by='Count', ascending=False)
+                                # 增加 Month 列，让人知道是哪个月投的
+                                agg = filtered_df.groupby(['Month', 'Company', 'Position'])['Count'].sum().reset_index()
+                                agg = agg.sort_values(by=['Month', 'Count'], ascending=[False, False])
                                 st.dataframe(agg, use_container_width=True, hide_index=True)
 
                         with tab1: show_agg_table(c_details) 
@@ -343,9 +323,9 @@ def main():
                             off_df = c_details[c_details['Status'] == 'Offered']
                             show_agg_table(off_df)
                     else:
-                        st.warning("No detailed logs found.")
+                        st.caption("No detailed logs found for this period.")
                 else:
-                    st.warning("No detailed logs available.")
+                    st.caption("No detailed logs available.")
 
 if __name__ == "__main__":
     main()
