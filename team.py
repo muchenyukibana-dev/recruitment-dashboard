@@ -4,7 +4,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # ==========================================
 # 🔧 TEAM CONFIGURATION
@@ -34,69 +34,67 @@ TEAM_CONFIG = [
 
 # ==========================================
 
-st.set_page_config(page_title="Management Dashboard", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Management Report", page_icon="📈", layout="wide")
 
-# --- 🎨 CSS STYLING (Professional Dashboard) ---
+# --- 🎨 CSS STYLING (CLEAN WHITE THEME) ---
 st.markdown("""
     <style>
-    /* Global Settings */
+    /* 强制白底黑字 */
     .stApp {
-        background-color: #0E1117; /* Dark Professional Background */
-        color: #FFFFFF;
+        background-color: #FFFFFF;
+        color: #000000;
     }
     
-    /* Titles */
-    h1 {
-        text-align: center;
-        color: #FFFFFF;
-        font-family: 'Helvetica Neue', sans-serif;
-        font-weight: 700;
-        margin-bottom: 30px;
+    /* 标题样式 */
+    h1, h2, h3 {
+        color: #333333 !important;
+        font-family: 'Arial', sans-serif;
     }
-    h3 {
-        color: #E0E0E0;
-        border-bottom: 1px solid #444;
-        padding-bottom: 10px;
-    }
-
-    /* LOAD BUTTON */
-    .stButton {
-        display: flex;
-        justify-content: center;
-    }
+    
+    /* 按钮样式 - 商务蓝 */
     .stButton>button {
-        background-color: #2563EB; /* Professional Blue */
+        background-color: #0056b3;
         color: white;
-        border-radius: 5px;
-        font-size: 20px;
-        padding: 15px 40px;
         border: none;
+        border-radius: 4px;
+        padding: 10px 24px;
         font-weight: bold;
-        transition: background 0.3s;
     }
     .stButton>button:hover {
-        background-color: #1D4ED8;
+        background-color: #004494;
+        color: white;
     }
 
-    /* SUMMARY CARDS (KPIs) */
-    div[data-testid="metric-container"] {
-        background-color: #1F2937;
-        padding: 15px;
-        border-radius: 8px;
-        border: 1px solid #374151;
-        text-align: center;
-    }
-    
-    /* TABLES */
+    /* 表格样式优化 */
     .dataframe {
         font-size: 14px !important;
+        font-family: 'Arial', sans-serif !important;
+        border: 1px solid #ddd !important;
     }
     
-    /* CUSTOM LABELS FOR STATUS */
-    .status-sent { color: #A0AEC0; font-weight: bold; }
-    .status-int { color: #34D399; font-weight: bold; } /* Green */
-    .status-off { color: #FBBF24; font-weight: bold; } /* Gold */
+    /* Expander 样式 */
+    .streamlit-expanderHeader {
+        background-color: #f8f9fa;
+        color: #000;
+        font-weight: bold;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+    }
     
+    /* KPI Metrics 样式 */
+    div[data-testid="metric-container"] {
+        background-color: #f8f9fa;
+        border: 1px solid #e9ecef;
+        padding: 10px;
+        border-radius: 5px;
+        color: #333;
+    }
+    div[data-testid="metric-container"] label {
+        color: #666;
+    }
+    div[data-testid="metric-container"] div[data-testid="stMetricValue"] {
+        color: #0056b3;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -119,21 +117,21 @@ def connect_to_google():
             except Exception: return None
         else: return None
 
-# --- HELPER: Generate Month List ---
+# --- HELPER: Generate Last 3 Months (Quarter View) ---
 def get_target_months():
-    """获取过去6个月的列表，用于生成历史报表"""
+    """默认加载最近3个月作为'本季度'视图"""
     months = []
     today = datetime.now()
-    for i in range(6):
+    for i in range(3):
         year = today.year
         month = today.month - i
         while month <= 0:
             month += 12
             year -= 1
         months.append(f"{year}{month:02d}")
-    return months # e.g. ['202511', '202510'...]
+    return months # e.g. ['202512', '202511', '202510']
 
-# --- CORE LOGIC: FETCH DATA WITH STAGE & DETAILS ---
+# --- FETCH DATA ---
 def fetch_consultant_data(client, consultant_config, target_tab):
     sheet_id = consultant_config['id']
     target_key = consultant_config.get('keyword', 'Name')
@@ -163,23 +161,22 @@ def fetch_consultant_data(client, consultant_config, target_tab):
                 stage = str(cand_data.get('stage', 'Sent')).lower().strip()
                 if not name: continue
                 
-                # 状态判定逻辑 (向下兼容)
                 is_off = "offer" in stage
                 is_int = "interview" in stage or "面试" in stage or is_off
-                is_sent = True # 所有人默认都是Sent
                 
-                # 计数
+                # Counters
                 if is_off: count_off += 1
-                if is_int: count_int += 1 # 包含Offer的也算面试
+                if is_int: count_int += 1
                 count_sent += 1
                 
-                # 标记该候选人的最高状态，用于列表展示
+                # Determine Final Status
                 status_label = "Sent"
                 if is_off: status_label = "Offered"
                 elif is_int: status_label = "Interviewed"
                 
                 processed.append({
                     "Consultant": consultant_config['name'],
+                    "Month": target_tab,
                     "Company": block['company'],
                     "Position": block['position'],
                     "Status": status_label,
@@ -215,140 +212,133 @@ def fetch_consultant_data(client, consultant_config, target_tab):
 
 # --- MAIN APP ---
 def main():
-    st.title("📊 MANAGEMENT DASHBOARD")
-    st.markdown("<p style='text-align: center; color: #888;'>Monthly & Quarterly Recruitment Performance Analysis</p>", unsafe_allow_html=True)
+    st.title("📈 Recruitment Performance Report")
     
-    # Load Button
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        load_btn = st.button("🔄 LOAD HISTORY DATA")
-
-    if load_btn:
+    # Simple Load Button
+    if st.button("🔄 LOAD QUARTERLY DATA (Last 3 Months)"):
         client = connect_to_google()
         if not client:
-            st.error("Connection Error: Check API credentials.")
+            st.error("API Connection Failed.")
             return
 
-        months = get_target_months() # 获取过去6个月
+        months = get_target_months()
         
-        # 数据存储结构
-        summary_data = [] # 用于宏观统计表格
-        detailed_data_map = {} # Key: Month, Value: List of details
+        # Containers for data
+        all_stats = [] # For the top summary table
+        all_details_df = pd.DataFrame() # For drill down
         
-        quarter_totals = {"Sent": 0, "Interviewed": 0, "Offered": 0}
-
-        with st.spinner("Processing Consultant Data..."):
+        with st.spinner("Fetching data from Google Sheets..."):
             progress_bar = st.progress(0)
             
             for i, month in enumerate(months):
-                month_s, month_i, month_o = 0, 0, 0
-                month_details = []
-                
                 for consultant in TEAM_CONFIG:
                     s, interview, off, details = fetch_consultant_data(client, consultant, month)
                     
-                    # 累加月度总数
-                    month_s += s
-                    month_i += interview
-                    month_o += off
+                    # Accumulate stats per consultant per month
+                    all_stats.append({
+                        "Consultant": consultant['name'],
+                        "Month": month,
+                        "Sent": s,
+                        "Interviewed": interview,
+                        "Offered": off
+                    })
                     
-                    # 收集详情
+                    # Accumulate details
                     if details:
-                        month_details.extend(details)
-                
-                # 记录该月汇总
-                summary_data.append({
-                    "Month": month,
-                    "SENT": month_s,
-                    "INTERVIEWED": month_i,
-                    "OFFERED": month_o
-                })
-                
-                detailed_data_map[month] = month_details
-                
-                # 简单粗暴计算“展示的所有月份的总和”作为季度参考（或者你可以只算最近3个月）
-                quarter_totals["Sent"] += month_s
-                quarter_totals["Interviewed"] += month_i
-                quarter_totals["Offered"] += month_o
+                        all_details_df = pd.concat([all_details_df, pd.DataFrame(details)], ignore_index=True)
                 
                 progress_bar.progress((i + 1) / len(months))
             
             progress_bar.empty()
 
+        # Create DataFrame from stats
+        stats_df = pd.DataFrame(all_stats)
+
         # ==========================================
-        # 1. QUARTERLY / TOTAL SUMMARY (TOP SECTION)
+        # 1. TOTAL COMPARISON TABLE (KPIs)
         # ==========================================
-        st.markdown("### 🏆 TOTAL SUMMARY (Loaded Months)")
-        kpi1, kpi2, kpi3 = st.columns(3)
-        kpi1.metric("TOTAL SENT", quarter_totals["Sent"])
-        kpi2.metric("TOTAL INTERVIEWED", quarter_totals["Interviewed"])
-        kpi3.metric("TOTAL OFFERED", quarter_totals["Offered"])
+        st.markdown("### 🏆 Quarterly Performance Summary")
+        
+        # Aggregate by Consultant to get Total Sums
+        total_summary = stats_df.groupby('Consultant')[['Sent', 'Interviewed', 'Offered']].sum().reset_index()
+        
+        # Sort by Sent count
+        total_summary = total_summary.sort_values(by='Sent', ascending=False)
+        
+        # Display as a clean interactive table
+        st.dataframe(
+            total_summary, 
+            use_container_width=True, 
+            hide_index=True,
+            column_config={
+                "Consultant": st.column_config.TextColumn("Consultant", width="medium"),
+                "Sent": st.column_config.ProgressColumn("Total Sent", format="%d", min_value=0, max_value=int(total_summary['Sent'].max() or 100)),
+                "Interviewed": st.column_config.NumberColumn("Total Interviews", format="%d"),
+                "Offered": st.column_config.NumberColumn("Total Offers", format="%d"),
+            }
+        )
         
         st.divider()
 
         # ==========================================
-        # 2. MONTHLY BREAKDOWN & DETAILS
+        # 2. INDIVIDUAL DRILL-DOWN
         # ==========================================
-        st.markdown("### 📅 MONTHLY BREAKDOWN")
+        st.markdown("### 👤 Consultant Details (Click to Expand)")
+
+        # Loop through each consultant
+        consultants = total_summary['Consultant'].tolist()
         
-        # 遍历月份显示数据
-        for month_data in summary_data:
-            m_name = month_data['Month']
-            s_val = month_data['SENT']
-            i_val = month_data['INTERVIEWED']
-            o_val = month_data['OFFERED']
+        for consultant in consultants:
+            # Get totals for this consultant
+            c_data = total_summary[total_summary['Consultant'] == consultant].iloc[0]
             
-            # 如果该月没有任何数据，跳过不显示，或者显示灰色
-            if s_val == 0:
-                continue
-
-            # 使用 Expander 作为主要容器
-            with st.expander(f"{m_name} | Sent: {s_val} | Int: {i_val} | Off: {o_val}", expanded=False):
+            # Expander Title: Name + Key Stats
+            expander_title = f"{consultant} | Sent: {c_data['Sent']} | Int: {c_data['Interviewed']} | Off: {c_data['Offered']}"
+            
+            with st.expander(expander_title):
                 
-                # 获取该月的详细数据
-                details = detailed_data_map.get(m_name, [])
+                # A. Monthly Breakdown Table for this consultant
+                st.caption("📅 Monthly Breakdown")
+                c_monthly_stats = stats_df[stats_df['Consultant'] == consultant][['Month', 'Sent', 'Interviewed', 'Offered']]
+                st.dataframe(c_monthly_stats, use_container_width=True, hide_index=True)
                 
-                if details:
-                    df = pd.DataFrame(details)
+                # B. Detailed Logs (Tabs)
+                st.caption("📝 Project Details")
+                
+                if not all_details_df.empty:
+                    # Filter details for this consultant
+                    c_details = all_details_df[all_details_df['Consultant'] == consultant]
                     
-                    # 创建 3 个标签页，分别展示 Sent / Int / Off 的具体岗位
-                    tab_sent, tab_int, tab_off = st.tabs([
-                        f"📄 SENT ({s_val})", 
-                        f"👥 INTERVIEWED ({i_val})", 
-                        f"🎉 OFFERED ({o_val})"
-                    ])
-                    
-                    # --- Tab 1: SENT (Show All) ---
-                    with tab_sent:
-                        # 聚合：按顾问、公司、岗位统计
-                        df_sent = df.groupby(['Consultant', 'Company', 'Position'])['Count'].sum().reset_index()
-                        df_sent = df_sent.sort_values(by='Count', ascending=False)
-                        st.dataframe(df_sent, use_container_width=True, hide_index=True)
+                    if not c_details.empty:
+                        tab1, tab2, tab3 = st.tabs(["📄 SENT Details", "👥 INTERVIEWED Details", "🎉 OFFERED Details"])
+                        
+                        # Helper to display aggregated table
+                        def show_agg_table(filtered_df):
+                            if filtered_df.empty:
+                                st.info("No data recorded.")
+                            else:
+                                # Aggregate by Company/Position to avoid long lists
+                                agg = filtered_df.groupby(['Company', 'Position'])['Count'].sum().reset_index()
+                                agg = agg.sort_values(by='Count', ascending=False)
+                                # Convert number to string for left alignment if preferred, or keep as number
+                                st.dataframe(agg, use_container_width=True, hide_index=True)
 
-                    # --- Tab 2: INTERVIEWED (Filter Status) ---
-                    with tab_int:
-                        # 筛选状态包含 Interviewed 或 Offered 的
-                        df_i = df[df['Status'].isin(['Interviewed', 'Offered'])]
-                        if not df_i.empty:
-                            df_i_agg = df_i.groupby(['Consultant', 'Company', 'Position'])['Count'].sum().reset_index()
-                            df_i_agg = df_i_agg.sort_values(by='Count', ascending=False)
-                            st.dataframe(df_i_agg, use_container_width=True, hide_index=True)
-                        else:
-                            st.info("No interviews recorded.")
-
-                    # --- Tab 3: OFFERED (Filter Status) ---
-                    with tab_off:
-                        # 筛选状态仅为 Offered
-                        df_o = df[df['Status'] == 'Offered']
-                        if not df_o.empty:
-                            df_o_agg = df_o.groupby(['Consultant', 'Company', 'Position'])['Count'].sum().reset_index()
-                            df_o_agg = df_o_agg.sort_values(by='Count', ascending=False)
-                            st.dataframe(df_o_agg, use_container_width=True, hide_index=True)
-                        else:
-                            st.info("No offers recorded.")
+                        with tab1:
+                            show_agg_table(c_details) # Show all sent
+                        
+                        with tab2:
+                            # Filter for Int or Off
+                            int_df = c_details[c_details['Status'].isin(['Interviewed', 'Offered'])]
+                            show_agg_table(int_df)
                             
+                        with tab3:
+                            # Filter for Off only
+                            off_df = c_details[c_details['Status'] == 'Offered']
+                            show_agg_table(off_df)
+                    else:
+                        st.warning("No detailed logs found.")
                 else:
-                    st.warning("Statistics found but no detailed logs available.")
+                    st.warning("No detailed logs available.")
 
 if __name__ == "__main__":
     main()
