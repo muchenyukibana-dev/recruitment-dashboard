@@ -9,7 +9,7 @@ from datetime import datetime
 # ==========================================
 # 🔧 配置区域
 # ==========================================
-SALES_SHEET_ID = '1E2Gepiu8QKXxAq8ctd13YFQZnJNFBJit'
+SALES_SHEET_ID = '1rCmyqOUOBn-644KpCtF5FZwBMEnRGHTKSSUBxzvOSkI'
 # 请确保这里填的是包含 PLACED POSITIONS 的那个总表名字 (比如 'Positions' 或 'Sheet1')
 SALES_TAB_NAME = 'Positions' 
 
