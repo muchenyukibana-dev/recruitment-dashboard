@@ -10,7 +10,7 @@ from datetime import datetime
 # 🔧 TEAM CONFIGURATION (含底薪配置)
 # ==========================================
 SALES_SHEET_ID = '1rCmyqOUOBn-644KpCtF5FZwBMEnRGHTKSSUBxzvOSkI'
-SALES_TAB_NAME = 'Placed Position' 
+SALES_TAB_NAME = 'Placed Positions' 
 
 TEAM_CONFIG = [
     {
