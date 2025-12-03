@@ -9,7 +9,7 @@ from datetime import datetime
 # ==========================================
 # 🔧 配置区域
 # ==========================================
-SALES_SHEET_ID = '1E2Gepiu8QKXxAq8ctd13YFQZnJNFBJit'
+SALES_SHEET_ID = '1rCmyqOUOBn-644KpCtF5FZwBMEnRGHTKSSUBxzvOSkI'
 SALES_TAB_NAME = 'Positions'  # 请确认你的总表名字叫这个
 
 TEAM_CONFIG = [
