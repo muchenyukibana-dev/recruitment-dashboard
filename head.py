@@ -5,11 +5,12 @@ import pandas as pd
 import os
 import time
 from datetime import datetime
+import unicodedata
 
 # ==========================================
 # 🔧 配置区域
 # ==========================================
-SALES_SHEET_ID = '1rCmyqOUOBn-644KpCtF5FZwBMEnRGHTKSSUBxzvOSkI'
+SALES_SHEET_ID = '1E2Gepiu8QKXxAq8ctd13YFQZnJNFBJit'
 SALES_TAB_NAME = 'Positions' 
 
 TEAM_CONFIG = [
@@ -39,46 +40,29 @@ TEAM_CONFIG = [
     },
 ]
 
-# 设置页面
-st.set_page_config(page_title="Management Dashboard (Q3)", page_icon="💼", layout="wide")
+st.set_page_config(page_title="Management Dashboard", page_icon="💼", layout="wide")
 
-# --- 🎨 样式设置 ---
+# --- 🎨 样式 ---
 st.markdown("""
     <style>
     .stApp { background-color: #FFFFFF; color: #000000; }
     h1, h2, h3, h4 { color: #333333 !important; font-family: 'Arial', sans-serif; }
-    
-    .stButton>button {
-        background-color: #0056b3; color: white; border: none; border-radius: 4px;
-        padding: 10px 24px; font-weight: bold;
-    }
+    .stButton>button { background-color: #0056b3; color: white; border-radius: 4px; padding: 10px 24px; font-weight: bold; }
     .stButton>button:hover { background-color: #004494; color: white; }
-
     .dataframe { font-size: 14px !important; border: 1px solid #ddd !important; }
-    
-    div[data-testid="metric-container"] {
-        background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 15px;
-        border-radius: 8px; color: #333; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-    
+    div[data-testid="metric-container"] { background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 15px; border-radius: 8px; color: #333; }
     .stProgress > div > div > div > div { background-color: #28a745; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 🧮 佣金计算引擎 ---
+# --- 🧮 计算逻辑 ---
 def calculate_commission_tier(total_gp, base_salary):
-    """判断 Level"""
-    if total_gp < 3 * base_salary:
-        return 0, 0
-    elif total_gp < 4.5 * base_salary:
-        return 1, 1
-    elif total_gp < 7.5 * base_salary:
-        return 2, 2
-    else:
-        return 3, 3
+    if total_gp < 3 * base_salary: return 0, 0
+    elif total_gp < 4.5 * base_salary: return 1, 1
+    elif total_gp < 7.5 * base_salary: return 2, 2
+    else: return 3, 3
 
 def calculate_single_deal_commission(candidate_salary, multiplier):
-    """计算单笔佣金"""
     if multiplier == 0: return 0
     base_comm = 0
     if candidate_salary < 20000: base_comm = 1000
@@ -87,7 +71,10 @@ def calculate_single_deal_commission(candidate_salary, multiplier):
     else: base_comm = candidate_salary * 2.0 * 0.05
     return base_comm * multiplier
 
-# --- 🔗 连接 Google ---
+def normalize_text(text):
+    return ''.join(c for c in unicodedata.normalize('NFD', str(text)) if unicodedata.category(c) != 'Mn').lower()
+
+# --- 🔗 连接 ---
 def connect_to_google():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     if "gcp_service_account" in st.secrets:
@@ -106,19 +93,14 @@ def connect_to_google():
             except Exception: return None
         else: return None
 
-# --- 📥 获取招聘数据 ---
+# --- 📥 招聘数据 ---
 def fetch_recruitment_stats(client, months):
     all_stats = []
     all_details = []
-    
     for month in months:
         for consultant in TEAM_CONFIG:
             s, i, o, d = internal_fetch_sheet_data(client, consultant, month)
-            all_stats.append({
-                "Consultant": consultant['name'],
-                "Month": month,
-                "Sent": s, "Int": i, "Off": o
-            })
+            all_stats.append({"Consultant": consultant['name'], "Month": month, "Sent": s, "Int": i, "Off": o})
             if d: all_details.extend(d)
     return pd.DataFrame(all_stats), pd.DataFrame(all_details)
 
@@ -129,11 +111,9 @@ def internal_fetch_sheet_data(client, conf, tab):
         rows = ws.get_all_values()
         details = []; cs=0; ci=0; co=0
         target_key = conf.get('keyword', 'Name')
-        
         COMPANY_KEYS = ["Company", "Client", "Cliente", "公司", "客户"]
         POSITION_KEYS = ["Position", "Role", "Posición", "职位", "岗位"]
         STAGE_KEYS = ["Stage", "Status", "Step", "阶段", "状态"]
-        
         block = {"c": "Unk", "p": "Unk", "cands": {}}
         
         def flush(b):
@@ -170,17 +150,10 @@ def internal_fetch_sheet_data(client, conf, tab):
         return cs, ci, co, details
     except: return 0,0,0,[]
 
-# 引入这个库处理西语名字的口音符号 (e.g. Raúl -> Raul)
-import unicodedata
-
-def normalize_text(text):
-    """去除重音符号并转小写"""
-    return ''.join(c for c in unicodedata.normalize('NFD', str(text))
-                  if unicodedata.category(c) != 'Mn').lower()
-
-# --- FETCH SALES DATA (SUPER DEBUG VERSION) ---
+# --- 💰 获取业绩数据 (强力修复版) ---
 def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
-    st.info(f"🕵️‍♂️ 深度诊断启动: 目标 {year}年 {quarter_start_month}-{quarter_end_month}月")
+    # 显示调试信息
+    st.info(f"🕵️‍♂️ 正在读取业绩表: {year}年 {quarter_start_month}-{quarter_end_month}月")
     
     try:
         sheet = client.open_by_key(SALES_SHEET_ID)
@@ -192,33 +165,52 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
         found_section = False
         found_header = False
         
-        # 这里的索引初始化为 -1
         col_cons = -1; col_onboard = -1; col_pay = -1; col_sal = -1
         sales_records = []
         
-        # 更加暴力的关键词（只要包含这些字就算）
-        KEYS_CONS = ["linkeazi", "consultant", "owner", "顾问"]
-        KEYS_ONBOARD = ["onboard", "entry", "start", "入职"]
-        KEYS_PAY = ["payment", "date", "paid", "付款"]
-        KEYS_SALARY = ["salary", "base", "wage", "薪资", "底薪"]
+        # 扩充关键词库
+        KEYS_CONS = ["linkeazi", "consultant", "owner", "顾问", "assigned"]
+        KEYS_ONBOARD = ["onboard", "entry", "start", "入职", "board"]
+        KEYS_PAY = ["payment", "date", "paid", "付款", "paym"]
+        KEYS_SALARY = ["salary", "base", "wage", "薪资", "底薪", "package"]
 
         for i, row in enumerate(rows):
-            row_str = " ".join([str(x).strip() for x in row]).upper()
+            row_text = [str(x).strip() for x in row]
+            row_str = " ".join(row_text).upper()
             
-            # 1. 找区域入口
+            # 1. 发现区域入口
             if not found_section:
                 if "PLACED" in row_str and "POSITION" in row_str:
                     found_section = True
                     st.success(f"✅ 第 {i+1} 行: 发现区域入口 (PLACED POSITIONS)")
+                    
+                    # 🔥 强力修复：强制检查下一行是不是表头
+                    # 很多时候表头就在标题的下面一行
+                    if i + 1 < len(rows):
+                        next_row = rows[i+1]
+                        next_row_lower = [str(x).strip().lower() for x in next_row]
+                        
+                        # 看看下一行里有没有关键列
+                        t_cons = -1; t_sal = -1; t_onb = -1; t_pay = -1
+                        for idx, cell in enumerate(next_row_lower):
+                            if any(k in cell for k in KEYS_CONS): t_cons = idx
+                            if any(k in cell for k in KEYS_SALARY): t_sal = idx
+                            if any(k in cell for k in KEYS_ONBOARD): t_onb = idx
+                            if any(k in cell for k in KEYS_PAY): 
+                                if "onboard" not in cell: t_pay = idx
+                        
+                        # 如果下一行看起来像表头，直接锁定！
+                        if t_cons != -1 and t_sal != -1:
+                            col_cons = t_cons; col_sal = t_sal; col_onboard = t_onb; col_pay = t_pay
+                            found_header = True
+                            st.success(f"✅ 强制锁定下一行 (第 {i+2} 行) 为表头! 顾问列:{t_cons+1}, 入职列:{t_onb+1}")
+                            # 跳过当前循环，让主循环走到下一行时直接进入"读取数据"模式
+                            continue 
                 continue 
             
-            # 2. 找表头 (增加调试打印)
+            # 2. 如果没被强制锁定，继续常规寻找表头
             if found_section and not found_header:
                 row_lower = [str(x).strip().lower() for x in row]
-                
-                # 打印出程序看到的表头行，让你检查
-                # st.write(f"🧐 正在检查第 {i+1} 行是否为表头: {row}")
-
                 for idx, cell in enumerate(row_lower):
                     if any(k in cell for k in KEYS_CONS): col_cons = idx
                     if any(k in cell for k in KEYS_ONBOARD): col_onboard = idx
@@ -226,74 +218,54 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                         if "onboard" not in cell: col_pay = idx
                     if any(k in cell for k in KEYS_SALARY): col_sal = idx
                 
-                # 只要找到顾问列和薪资列就算成功
                 if col_cons != -1 and col_sal != -1:
                     found_header = True
-                    # 这里的列号是人类视角的（从1开始），方便你去Excel对照
-                    st.success(f"""
-                    ✅ 第 {i+1} 行锁定表头! 
-                    - 顾问列: 第 {col_cons+1} 列 (内容: {row[col_cons]})
-                    - 入职列: 第 {col_onboard+1} 列 (内容: {row[col_onboard] if col_onboard!=-1 else '未找到'})
-                    - 薪资列: 第 {col_sal+1} 列 (内容: {row[col_sal]})
-                    """)
+                    st.success(f"✅ 第 {i+1} 行自然锁定表头")
                 continue
 
-            # 3. 读取数据 (诊断核心)
+            # 3. 读取数据
             if found_header:
                 if "POSITION" in row_str and "PLACED" not in row_str:
-                    st.info(f"🛑 第 {i+1} 行: 区域结束。")
+                    st.info(f"🛑 第 {i+1} 行: 区域结束")
                     break 
                 
-                # 防止空行报错
-                if len(row) <= max(col_cons, col_sal): continue
+                # 行太短或者是刚才被强制锁定的那行表头本身，跳过
+                if len(row) <= max(col_cons, col_sal) or any(k in row_text[col_cons].lower() for k in KEYS_CONS): 
+                    continue
+                
                 consultant_name = row[col_cons].strip()
                 if not consultant_name: continue 
-
-                # --- 🔴 打印前几条尝试读取的数据，看看为什么失败 ---
-                # 只打印前5条非空数据，避免刷屏
-                if len(sales_records) == 0 and i < 100: 
-                    st.markdown(f"**🔍 正在分析第 {i+1} 行数据:**")
-                    st.text(f"  > 原始名字: {consultant_name}")
-                    if col_onboard != -1:
-                        st.text(f"  > 原始日期: {row[col_onboard]}")
-                    else:
-                        st.text(f"  > ❌ 未找到日期列，无法判断季度")
 
                 # 日期解析
                 onboard_date = None
                 if col_onboard != -1:
                     d_str = row[col_onboard].strip()
-                    for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%m/%d/%Y", "%d-%b-%y"]:
+                    for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%m/%d/%Y", "%d-%b-%y", "%Y.%m.%d"]:
                         try: 
                             onboard_date = datetime.strptime(d_str, fmt)
                             break
                         except: pass
                 
-                # 季度检查失败？
-                if not onboard_date:
-                    if len(sales_records) == 0: st.warning(f"  -> ⚠️ 日期解析失败")
-                    continue
+                if not onboard_date: continue
+                # 检查季度
                 if not (onboard_date.year == year and quarter_start_month <= onboard_date.month <= quarter_end_month):
-                    if len(sales_records) == 0: st.warning(f"  -> ⚠️ 日期 {onboard_date.date()} 不在 Q3 ({year}) 范围内")
                     continue
 
                 # 名字匹配
                 matched = "Unknown"
-                # 使用去重音的模糊匹配
                 norm_consultant = normalize_text(consultant_name)
-                
                 for conf in TEAM_CONFIG:
                     norm_config = normalize_text(conf['name'])
-                    # 只要名字的一部分匹配即可 (如 "Raul" in "Raul Solis")
                     if norm_config in norm_consultant or norm_consultant in norm_config:
                         matched = conf['name']
                         break
                 
                 if matched == "Unknown":
-                    if len(sales_records) == 0: st.error(f"  -> ❌ 名字 '{consultant_name}' 未在配置列表里找到")
+                    # 尝试打印几个未匹配的名字，方便调试
+                    if len(sales_records) < 3: st.warning(f"未匹配顾问: {consultant_name}")
                     continue
 
-                # 数据成功
+                # 数据提取
                 salary_raw = str(row[col_sal]).replace(',', '').replace('$', '').replace('MXN', '').strip()
                 try: salary = float(salary_raw)
                 except: salary = 0
@@ -303,24 +275,22 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                 status = "Pending"
                 if col_pay != -1 and len(row) > col_pay:
                     pay_date_str = row[col_pay].strip()
+                    # 只要有内容且长度够，就算Paid
                     if len(pay_date_str) > 5: status = "Paid"
 
                 sales_records.append({
                     "Consultant": matched, "GP": calc_gp, "Candidate Salary": salary,
                     "Onboard Date": onboard_date.strftime("%Y-%m-%d"), "Payment Date": pay_date_str, "Status": status
                 })
-                
-                if len(sales_records) <= 3:
-                    st.success(f"  -> ✅ 成功提取: {matched} | Salary: {salary}")
 
-        st.success(f"🏁 最终提取条数: {len(sales_records)}")
+        st.success(f"🏁 提取完成，共 {len(sales_records)} 条记录")
         return pd.DataFrame(sales_records)
 
     except Exception as e:
-        st.error(f"❌ 代码报错: {e}")
+        st.error(f"❌ 报错: {e}")
         return pd.DataFrame()
-        
-# --- 🚀 主程序 (Q3 测试版) ---
+
+# --- 🚀 主程序 ---
 def main():
     st.title("💼 Management Dashboard (Q3 TEST)")
     
@@ -334,9 +304,7 @@ def main():
         return
 
     client = connect_to_google()
-    if not client:
-        st.error("API Error")
-        return
+    if not client: st.error("API Error"); return
 
     # === 🔧 测试参数 (Q3) ===
     today = datetime.now()
@@ -353,22 +321,13 @@ def main():
         
     tab_dash, tab_details = st.tabs(["📊 DASHBOARD", "📝 DETAILS"])
 
-    # --- TAB 1: DASHBOARD ---
     with tab_dash:
         st.markdown(f"### 🎯 Recruitment Stats (Q{quarter_num})")
         if not rec_stats_df.empty:
             rec_summary = rec_stats_df.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
             rec_summary = rec_summary.sort_values(by='Sent', ascending=False)
-            st.dataframe(
-                rec_summary, use_container_width=True, hide_index=True,
-                column_config={
-                    "Sent": st.column_config.NumberColumn("Sent/Q", format="%d"),
-                    "Int": st.column_config.NumberColumn("Int/Q", format="%d"),
-                    "Off": st.column_config.NumberColumn("Off/Q", format="%d")
-                }
-            )
-        else:
-            st.warning(f"No recruitment data found.")
+            st.dataframe(rec_summary, use_container_width=True, hide_index=True)
+        else: st.warning(f"No recruitment data.")
 
         st.divider()
 
@@ -380,18 +339,13 @@ def main():
             target = base * 3
             
             c_sales = sales_df[sales_df['Consultant'] == c_name] if not sales_df.empty else pd.DataFrame()
-            
-            # GP: 根据 Onboarding Date 在本季度的所有单子总和
             total_gp = c_sales['GP'].sum() if not c_sales.empty else 0
             
-            # Level: 根据 GP 和 Base 算
             level, multiplier = calculate_commission_tier(total_gp, base)
-            
-            # Commission: 只有 Payment Status 为 'Paid' 的单子才计算金额
             total_comm = 0
             if not c_sales.empty:
                 for _, row in c_sales.iterrows():
-                    # 只有已付款的才算进“预计佣金”
+                    # 只有已付款才算佣金
                     if row['Status'] == 'Paid':
                         total_comm += calculate_single_deal_commission(row['Candidate Salary'], multiplier)
             
@@ -403,57 +357,35 @@ def main():
             })
             
         df_fin = pd.DataFrame(financial_summary).sort_values(by='Total GP', ascending=False)
-        st.dataframe(
-            df_fin, use_container_width=True, hide_index=True,
-            column_config={
+        st.dataframe(df_fin, use_container_width=True, hide_index=True, column_config={
                 "Base Salary": st.column_config.NumberColumn(format="$%d"),
-                "Target": st.column_config.NumberColumn("Target (3x)", format="$%d"),
-                "Total GP": st.column_config.NumberColumn("Actual GP (Onboarded)", format="$%d"),
+                "Target": st.column_config.NumberColumn(format="$%d"),
+                "Total GP": st.column_config.NumberColumn("Calculated GP", format="$%d"),
                 "Completion": st.column_config.ProgressColumn("Achieved", format="%.1f%%", min_value=0, max_value=1),
-                "Est. Commission": st.column_config.NumberColumn("Commission (Paid Only)", format="$%d"),
-            }
-        )
+                "Est. Commission": st.column_config.NumberColumn("Commission", format="$%d"),
+            })
 
-    # --- TAB 2: DETAILS ---
     with tab_details:
         st.markdown("### 🔍 Drill Down Details")
         for conf in TEAM_CONFIG:
             c_name = conf['name']
             fin_row = df_fin[df_fin['Consultant'] == c_name].iloc[0]
-            
-            # Header
             header = f"👤 {c_name} | GP: ${fin_row['Total GP']:,.0f} (Lvl {fin_row['Level']})"
             
             with st.expander(header):
-                st.markdown("#### 💸 Sales Breakdown")
+                st.markdown("#### 💸 Commission Breakdown")
                 c_sales = sales_df[sales_df['Consultant'] == c_name] if not sales_df.empty else pd.DataFrame()
-                
                 if not c_sales.empty:
                     multiplier = calculate_commission_tier(fin_row['Total GP'], fin_row['Base Salary'])[1]
                     
-                    # 动态计算佣金列显示
-                    def get_comm_display(row):
-                        if row['Status'] == 'Paid':
-                            return calculate_single_deal_commission(row['Candidate Salary'], multiplier)
-                        else:
-                            return 0 # 未付款显示0
-                            
-                    c_sales['Commission'] = c_sales.apply(get_comm_display, axis=1)
-                    
-                    st.dataframe(
-                        c_sales[['Onboard Date', 'Payment Date', 'Candidate Salary', 'GP', 'Status', 'Commission']],
-                        use_container_width=True, hide_index=True,
-                        column_config={
-                            "Onboard Date": st.column_config.DateColumn("Onboard"),
-                            "Payment Date": st.column_config.TextColumn("Payment"), # TextColumn防止空日期报错
-                            "Candidate Salary": st.column_config.NumberColumn("Salary", format="$%d"),
-                            "GP": st.column_config.NumberColumn("GP", format="$%d"),
-                            "Commission": st.column_config.NumberColumn("Comm.", format="$%d"),
-                        }
-                    )
+                    def get_comm(row):
+                        return calculate_single_deal_commission(row['Candidate Salary'], multiplier) if row['Status'] == 'Paid' else 0
+                        
+                    c_sales['Commission'] = c_sales.apply(get_comm, axis=1)
+                    st.dataframe(c_sales[['Onboard Date', 'Payment Date', 'Candidate Salary', 'GP', 'Commission']], use_container_width=True, hide_index=True)
                     if multiplier > 0: st.success(f"✅ Multiplier: x{multiplier}")
                     else: st.warning("⚠️ Target not met")
-                else: st.info("No sales in this quarter.")
+                else: st.info("No deals.")
                 
                 st.divider()
                 st.markdown("#### 📝 Recruitment Logs")
@@ -461,7 +393,6 @@ def main():
                     c_logs = rec_details_df[rec_details_df['Consultant'] == c_name]
                     if not c_logs.empty:
                         agg = c_logs.groupby(['Month', 'Company', 'Position', 'Status'])['Count'].sum().reset_index()
-                        agg = agg.sort_values(by='Month', ascending=False)
                         st.dataframe(agg, use_container_width=True, hide_index=True)
                     else: st.info("No logs.")
                 else: st.info("No data.")
