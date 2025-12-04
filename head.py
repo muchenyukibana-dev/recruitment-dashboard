@@ -8,9 +8,8 @@ from datetime import datetime
 import unicodedata
 
 # ==========================================
-# 🔧 配置区域 (已更新 ID)
+# 🔧 配置区域
 # ==========================================
-# 🔥 新的表格 ID
 SALES_SHEET_ID = '1rCmyqOUOBn-644KpCtF5FZwBMEnRGHTKSSUBxzvOSkI'
 SALES_TAB_NAME = 'Positions' 
 
@@ -151,10 +150,10 @@ def internal_fetch_sheet_data(client, conf, tab):
         return cs, ci, co, details
     except: return 0,0,0,[]
 
-# --- FETCH SALES DATA (性能优化版) ---
+# --- 💰 获取业绩数据 (精确匹配版) ---
 def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
     # 显示调试信息
-    st.info(f"⚡ 快速读取模式: {year}年 {quarter_start_month}-{quarter_end_month}月")
+    st.info(f"🚀 正在提取业绩: {year}年 {quarter_start_month}-{quarter_end_month}月")
     
     try:
         sheet = client.open_by_key(SALES_SHEET_ID)
@@ -169,101 +168,103 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
         col_cons = -1; col_onboard = -1; col_pay = -1; col_sal = -1
         sales_records = []
         
-        KEYS_CONS = ["linkeazi", "consultant", "owner", "顾问", "assigned"]
-        KEYS_ONBOARD = ["onboard", "entry", "start", "入职", "board"]
-        KEYS_PAY = ["payment", "date", "paid", "付款", "paym"]
-        KEYS_SALARY = ["salary", "base", "wage", "薪资", "底薪", "package"]
-
-        # 进度条
-        progress_text = st.empty()
+        # 🔥 精确关键词 (你提供的)
+        # 用 lower() 小写匹配，防止大小写差异
+        EXACT_CONS = "linkeazi consultant"
+        EXACT_ONBOARD = "onboarding date" # 或者截图里的 Onboardi...
+        EXACT_PAY = "payment date"        # 或者截图里的 Paym...
+        EXACT_SALARY = "candidate salary"
 
         for i, row in enumerate(rows):
-            # 🔥 性能优化核心：如果这一行全是空的，直接跳过！
-            if not any(cell.strip() for cell in row):
-                continue
+            # 0. 防卡死
+            if not any(cell.strip() for cell in row): continue
 
-            row_text = [str(x).strip() for x in row]
-            row_str = " ".join(row_text).upper()
+            row_str = " ".join([str(x).strip() for x in row]).upper()
             
-            # 1. 找区域
+            # 1. 找区域入口
             if not found_section:
                 if "PLACED" in row_str and "POSITION" in row_str:
                     found_section = True
-                    progress_text.text(f"✅ 第 {i+1} 行: 发现区域入口...")
-                    
-                    # 强制检查下一行
-                    if i + 1 < len(rows):
-                        next_row = rows[i+1]
-                        next_lower = [str(x).strip().lower() for x in next_row]
-                        t_c=-1; t_o=-1; t_p=-1; t_s=-1
-                        for idx, cell in enumerate(next_lower):
-                            if any(k in cell for k in KEYS_CONS): t_c = idx
-                            if any(k in cell for k in KEYS_ONBOARD): t_o = idx
-                            if any(k in cell for k in KEYS_SALARY): t_s = idx
-                            if any(k in cell for k in KEYS_PAY): 
-                                if "onboard" not in cell: t_p = idx
-                        
-                        if t_c != -1 and t_s != -1:
-                            col_cons=t_c; col_onboard=t_o; col_pay=t_p; col_sal=t_s
-                            found_header = True
-                            continue
+                    st.success(f"✅ 第 {i+1} 行: 发现 'PLACED POSITIONS' 区域")
                 continue 
             
-            # 2. 自然寻找表头
+            # 2. 找表头 (只要在区域内，就一直找，直到找到包含核心词的那一行)
             if found_section and not found_header:
                 row_lower = [str(x).strip().lower() for x in row]
-                for idx, cell in enumerate(row_lower):
-                    if any(k in cell for k in KEYS_CONS): col_cons = idx
-                    if any(k in cell for k in KEYS_ONBOARD): col_onboard = idx
-                    if any(k in cell for k in KEYS_PAY): 
-                        if "onboard" not in cell: col_pay = idx
-                    if any(k in cell for k in KEYS_SALARY): col_sal = idx
                 
-                if col_cons != -1 and col_sal != -1:
-                    found_header = True
+                # 检查这一行是否同时包含 "linkeazi consultant" 和 "candidate salary"
+                has_cons = any(EXACT_CONS in cell for cell in row_lower)
+                has_sal = any(EXACT_SALARY in cell for cell in row_lower)
+                
+                if has_cons and has_sal:
+                    # 锁定列号
+                    for idx, cell in enumerate(row_lower):
+                        if EXACT_CONS in cell: col_cons = idx
+                        if "onboard" in cell: col_onboard = idx
+                        if "payment" in cell or "paym" in cell: col_pay = idx
+                        if EXACT_SALARY in cell: col_sal = idx
+                    
+                    if col_cons != -1 and col_sal != -1:
+                        found_header = True
+                        st.success(f"✅ 第 {i+1} 行锁定表头! 顾问在第 {col_cons+1} 列")
                 continue
 
             # 3. 读取数据
             if found_header:
+                # 遇到下一个区域标题，停止
                 if "POSITION" in row_str and "PLACED" not in row_str:
-                    break # 区域结束
+                    st.info(f"🛑 第 {i+1} 行: 区域结束")
+                    break 
                 
-                if len(row) <= max(col_cons, col_sal): continue
+                # 确保行长度
+                if len(row) <= max(col_cons, col_onboard, col_sal): continue
+                
                 consultant_name = row[col_cons].strip()
                 if not consultant_name: continue 
 
-                # 日期解析
+                # --- 日期解析 (Onboarding Date) ---
+                if col_onboard == -1: continue
+                onboard_str = row[col_onboard].strip()
                 onboard_date = None
-                if col_onboard != -1:
-                    d_str = row[col_onboard].strip()
-                    for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%m/%d/%Y", "%d-%b-%y", "%Y.%m.%d"]:
-                        try: 
-                            onboard_date = datetime.strptime(d_str, fmt)
-                            break
-                        except: pass
                 
-                if not onboard_date: continue
+                # 常见格式
+                formats = [
+                    "%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d", 
+                    "%d-%m-%Y", "%d/%m/%Y", 
+                    "%d-%b-%y", "%d-%b-%Y"
+                ]
+                for fmt in formats:
+                    try: 
+                        onboard_date = datetime.strptime(onboard_str, fmt)
+                        break
+                    except: pass
+                
+                if not onboard_date: continue 
+                
                 # 检查季度
                 if not (onboard_date.year == year and quarter_start_month <= onboard_date.month <= quarter_end_month):
                     continue
 
-                # 名字匹配
+                # --- 名字匹配 ---
                 matched = "Unknown"
-                norm_consultant = normalize_text(consultant_name)
+                c_name_lower = normalize_text(consultant_name)
                 for conf in TEAM_CONFIG:
-                    norm_config = normalize_text(conf['name'])
-                    if norm_config in norm_consultant or norm_consultant in norm_config:
+                    config_name_parts = normalize_text(conf['name']).split()
+                    # 只要匹配到名字的一部分 (例如 'raul' 在 'raul solis' 里)
+                    if any(part in c_name_lower for part in config_name_parts if len(part) > 2):
                         matched = conf['name']
                         break
                 
                 if matched == "Unknown": continue
 
-                # 数据提取
+                # --- 薪资与GP ---
                 salary_raw = str(row[col_sal]).replace(',', '').replace('$', '').replace('MXN', '').replace('CNY', '').strip()
                 try: salary = float(salary_raw)
                 except: salary = 0
+                
                 calc_gp = salary * 1.0 if salary < 20000 else salary * 1.5
                 
+                # --- 付款状态 ---
                 pay_date_str = ""
                 status = "Pending"
                 if col_pay != -1 and len(row) > col_pay:
@@ -271,12 +272,19 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                     if len(pay_date_str) > 5: status = "Paid"
 
                 sales_records.append({
-                    "Consultant": matched, "GP": calc_gp, "Candidate Salary": salary,
-                    "Onboard Date": onboard_date.strftime("%Y-%m-%d"), "Payment Date": pay_date_str, "Status": status
+                    "Consultant": matched, 
+                    "GP": calc_gp, 
+                    "Candidate Salary": salary,
+                    "Onboard Date": onboard_date.strftime("%Y-%m-%d"), 
+                    "Payment Date": pay_date_str, 
+                    "Status": status
                 })
 
-        progress_text.empty() # 清除进度提示
-        st.success(f"🏁 提取完成，共 {len(sales_records)} 条记录")
+        if len(sales_records) == 0:
+            st.warning("⚠️ 未提取到数据。请检查：1.日期是否为2025年 2.表头名称是否拼写正确")
+        else:
+            st.success(f"✅ 成功提取 {len(sales_records)} 条记录")
+            
         return pd.DataFrame(sales_records)
 
     except Exception as e:
@@ -299,7 +307,7 @@ def main():
     client = connect_to_google()
     if not client: st.error("API Error"); return
 
-    # === 🔧 测试参数 (Q3 2025) ===
+    # === 🔧 测试参数 (Q3) ===
     today = datetime.now()
     year = 2025 # 确认年份
     quarter_num = 3
