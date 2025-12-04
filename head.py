@@ -150,10 +150,9 @@ def internal_fetch_sheet_data(client, conf, tab):
         return cs, ci, co, details
     except: return 0,0,0,[]
 
-# --- 💰 获取业绩数据 (精确匹配版) ---
+# --- FETCH SALES DATA (针对截图的定点爆破版) ---
 def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
-    # 显示调试信息
-    st.info(f"🚀 正在提取业绩: {year}年 {quarter_start_month}-{quarter_end_month}月")
+    st.info(f"🎯 定点提取模式: 目标 {year}年 {quarter_start_month}-{quarter_end_month}月")
     
     try:
         sheet = client.open_by_key(SALES_SHEET_ID)
@@ -162,58 +161,60 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
             
         rows = ws.get_all_values()
         
-        found_section = False
-        found_header = False
-        
         col_cons = -1; col_onboard = -1; col_pay = -1; col_sal = -1
         sales_records = []
         
-        # 🔥 精确关键词 (你提供的)
-        # 用 lower() 小写匹配，防止大小写差异
-        EXACT_CONS = "linkeazi consultant"
-        EXACT_ONBOARD = "onboarding date" # 或者截图里的 Onboardi...
-        EXACT_PAY = "payment date"        # 或者截图里的 Paym...
-        EXACT_SALARY = "candidate salary"
+        # 状态标记：是否进入了数据区
+        in_data_zone = False
 
         for i, row in enumerate(rows):
             # 0. 防卡死
             if not any(cell.strip() for cell in row): continue
 
-            row_str = " ".join([str(x).strip() for x in row]).upper()
-            
-            # 1. 找区域入口
-            if not found_section:
+            # 转大写方便匹配
+            row_text = [str(x).strip() for x in row]
+            row_str = " ".join(row_text).upper()
+            row_lower = [x.lower() for x in row_text]
+
+            # 1. 寻找区域入口 (PLACED POSITIONS)
+            if not in_data_zone:
                 if "PLACED" in row_str and "POSITION" in row_str:
-                    found_section = True
-                    st.success(f"✅ 第 {i+1} 行: 发现 'PLACED POSITIONS' 区域")
-                continue 
-            
-            # 2. 找表头 (只要在区域内，就一直找，直到找到包含核心词的那一行)
-            if found_section and not found_header:
-                row_lower = [str(x).strip().lower() for x in row]
-                
-                # 检查这一行是否同时包含 "linkeazi consultant" 和 "candidate salary"
-                has_cons = any(EXACT_CONS in cell for cell in row_lower)
-                has_sal = any(EXACT_SALARY in cell for cell in row_lower)
-                
-                if has_cons and has_sal:
-                    # 锁定列号
-                    for idx, cell in enumerate(row_lower):
-                        if EXACT_CONS in cell: col_cons = idx
-                        if "onboard" in cell: col_onboard = idx
-                        if "payment" in cell or "paym" in cell: col_pay = idx
-                        if EXACT_SALARY in cell: col_sal = idx
+                    st.success(f"✅ 第 {i+1} 行: 找到区域标题 'PLACED POSITIONS'")
                     
-                    if col_cons != -1 and col_sal != -1:
-                        found_header = True
-                        st.success(f"✅ 第 {i+1} 行锁定表头! 顾问在第 {col_cons+1} 列")
+                    # 🔥 核心修改：直接预判下一行(i+1)是表头
+                    if i + 1 < len(rows):
+                        header_row = rows[i+1] # 获取下一行
+                        header_lower = [str(x).strip().lower() for x in header_row]
+                        
+                        # 打印出来给你看，确认有没有读错
+                        st.write(f"🧐 正在分析下一行 (第 {i+2} 行) 作为表头: {header_row}")
+
+                        # 强制匹配列索引
+                        for idx, cell in enumerate(header_lower):
+                            if "linkeazi" in cell or "consultant" in cell: col_cons = idx
+                            if "onboard" in cell: col_onboard = idx
+                            if "payment" in cell or "paym" in cell: 
+                                if "onboard" not in cell: col_pay = idx
+                            if "salary" in cell or "candidate" in cell: col_sal = idx
+                        
+                        if col_cons != -1 and col_sal != -1:
+                            in_data_zone = True
+                            st.success(f"🔓 锁定列号! 顾问:{col_cons+1}, 入职:{col_onboard+1}, 薪资:{col_sal+1}")
+                            # 跳过下一行（表头行），直接进入下下行的数据读取
+                            continue 
+                        else:
+                            st.error(f"❌ 无法在第 {i+2} 行识别关键列。请检查该行是否包含 'Linkeazi Consultant' 和 'Salary'")
+                            return pd.DataFrame()
                 continue
 
-            # 3. 读取数据
-            if found_header:
-                # 遇到下一个区域标题，停止
+            # 2. 读取数据 (进入数据区后)
+            if in_data_zone:
+                # 如果这一行又是表头本身，跳过（防止逻辑重叠）
+                if "linkeazi" in row_str.lower() or "salary" in row_str.lower(): continue
+
+                # 如果遇到下一个大标题，停止
                 if "POSITION" in row_str and "PLACED" not in row_str:
-                    st.info(f"🛑 第 {i+1} 行: 区域结束")
+                    st.info("🛑 区域结束")
                     break 
                 
                 # 确保行长度
@@ -227,7 +228,7 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                 onboard_str = row[col_onboard].strip()
                 onboard_date = None
                 
-                # 常见格式
+                # 截图里是 2025-07-01 这种标准格式
                 formats = [
                     "%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d", 
                     "%d-%m-%Y", "%d/%m/%Y", 
@@ -247,11 +248,15 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
 
                 # --- 名字匹配 ---
                 matched = "Unknown"
-                c_name_lower = normalize_text(consultant_name)
+                # 简单粗暴匹配：只要包含配置里的名字就算
+                c_name_lower = consultant_name.lower()
                 for conf in TEAM_CONFIG:
-                    config_name_parts = normalize_text(conf['name']).split()
-                    # 只要匹配到名字的一部分 (例如 'raul' 在 'raul solis' 里)
-                    if any(part in c_name_lower for part in config_name_parts if len(part) > 2):
+                    if conf['name'].lower() in c_name_lower: # 例如 "Raul" in "Raul Solis"
+                        matched = conf['name']
+                        break
+                    # 反向匹配：例如表格里只有 "Raul"，配置里是 "Raul Solis"
+                    config_first_name = conf['name'].split()[0].lower()
+                    if config_first_name in c_name_lower:
                         matched = conf['name']
                         break
                 
@@ -269,6 +274,7 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                 status = "Pending"
                 if col_pay != -1 and len(row) > col_pay:
                     pay_date_str = row[col_pay].strip()
+                    # 只要有内容 (例如 2025-07-07)，就算 Paid
                     if len(pay_date_str) > 5: status = "Paid"
 
                 sales_records.append({
@@ -280,10 +286,10 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                     "Status": status
                 })
 
-        if len(sales_records) == 0:
-            st.warning("⚠️ 未提取到数据。请检查：1.日期是否为2025年 2.表头名称是否拼写正确")
+        if len(sales_records) > 0:
+            st.success(f"✅ 成功提取 {len(sales_records)} 条 Q3 数据")
         else:
-            st.success(f"✅ 成功提取 {len(sales_records)} 条记录")
+            st.warning("⚠️ 没有提取到数据。请检查上面的'正在分析下一行'是否显示了正确的表头内容。")
             
         return pd.DataFrame(sales_records)
 
