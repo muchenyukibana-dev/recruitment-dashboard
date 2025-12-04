@@ -333,15 +333,15 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
         return pd.DataFrame()
         
 
-# --- 🚀 主程序 ---
+# --- 🚀 主程序 (阶梯佣金版) ---
 def main():
     st.title("💼 Management Dashboard")
-
+    
     col1, col2 = st.columns([1, 5])
     with col1:
         if st.button("🔄 LOAD Q3 DATA"):
             st.session_state['loaded'] = True
-
+    
     if not st.session_state.get('loaded'):
         st.info("Click 'LOAD Q3 DATA' to view reports.")
         return
@@ -349,101 +349,140 @@ def main():
     client = connect_to_google()
     if not client: st.error("API Error"); return
 
-    # === 🔧 生产环境设置 (Q3 测试) ===
+    # === 🔧 生产环境设置 ===
+    today = datetime.now()
     year = 2025
     quarter_num = 3
     start_m = 7
     end_m = 9
     quarter_months_str = [f"{year}{m:02d}" for m in range(start_m, end_m + 1)]
-    # ================================
+    # ======================
 
     with st.spinner("Analyzing Data..."):
         rec_stats_df, rec_details_df = fetch_recruitment_stats(client, quarter_months_str)
         sales_df = fetch_sales_data(client, start_m, end_m, year)
-
+        
     tab_dash, tab_details = st.tabs(["📊 DASHBOARD", "📝 DETAILS"])
 
+    # 1. 预计算佣金逻辑 (放在循环外，因为两个 Tab 都要用)
+    # 我们需要为 sales_df 里的每一行计算出当时的 Multiplier 和 Commission
+    
+    financial_summary = []
+    
+    # 如果有销售数据，进行高级计算
+    if not sales_df.empty:
+        # 必须按入职日期排序，这样才能模拟"逐步达标"的过程
+        sales_df = sales_df.sort_values(by='Onboard Date')
+        
+        # 初始化新列
+        sales_df['Current_Cum_GP'] = 0.0
+        sales_df['Applied_Level'] = 0
+        sales_df['Applied_Multiplier'] = 0.0
+        sales_df['Commission'] = 0.0
+        
+        # 按顾问分组进行累加计算
+        for conf in TEAM_CONFIG:
+            c_name = conf['name']
+            base = conf['base_salary']
+            target = base * 3 * 3
+            
+            # 筛选该顾问的单子
+            c_indices = sales_df[sales_df['Consultant'] == c_name].index
+            
+            running_gp = 0.0
+            total_comm = 0.0
+            
+            for idx in c_indices:
+                deal_gp = sales_df.at[idx, 'GP']
+                running_gp += deal_gp
+                
+                # 🔥 核心：根据【当前的累计GP】判断等级
+                level, multiplier = calculate_commission_tier(running_gp, base)
+                
+                # 计算这单的佣金 (只有 Paid 才算钱，但 GP 累计不管是否 Paid)
+                deal_comm = 0
+                if sales_df.at[idx, 'Status'] == 'Paid':
+                    deal_comm = calculate_single_deal_commission(sales_df.at[idx, 'Candidate Salary'], multiplier)
+                
+                # 回写到 DataFrame，方便在 Details 里展示每一单的具体情况
+                sales_df.at[idx, 'Current_Cum_GP'] = running_gp
+                sales_df.at[idx, 'Applied_Level'] = level
+                sales_df.at[idx, 'Applied_Multiplier'] = multiplier
+                sales_df.at[idx, 'Commission'] = deal_comm
+                
+                total_comm += deal_comm
+            
+            # 生成汇总数据
+            completion_rate = (running_gp / target) if target > 0 else 0
+            # 最终等级 (用于概览)
+            final_level, _ = calculate_commission_tier(running_gp, base)
+            
+            financial_summary.append({
+                "Consultant": c_name, "Base Salary": base, "Target": target,
+                "Total GP": running_gp, "Completion": completion_rate,
+                "Level": final_level, "Est. Commission": total_comm
+            })
+    else:
+        # 如果没数据，填0
+        for conf in TEAM_CONFIG:
+            financial_summary.append({
+                "Consultant": conf['name'], "Base Salary": conf['base_salary'], "Target": conf['base_salary']*9,
+                "Total GP": 0, "Completion": 0, "Level": 0, "Est. Commission": 0
+            })
+
+    # --- TAB 1: DASHBOARD ---
     with tab_dash:
         st.markdown(f"### 🎯 Recruitment Stats (Q{quarter_num})")
         if not rec_stats_df.empty:
             rec_summary = rec_stats_df.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
             rec_summary = rec_summary.sort_values(by='Sent', ascending=False)
-            st.dataframe(
-                rec_summary, use_container_width=True, hide_index=True,
-                column_config={
-                    "Sent": st.column_config.NumberColumn("Sent/Q", format="%d"),
-                    "Int": st.column_config.NumberColumn("Int/Q", format="%d"),
-                    "Off": st.column_config.NumberColumn("Off/Q", format="%d")
-                }
-            )
-        else:
-            st.warning(f"No recruitment data.")
+            st.dataframe(rec_summary, use_container_width=True, hide_index=True)
+        else: st.warning(f"No recruitment data.")
 
         st.divider()
 
         st.markdown(f"### 💰 Financial Performance (Q{quarter_num})")
-        financial_summary = []
-        for conf in TEAM_CONFIG:
-            c_name = conf['name']
-            base = conf['base_salary']
-            target = base * 9
-
-            c_sales = sales_df[sales_df['Consultant'] == c_name] if not sales_df.empty else pd.DataFrame()
-            total_gp = c_sales['GP'].sum() if not c_sales.empty else 0
-
-            level, multiplier = calculate_commission_tier(total_gp, base)
-            total_comm = 0
-            if not c_sales.empty:
-                for _, row in c_sales.iterrows():
-                    if row['Status'] == 'Paid':
-                        total_comm += calculate_single_deal_commission(row['Candidate Salary'], multiplier)
-
-            completion_rate = (total_gp / target) if target > 0 else 0
-            financial_summary.append({
-                "Consultant": c_name, "Base Salary": base, "Target": target,
-                "Total GP": total_gp, "Completion": completion_rate,
-                "Level": level, "Est. Commission": total_comm
-            })
-
         df_fin = pd.DataFrame(financial_summary).sort_values(by='Total GP', ascending=False)
         st.dataframe(
             df_fin, use_container_width=True, hide_index=True,
             column_config={
                 "Base Salary": st.column_config.NumberColumn(format="$%d"),
-                "Target": st.column_config.NumberColumn("Target (3x)", format="$%d"),
-                "Total GP": st.column_config.NumberColumn("Calculated GP", format="$%d"),
+                "Target": st.column_config.NumberColumn("Target (Q)", format="$%d"),
+                "Total GP": st.column_config.NumberColumn("Actual GP", format="$%d"),
                 "Completion": st.column_config.ProgressColumn("Achieved", format="%.1f%%", min_value=0, max_value=1),
                 "Est. Commission": st.column_config.NumberColumn("Commission", format="$%d"),
             }
         )
 
+    # --- TAB 2: DETAILS ---
     with tab_details:
         st.markdown("### 🔍 Drill Down Details")
         for conf in TEAM_CONFIG:
             c_name = conf['name']
             fin_row = df_fin[df_fin['Consultant'] == c_name].iloc[0]
-            header = f"👤 {c_name} | GP: ${fin_row['Total GP']:,.0f} (Lvl {fin_row['Level']})"
-
+            header = f"👤 {c_name} | GP: ${fin_row['Total GP']:,.0f} (Final Lvl {fin_row['Level']})"
+            
             with st.expander(header):
-                st.markdown("#### 💸 Commission Breakdown")
-                c_sales = sales_df[sales_df['Consultant'] == c_name] if not sales_df.empty else pd.DataFrame()
-                if not c_sales.empty:
-                    multiplier = calculate_commission_tier(fin_row['Total GP'], fin_row['Base Salary'])[1]
-
-                    def get_comm(row):
-                        return calculate_single_deal_commission(row['Candidate Salary'], multiplier) if row[
-                                                                                                            'Status'] == 'Paid' else 0
-
-                    c_sales['Commission'] = c_sales.apply(get_comm, axis=1)
-                    st.dataframe(c_sales[['Onboard Date', 'Payment Date', 'Candidate Salary', 'GP', 'Commission']],
-                                 use_container_width=True, hide_index=True)
-                    if multiplier > 0:
-                        st.success(f"✅ Multiplier: x{multiplier}")
-                    else:
-                        st.warning("⚠️ Target not met")
-                else:
-                    st.info("No deals.")
-
+                st.markdown("#### 💸 Commission Breakdown (Progressive)")
+                
+                if not sales_df.empty:
+                    c_sales = sales_df[sales_df['Consultant'] == c_name].sort_values(by='Onboard Date')
+                    
+                    if not c_sales.empty:
+                        st.dataframe(
+                            c_sales[['Onboard Date', 'Company', 'Position', 'GP', 'Current_Cum_GP', 'Applied_Multiplier', 'Status', 'Commission']], 
+                            use_container_width=True, hide_index=True,
+                            column_config={
+                                "Onboard Date": st.column_config.DateColumn("Date"),
+                                "Current_Cum_GP": st.column_config.NumberColumn("Cum. GP", format="$%d"),
+                                "Applied_Multiplier": st.column_config.NumberColumn("Mult.", format="x%.1f"),
+                                "Commission": st.column_config.NumberColumn("Comm.", format="$%d"),
+                            }
+                        )
+                        st.caption("注：Commission 根据该单完成时的累计 GP 实时计算倍数。")
+                    else: st.info("No deals.")
+                else: st.info("No deals.")
+                
                 st.divider()
                 st.markdown("#### 📝 Recruitment Logs")
                 if not rec_details_df.empty:
@@ -452,11 +491,8 @@ def main():
                         agg = c_logs.groupby(['Month', 'Company', 'Position', 'Status'])['Count'].sum().reset_index()
                         agg = agg.sort_values(by='Month', ascending=False)
                         st.dataframe(agg, use_container_width=True, hide_index=True)
-                    else:
-                        st.info("No logs.")
-                else:
-                    st.info("No data.")
-
+                    else: st.info("No logs.")
+                else: st.info("No data.")
 
 if __name__ == "__main__":
     main()
