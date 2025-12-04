@@ -151,10 +151,10 @@ def internal_fetch_sheet_data(client, conf, tab):
         return cs, ci, co, details
     except: return 0,0,0,[]
 
-# --- 💰 获取业绩数据 (诊断模式) ---
+# --- FETCH SALES DATA (性能优化版) ---
 def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
-    # 打印目标 ID 确认是否更新
-    st.info(f"🕵️‍♂️ 读取新表格: {SALES_SHEET_ID} | 目标: {year}年 {quarter_start_month}-{quarter_end_month}月")
+    # 显示调试信息
+    st.info(f"⚡ 快速读取模式: {year}年 {quarter_start_month}-{quarter_end_month}月")
     
     try:
         sheet = client.open_by_key(SALES_SHEET_ID)
@@ -162,10 +162,10 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
         except: ws = sheet.get_worksheet(0)
             
         rows = ws.get_all_values()
-        st.write(f"📊 表格总行数: {len(rows)}")
         
         found_section = False
         found_header = False
+        
         col_cons = -1; col_onboard = -1; col_pay = -1; col_sal = -1
         sales_records = []
         
@@ -174,16 +174,24 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
         KEYS_PAY = ["payment", "date", "paid", "付款", "paym"]
         KEYS_SALARY = ["salary", "base", "wage", "薪资", "底薪", "package"]
 
+        # 进度条
+        progress_text = st.empty()
+
         for i, row in enumerate(rows):
-            row_str = " ".join([str(x).strip() for x in row]).upper()
+            # 🔥 性能优化核心：如果这一行全是空的，直接跳过！
+            if not any(cell.strip() for cell in row):
+                continue
+
+            row_text = [str(x).strip() for x in row]
+            row_str = " ".join(row_text).upper()
             
             # 1. 找区域
             if not found_section:
                 if "PLACED" in row_str and "POSITION" in row_str:
                     found_section = True
-                    st.success(f"✅ 第 {i+1} 行: 发现区域入口 (PLACED POSITIONS)")
+                    progress_text.text(f"✅ 第 {i+1} 行: 发现区域入口...")
                     
-                    # 强制检查下一行是否为表头
+                    # 强制检查下一行
                     if i + 1 < len(rows):
                         next_row = rows[i+1]
                         next_lower = [str(x).strip().lower() for x in next_row]
@@ -198,7 +206,6 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                         if t_c != -1 and t_s != -1:
                             col_cons=t_c; col_onboard=t_o; col_pay=t_p; col_sal=t_s
                             found_header = True
-                            st.success(f"✅ 强制锁定下一行 (第 {i+2} 行) 为表头! \n顾问:{t_c+1}, 入职:{t_o+1}, 薪资:{t_s+1}")
                             continue
                 continue 
             
@@ -214,14 +221,12 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                 
                 if col_cons != -1 and col_sal != -1:
                     found_header = True
-                    st.success(f"✅ 第 {i+1} 行锁定表头")
                 continue
 
             # 3. 读取数据
             if found_header:
                 if "POSITION" in row_str and "PLACED" not in row_str:
-                    st.info(f"🛑 第 {i+1} 行: 区域结束")
-                    break 
+                    break # 区域结束
                 
                 if len(row) <= max(col_cons, col_sal): continue
                 consultant_name = row[col_cons].strip()
@@ -237,13 +242,9 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                             break
                         except: pass
                 
-                if not onboard_date: 
-                    # st.warning(f"日期解析失败: {i+1}行")
-                    continue
-                
+                if not onboard_date: continue
                 # 检查季度
                 if not (onboard_date.year == year and quarter_start_month <= onboard_date.month <= quarter_end_month):
-                    # st.write(f"日期 {onboard_date.date()} 不在 Q3 范围")
                     continue
 
                 # 名字匹配
@@ -255,9 +256,7 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                         matched = conf['name']
                         break
                 
-                if matched == "Unknown":
-                    if len(sales_records) < 3: st.error(f"❌ 名字未匹配: {consultant_name}")
-                    continue
+                if matched == "Unknown": continue
 
                 # 数据提取
                 salary_raw = str(row[col_sal]).replace(',', '').replace('$', '').replace('MXN', '').replace('CNY', '').strip()
@@ -276,6 +275,7 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                     "Onboard Date": onboard_date.strftime("%Y-%m-%d"), "Payment Date": pay_date_str, "Status": status
                 })
 
+        progress_text.empty() # 清除进度提示
         st.success(f"🏁 提取完成，共 {len(sales_records)} 条记录")
         return pd.DataFrame(sales_records)
 
