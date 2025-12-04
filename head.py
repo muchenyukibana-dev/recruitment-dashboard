@@ -189,125 +189,149 @@ def internal_fetch_sheet_data(client, conf, tab):
         return 0, 0, 0, []
 
 
-# --- 💰 获取业绩数据 (正式运行版) ---
+# --- FETCH SALES DATA (增加 Company 和 Position) ---
 def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
+    # st.info(f"🚀 提取业绩: {year}年 Q{int((quarter_start_month-1)/3)+1}")
     try:
         sheet = client.open_by_key(SALES_SHEET_ID)
-        try:
-            ws = sheet.worksheet(SALES_TAB_NAME)
-        except:
-            ws = sheet.get_worksheet(0)
-
+        try: ws = sheet.worksheet(SALES_TAB_NAME)
+        except: ws = sheet.get_worksheet(0)
+            
         rows = ws.get_all_values()
-
-        col_cons = -1;
-        col_onboard = -1;
-        col_pay = -1;
-        col_sal = -1
-        sales_records = []
-
-        # 状态机：寻找表头
+        
+        found_section = False
         found_header = False
+        
+        # 新增 col_comp (公司) 和 col_pos (岗位)
+        col_cons = -1; col_onboard = -1; col_pay = -1; col_sal = -1; col_comp = -1; col_pos = -1
+        sales_records = []
+        
+        # 关键词库增加 Company 和 Position
+        KEYS_CONS = ["linkeazi", "consultant", "owner", "顾问"]
+        KEYS_ONBOARD = ["onboard", "entry", "start", "入职"]
+        KEYS_PAY = ["payment", "date", "paid", "付款"]
+        KEYS_SALARY = ["salary", "base", "wage", "薪资", "candidate"]
+        KEYS_COMP = ["company", "client", "customer", "客户", "公司"] # 新增
+        KEYS_POS = ["position", "role", "title", "岗位", "职位"]     # 新增
 
         for i, row in enumerate(rows):
-            # 跳过空行
             if not any(cell.strip() for cell in row): continue
+            
+            row_text = [str(x).strip() for x in row]
+            row_str = " ".join(row_text).upper()
+            row_lower = [x.lower() for x in row_text]
 
-            row_lower = [str(x).strip().lower() for x in row]
+            # 1. 找区域
+            if not found_section:
+                if "PLACED" in row_str and "POSITION" in row_str:
+                    found_section = True
+                    # 强制检查下一行
+                    if i + 1 < len(rows):
+                        next_row = rows[i+1]
+                        next_lower = [str(x).strip().lower() for x in next_row]
+                        t_c=-1; t_o=-1; t_s=-1
+                        for idx, cell in enumerate(next_lower):
+                            if any(k in cell for k in KEYS_CONS): t_c = idx
+                            if any(k in cell for k in KEYS_ONBOARD): t_o = idx
+                            if any(k in cell for k in KEYS_SALARY): t_s = idx
+                        
+                        if t_c != -1 and t_s != -1:
+                            # 重新扫描所有列
+                            for idx, cell in enumerate(next_lower):
+                                if any(k in cell for k in KEYS_CONS): col_cons = idx
+                                if any(k in cell for k in KEYS_ONBOARD): col_onboard = idx
+                                if any(k in cell for k in KEYS_PAY) and "onboard" not in cell: col_pay = idx
+                                if any(k in cell for k in KEYS_SALARY): col_sal = idx
+                                # 抓取公司和岗位列号
+                                if any(k in cell for k in KEYS_COMP): col_comp = idx
+                                if any(k in cell for k in KEYS_POS) and "placed" not in cell: col_pos = idx
+                            
+                            found_header = True
+                            continue 
+                continue 
 
-            # 1. 寻找表头 (基于你刚才成功的逻辑)
-            # 必须同时包含 linkeazi consultant 和 onboarding date
-            if not found_header:
+            # 2. 找表头 (常规扫描)
+            if found_section and not found_header:
                 has_cons = any("linkeazi" in c and "consultant" in c for c in row_lower)
                 has_onb = any("onboarding" in c for c in row_lower)
-
                 if has_cons and has_onb:
                     for idx, cell in enumerate(row_lower):
                         if "linkeazi" in cell and "consultant" in cell: col_cons = idx
                         if "onboarding" in cell and "date" in cell: col_onboard = idx
                         if "candidate" in cell and "salary" in cell: col_sal = idx
-                        if "payment" in cell:
-                            if "onboard" not in cell: col_pay = idx  # 避免混淆
-
+                        if "payment" in cell: col_pay = idx
+                        # 抓取公司和岗位列号
+                        if any(k in cell for k in KEYS_COMP): col_comp = idx
+                        if any(k in cell for k in KEYS_POS): col_pos = idx
                     found_header = True
-                    continue  # 跳过表头行
+                continue
 
-            # 2. 读取数据
+            # 3. 读取数据
             if found_header:
-                # 遇到下一个区域标题停止
-                row_upper = " ".join(row_lower).upper()
-                if "POSITION" in row_upper and "PLACED" not in row_upper:
-                    break
-
-                    # 防越界
+                if "POSITION" in row_str and "PLACED" not in row_str: break 
                 if len(row) <= max(col_cons, col_onboard, col_sal): continue
-
+                
                 consultant_name = row[col_cons].strip()
-                if not consultant_name: continue
+                if not consultant_name: continue 
 
-                # 日期解析
                 onboard_str = row[col_onboard].strip()
                 onboard_date = None
                 formats = ["%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%m/%d/%Y", "%d-%b-%y", "%Y.%m.%d"]
                 for fmt in formats:
-                    try:
+                    try: 
                         onboard_date = datetime.strptime(onboard_str, fmt)
                         break
-                    except:
-                        pass
-
-                if not onboard_date: continue
-                # 季度筛选
+                    except: pass
+                
+                if not onboard_date: continue 
                 if not (onboard_date.year == year and quarter_start_month <= onboard_date.month <= quarter_end_month):
                     continue
 
-                # 名字匹配 (去重音 + 模糊匹配)
                 matched = "Unknown"
                 c_norm = normalize_text(consultant_name)
-
                 for conf in TEAM_CONFIG:
                     conf_norm = normalize_text(conf['name'])
                     if conf_norm in c_norm or c_norm in conf_norm:
                         matched = conf['name']
                         break
-                    if conf_norm.split()[0] in c_norm:  # 匹配 First Name
+                    if conf_norm.split()[0] in c_norm: 
                         matched = conf['name']
                         break
-
+                
                 if matched == "Unknown": continue
 
-                # 薪资与GP
-                salary_raw = str(row[col_sal]).replace(',', '').replace('$', '').replace('MXN', '').replace('CNY',
-                                                                                                            '').strip()
-                try:
-                    salary = float(salary_raw)
-                except:
-                    salary = 0
-
+                salary_raw = str(row[col_sal]).replace(',', '').replace('$', '').replace('MXN', '').replace('CNY', '').strip()
+                try: salary = float(salary_raw)
+                except: salary = 0
+                
                 calc_gp = salary * 1.0 if salary < 20000 else salary * 1.5
-
-                # 付款状态
+                
                 pay_date_str = ""
                 status = "Pending"
                 if col_pay != -1 and len(row) > col_pay:
                     pay_date_str = row[col_pay].strip()
                     if len(pay_date_str) > 5: status = "Paid"
 
+                # 获取公司和岗位 (增加容错)
+                comp_name = row[col_comp].strip() if col_comp != -1 and len(row) > col_comp else "N/A"
+                pos_name = row[col_pos].strip() if col_pos != -1 and len(row) > col_pos else "N/A"
+
                 sales_records.append({
-                    "Consultant": matched,
-                    "GP": calc_gp,
+                    "Consultant": matched, 
+                    "Company": comp_name, # 新增
+                    "Position": pos_name, # 新增
+                    "GP": calc_gp, 
                     "Candidate Salary": salary,
-                    "Onboard Date": onboard_date.strftime("%Y-%m-%d"),
-                    "Payment Date": pay_date_str,
+                    "Onboard Date": onboard_date.strftime("%Y-%m-%d"), 
+                    "Payment Date": pay_date_str, 
                     "Status": status
                 })
 
         return pd.DataFrame(sales_records)
-
     except Exception as e:
         st.error(f"Error: {e}")
         return pd.DataFrame()
-
+        
 
 # --- 🚀 主程序 ---
 def main():
