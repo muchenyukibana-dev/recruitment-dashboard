@@ -10,7 +10,7 @@ import unicodedata
 # ==========================================
 # 🔧 配置区域
 # ==========================================
-SALES_SHEET_ID = '1E2Gepiu8QKXxAq8ctd13YFQZnJNFBJit'
+SALES_SHEET_ID = '1rCmyqOUOBn-644KpCtF5FZwBMEnRGHTKSSUBxzvOSkI'
 SALES_TAB_NAME = 'Positions' 
 
 TEAM_CONFIG = [
