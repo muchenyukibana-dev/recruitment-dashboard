@@ -197,3 +197,155 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                 onboard_str = row[col_onboard].strip()
                 onboard_date = None
                 formats = ["%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%m/%d/%Y", "%d-%b-%y", "%Y.%m.%d"]
+                for fmt in formats:
+                    try: 
+                        onboard_date = datetime.strptime(onboard_str, fmt)
+                        break
+                    except: pass
+                
+                if not onboard_date: continue
+                
+                # 季度筛选
+                if not (onboard_date.year == year and quarter_start_month <= onboard_date.month <= quarter_end_month):
+                    continue
+
+                # 名字匹配
+                matched = "Unknown"
+                c_norm = normalize_text(consultant_name)
+                for conf in TEAM_CONFIG:
+                    conf_norm = normalize_text(conf['name'])
+                    if conf_norm in c_norm or c_norm in conf_norm:
+                        matched = conf['name']
+                        break
+                    if conf_norm.split()[0] in c_norm: 
+                        matched = conf['name']
+                        break
+                
+                if matched == "Unknown": continue
+
+                # 薪资与GP
+                salary_raw = str(row[col_sal]).replace(',', '').replace('$', '').replace('MXN', '').replace('CNY', '').strip()
+                try: salary = float(salary_raw)
+                except: salary = 0
+                
+                calc_gp = salary * 1.0 if salary < 20000 else salary * 1.5
+                
+                # 付款状态
+                pay_date_str = ""
+                status = "Pending"
+                if col_pay != -1 and len(row) > col_pay:
+                    pay_date_str = row[col_pay].strip()
+                    if len(pay_date_str) > 5: status = "Paid"
+
+                sales_records.append({
+                    "Consultant": matched, 
+                    "GP": calc_gp, 
+                    "Candidate Salary": salary,
+                    "Onboard Date": onboard_date.strftime("%Y-%m-%d"), 
+                    "Payment Date": pay_date_str, 
+                    "Status": status
+                })
+
+        return pd.DataFrame(sales_records)
+
+    except Exception as e:
+        st.error(f"Error: {e}")
+        return pd.DataFrame()
+
+# --- 🚀 主程序 ---
+def main():
+    st.title("💼 Management Dashboard (Q3 TEST)")
+    
+    col1, col2 = st.columns([1, 5])
+    with col1:
+        if st.button("🔄 LOAD Q3 DATA"):
+            st.session_state['loaded'] = True
+    
+    if not st.session_state.get('loaded'):
+        st.info("Click 'LOAD Q3 DATA' to view reports.")
+        return
+
+    client = connect_to_google()
+    if not client: st.error("API Error"); return
+
+    # === 🔧 测试参数 (Q3 2025) ===
+    today = datetime.now()
+    year = 2025 # 确认你的年份
+    quarter_num = 3
+    start_m = 7
+    end_m = 9
+    quarter_months_str = [f"{year}{m:02d}" for m in range(start_m, end_m + 1)]
+    # ==============================
+
+    with st.spinner("Analyzing Q3 Data..."):
+        rec_stats_df, rec_details_df = fetch_recruitment_stats(client, quarter_months_str)
+        sales_df = fetch_sales_data(client, start_m, end_m, year)
+        
+    tab_dash, tab_details = st.tabs(["📊 DASHBOARD", "📝 DETAILS"])
+
+    # TAB 1: DASHBOARD
+    with tab_dash:
+        # A. Recruitment Stats
+        st.markdown(f"### 🎯 Recruitment Stats (Q{quarter_num})")
+        if not rec_stats_df.empty:
+            rec_summary = rec_stats_df.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
+            rec_summary = rec_summary.sort_values(by='Sent', ascending=False)
+            st.dataframe(
+                rec_summary, use_container_width=True, hide_index=True,
+                column_config={
+                    "Sent": st.column_config.NumberColumn("Sent/Q", format="%d"),
+                    "Int": st.column_config.NumberColumn("Int/Q", format="%d"),
+                    "Off": st.column_config.NumberColumn("Off/Q", format="%d")
+                }
+            )
+        else: st.warning("No recruitment data.")
+
+        st.divider()
+
+        # B. Financial Stats
+        st.markdown(f"### 💰 Financial Performance (Q{quarter_num})")
+        financial_summary = []
+        for conf in TEAM_CONFIG:
+            c_name = conf['name']
+            base = conf['base_salary']
+            target = base * 3 * 3 # 季度 Target
+            
+            c_sales = sales_df[sales_df['Consultant'] == c_name] if not sales_df.empty else pd.DataFrame()
+            total_gp = c_sales['GP'].sum() if not c_sales.empty else 0
+            
+            level, multiplier = calculate_commission_tier(total_gp, base)
+            total_comm = 0
+            if not c_sales.empty:
+                for _, row in c_sales.iterrows():
+                    if row['Status'] == 'Paid':
+                        total_comm += calculate_single_deal_commission(row['Candidate Salary'], multiplier)
+            
+            completion_rate = (total_gp / target) if target > 0 else 0
+            financial_summary.append({
+                "Consultant": c_name, "Base Salary": base, "Target": target,
+                "Total GP": total_gp, "Completion": completion_rate,
+                "Level": level, "Est. Commission": total_comm
+            })
+            
+        df_fin = pd.DataFrame(financial_summary).sort_values(by='Total GP', ascending=False)
+        st.dataframe(
+            df_fin, use_container_width=True, hide_index=True,
+            column_config={
+                "Base Salary": st.column_config.NumberColumn(format="$%d"),
+                "Target": st.column_config.NumberColumn("Target (Q)", format="$%d"),
+                "Total GP": st.column_config.NumberColumn("Actual GP", format="$%d"),
+                "Completion": st.column_config.ProgressColumn("Achieved", format="%.1f%%", min_value=0, max_value=1),
+                "Est. Commission": st.column_config.NumberColumn("Commission", format="$%d"),
+            }
+        )
+
+    # TAB 2: DETAILS
+    with tab_details:
+        st.markdown("### 🔍 Drill Down Details")
+        for conf in TEAM_CONFIG:
+            c_name = conf['name']
+            fin_row = df_fin[df_fin['Consultant'] == c_name].iloc[0]
+            header = f"👤 {c_name} | GP: ${fin_row['Total GP']:,.0f} (Lvl {fin_row['Level']})"
+            
+            with st.expander(header):
+                st.markdown("#### 💸 Commission Breakdown")
