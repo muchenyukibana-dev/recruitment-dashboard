@@ -331,4 +331,64 @@ def main():
             base = conf['base_salary']
             target = base * 3
             
-            c_sales = sales_df[sales_df['Consultant'] == c_name] if
+            c_sales = sales_df[sales_df['Consultant'] == c_name] if not sales_df.empty else pd.DataFrame()
+            total_gp = c_sales['GP'].sum() if not c_sales.empty else 0
+            
+            level, multiplier = calculate_commission_tier(total_gp, base)
+            total_comm = 0
+            if not c_sales.empty:
+                for _, row in c_sales.iterrows():
+                    if row['Status'] == 'Paid':
+                        total_comm += calculate_single_deal_commission(row['Candidate Salary'], multiplier)
+            
+            completion_rate = (total_gp / target) if target > 0 else 0
+            financial_summary.append({
+                "Consultant": c_name, "Base Salary": base, "Target": target,
+                "Total GP": total_gp, "Completion": completion_rate,
+                "Level": level, "Est. Commission": total_comm
+            })
+            
+        df_fin = pd.DataFrame(financial_summary).sort_values(by='Total GP', ascending=False)
+        st.dataframe(df_fin, use_container_width=True, hide_index=True, column_config={
+                "Base Salary": st.column_config.NumberColumn(format="$%d"),
+                "Target": st.column_config.NumberColumn(format="$%d"),
+                "Total GP": st.column_config.NumberColumn("Calculated GP", format="$%d"),
+                "Completion": st.column_config.ProgressColumn("Achieved", format="%.1f%%", min_value=0, max_value=1),
+                "Est. Commission": st.column_config.NumberColumn("Commission", format="$%d"),
+            })
+
+    with tab_details:
+        st.markdown("### 🔍 Drill Down Details")
+        for conf in TEAM_CONFIG:
+            c_name = conf['name']
+            fin_row = df_fin[df_fin['Consultant'] == c_name].iloc[0]
+            header = f"👤 {c_name} | GP: ${fin_row['Total GP']:,.0f} (Lvl {fin_row['Level']})"
+            
+            with st.expander(header):
+                st.markdown("#### 💸 Commission Breakdown")
+                c_sales = sales_df[sales_df['Consultant'] == c_name] if not sales_df.empty else pd.DataFrame()
+                if not c_sales.empty:
+                    multiplier = calculate_commission_tier(fin_row['Total GP'], fin_row['Base Salary'])[1]
+                    
+                    def get_comm(row):
+                        return calculate_single_deal_commission(row['Candidate Salary'], multiplier) if row['Status'] == 'Paid' else 0
+                        
+                    c_sales['Commission'] = c_sales.apply(get_comm, axis=1)
+                    st.dataframe(c_sales[['Onboard Date', 'Payment Date', 'Candidate Salary', 'GP', 'Commission']], use_container_width=True, hide_index=True)
+                    if multiplier > 0: st.success(f"✅ Multiplier: x{multiplier}")
+                    else: st.warning("⚠️ Target not met")
+                else: st.info("No deals.")
+                
+                st.divider()
+                st.markdown("#### 📝 Recruitment Logs")
+                if not rec_details_df.empty:
+                    c_logs = rec_details_df[rec_details_df['Consultant'] == c_name]
+                    if not c_logs.empty:
+                        agg = c_logs.groupby(['Month', 'Company', 'Position', 'Status'])['Count'].sum().reset_index()
+                        agg = agg.sort_values(by='Month', ascending=False)
+                        st.dataframe(agg, use_container_width=True, hide_index=True)
+                    else: st.info("No logs.")
+                else: st.info("No data.")
+
+if __name__ == "__main__":
+    main()
