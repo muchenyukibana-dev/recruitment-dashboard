@@ -137,7 +137,7 @@ def internal_fetch_sheet_data(client, conf, tab):
         return cs, ci, co, details
     except: return 0,0,0,[]
 
-# --- 💰 获取业绩数据 (修改：增加 Company 和 Position) ---
+# --- 💰 获取业绩数据 (修改：增加 Percentage 列处理) ---
 def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
     try:
         sheet = client.open_by_key(SALES_SHEET_ID)
@@ -147,7 +147,7 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
         rows = ws.get_all_values()
         
         col_cons = -1; col_onboard = -1; col_pay = -1; col_sal = -1
-        col_comp = -1; col_pos = -1 # 新增：公司和岗位列索引
+        col_comp = -1; col_pos = -1; col_pct = -1 # 新增: Percentage
         sales_records = []
         
         found_header = False
@@ -157,8 +157,9 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
         KEYS_ONBOARD = ["onboard", "entry", "start", "入职"]
         KEYS_PAY = ["payment", "date", "paid", "付款"]
         KEYS_SALARY = ["salary", "base", "wage", "薪资", "candidate"]
-        KEYS_COMP = ["company", "client", "customer", "客户", "公司"] # 新增
-        KEYS_POS = ["position", "role", "title", "岗位", "职位"]     # 新增
+        KEYS_COMP = ["company", "client", "customer", "客户", "公司"]
+        KEYS_POS = ["position", "role", "title", "岗位", "职位"]
+        KEYS_PCT = ["percentage", "share", "split", "percent", "%", "比例", "分成"] # 新增
 
         for i, row in enumerate(rows):
             if not any(cell.strip() for cell in row): continue
@@ -176,9 +177,11 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                         if "candidate" in cell and "salary" in cell: col_sal = idx
                         if "payment" in cell: 
                             if "onboard" not in cell: col_pay = idx
-                        # 抓取新增列
+                        
+                        # 非必须列
                         if any(k in cell for k in KEYS_COMP): col_comp = idx
                         if any(k in cell for k in KEYS_POS) and "placed" not in cell: col_pos = idx
+                        if any(k in cell for k in KEYS_PCT): col_pct = idx # 抓取 Percentage
                     
                     found_header = True
                     continue
@@ -186,7 +189,7 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
             # 2. 读取数据
             if found_header:
                 row_upper = "".join(row_lower).upper()
-                if "POSITION" in row_upper and "PLACED" not in row_upper and i > 60: # 简单的区域结束判断
+                if "POSITION" in row_upper and "PLACED" not in row_upper and i > 60: 
                     break
                 
                 if len(row) <= max(col_cons, col_onboard, col_sal): continue
@@ -208,7 +211,6 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                 if not (onboard_date.year == year and quarter_start_month <= onboard_date.month <= quarter_end_month):
                     continue
 
-                # 名字匹配
                 matched = "Unknown"
                 c_norm = normalize_text(consultant_name)
                 for conf in TEAM_CONFIG:
@@ -222,11 +224,27 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                 
                 if matched == "Unknown": continue
 
-                # 薪资与GP
+                # 薪资处理
                 salary_raw = str(row[col_sal]).replace(',', '').replace('$', '').replace('MXN', '').replace('CNY', '').strip()
                 try: salary = float(salary_raw)
                 except: salary = 0
-                calc_gp = salary * 1.0 if salary < 20000 else salary * 1.5
+                
+                # --- 🔥 Percentage 处理 ---
+                percentage = 1.0 # 默认 100%
+                if col_pct != -1 and len(row) > col_pct:
+                    pct_str = str(row[col_pct]).replace('%', '').strip()
+                    try:
+                        if pct_str:
+                            val = float(pct_str)
+                            # 如果是 50 这种整数，转为 0.5；如果是 0.5，保持 0.5
+                            if val > 1.0: percentage = val / 100.0
+                            else: percentage = val
+                    except:
+                        percentage = 1.0
+                
+                # --- 🔥 GP 计算 (乘以权重) ---
+                base_gp = salary * 1.0 if salary < 20000 else salary * 1.5
+                final_gp = base_gp * percentage # 乘以比例
                 
                 # 付款状态
                 pay_date_str = ""
@@ -235,7 +253,6 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                     pay_date_str = row[col_pay].strip()
                     if len(pay_date_str) > 5: status = "Paid"
 
-                # 获取公司和岗位 (新增)
                 comp_name = row[col_comp].strip() if col_comp != -1 and len(row) > col_comp else ""
                 pos_name = row[col_pos].strip() if col_pos != -1 and len(row) > col_pos else ""
 
@@ -243,7 +260,8 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                     "Consultant": matched, 
                     "Company": comp_name,
                     "Position": pos_name,
-                    "GP": calc_gp, 
+                    "GP": final_gp,  # 存储折算后的 GP
+                    "Percentage": percentage, # 存储比例以便展示
                     "Candidate Salary": salary,
                     "Onboard Date": onboard_date.strftime("%Y-%m-%d"), 
                     "Payment Date": pay_date_str, 
@@ -256,7 +274,7 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
         st.error(f"Error: {e}")
         return pd.DataFrame()
 
-# --- 🚀 主程序 (修改：阶梯佣金计算逻辑) ---
+# --- 🚀 主程序 (修改：佣金计算也乘比例) ---
 def main():
     st.title("💼 Management Dashboard")
     
@@ -284,53 +302,50 @@ def main():
         rec_stats_df, rec_details_df = fetch_recruitment_stats(client, quarter_months_str)
         sales_df = fetch_sales_data(client, start_m, end_m, year)
     
-    # 1. 预计算佣金逻辑 (阶梯式累加)
+    # 1. 预计算佣金逻辑
     financial_summary = []
     
     if not sales_df.empty:
-        # 🔥 关键：必须按入职日期排序，才能实现“时间轴上的阶梯累加”
-        # 否则乱序累加会导致倍数计算错误
         sales_df = sales_df.sort_values(by='Onboard Date')
         
-        # 初始化新列
         sales_df['Current_Cum_GP'] = 0.0
         sales_df['Applied_Multiplier'] = 0.0
         sales_df['Commission'] = 0.0
         
-        # 按顾问分组处理
         for conf in TEAM_CONFIG:
             c_name = conf['name']
             base = conf['base_salary']
-            target = base * 9 # 季度Target = 月薪 * 3 * 3
+            target = base * 9 
             
-            # 找到该顾问的所有单子 (注意：这里已经是按时间排序的)
             c_indices = sales_df[sales_df['Consultant'] == c_name].index
             
             running_gp = 0.0
             total_comm = 0.0
             
             for idx in c_indices:
+                # 获取已经折算过 Percentage 的 GP
                 deal_gp = sales_df.at[idx, 'GP']
+                percentage = sales_df.at[idx, 'Percentage']
                 
-                # 1. 累加 GP (无论是否付款，GP都累加，用于冲等级)
+                # 1. 累加 GP
                 running_gp += deal_gp
                 
-                # 2. 判断【这一刻】的等级
+                # 2. 判断等级
                 _, multiplier = calculate_commission_tier(running_gp, base)
                 
-                # 3. 计算这一单的佣金 (只有 Paid 才发钱)
+                # 3. 计算佣金 (全额佣金 * 比例)
                 deal_comm = 0
                 if sales_df.at[idx, 'Status'] == 'Paid':
-                    deal_comm = calculate_single_deal_commission(sales_df.at[idx, 'Candidate Salary'], multiplier)
+                    full_comm = calculate_single_deal_commission(sales_df.at[idx, 'Candidate Salary'], multiplier)
+                    deal_comm = full_comm * percentage # 🔥 佣金也要乘以比例
                 
-                # 4. 回写数据
+                # 4. 回写
                 sales_df.at[idx, 'Current_Cum_GP'] = running_gp
                 sales_df.at[idx, 'Applied_Multiplier'] = multiplier
                 sales_df.at[idx, 'Commission'] = deal_comm
                 
                 total_comm += deal_comm
             
-            # 最终等级
             final_level, _ = calculate_commission_tier(running_gp, base)
             completion_rate = (running_gp / target) if target > 0 else 0
             
@@ -366,7 +381,7 @@ def main():
             column_config={
                 "Base Salary": st.column_config.NumberColumn(format="$%d"),
                 "Target": st.column_config.NumberColumn("Target (Q)", format="$%d"),
-                "Total GP": st.column_config.NumberColumn("Actual GP", format="$%d"),
+                "Total GP": st.column_config.NumberColumn("Actual GP (Weighted)", format="$%d"), # 提示是加权后的
                 "Completion": st.column_config.ProgressColumn("Achieved", format="%.1f%%", min_value=0, max_value=1),
                 "Est. Commission": st.column_config.NumberColumn("Commission", format="$%d"),
             }
@@ -380,27 +395,26 @@ def main():
             header = f"👤 {c_name} | GP: ${fin_row['Total GP']:,.0f} (Lvl {fin_row['Level']})"
             
             with st.expander(header):
-                st.markdown("#### 💸 Commission Breakdown (Progressive)")
+                st.markdown("#### 💸 Commission Breakdown")
                 
                 if not sales_df.empty:
-                    # 显示该顾问的单子 (已按时间排序)
-                    c_sales = sales_df[sales_df['Consultant'] == c_name]
+                    c_sales = sales_df[sales_df['Consultant'] == c_name].sort_values(by='Onboard Date')
                     
                     if not c_sales.empty:
-                        # 展示公司和岗位列
+                        # 展示公司、岗位、比例
                         st.dataframe(
-                            c_sales[['Onboard Date', 'Company', 'Position', 'GP', 'Current_Cum_GP', 'Applied_Multiplier', 'Status', 'Commission']], 
+                            c_sales[['Onboard Date', 'Company', 'Position', 'Percentage', 'GP', 'Current_Cum_GP', 'Applied_Multiplier', 'Status', 'Commission']], 
                             use_container_width=True, hide_index=True,
                             column_config={
                                 "Onboard Date": st.column_config.DateColumn("Date"),
-                                "Company": st.column_config.TextColumn("Company"),
-                                "Position": st.column_config.TextColumn("Position"),
+                                "Percentage": st.column_config.NumberColumn("Share", format="%.0f%%"), # 显示百分比
+                                "GP": st.column_config.NumberColumn("GP (Split)", format="$%d"),
                                 "Current_Cum_GP": st.column_config.NumberColumn("Cum. GP", format="$%d"),
                                 "Applied_Multiplier": st.column_config.NumberColumn("Mult.", format="x%.1f"),
                                 "Commission": st.column_config.NumberColumn("Comm.", format="$%d"),
                             }
                         )
-                        st.caption("注：Commission 基于该单完成时的累计 GP 实时计算倍数 (Time-based Progressive).")
+                        st.caption("注：GP 和 Commission 均已按 Percentage 进行折算。")
                     else: st.info("No deals.")
                 else: st.info("No deals.")
                 
