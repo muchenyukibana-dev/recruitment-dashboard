@@ -68,8 +68,16 @@ st.markdown("""
 
 # --- 🧮 辅助函数 ---
 def calculate_commission_tier(total_gp, base_salary):
-    if total_gp < 9 * base_salary:
-        return 0, 0
+    """
+    计算阶梯倍数。
+    Tier 0: < 9x Base -> 0% (Multiplier 0)
+    Tier 1: < 13.5x Base -> 5% (Multiplier 1)
+    Tier 2: < 22.5x Base -> 10% (Multiplier 2)
+    Tier 3: >= 22.5x Base -> 15% (Multiplier 3)
+    """
+    target = 9 * base_salary
+    if total_gp < target:
+        return 0, 0  # 未达标，Multiplier 强制为 0
     elif total_gp < 13.5 * base_salary:
         return 1, 1
     elif total_gp < 22.5 * base_salary:
@@ -80,9 +88,11 @@ def calculate_commission_tier(total_gp, base_salary):
 
 def calculate_single_deal_commission(candidate_salary, multiplier):
     """
-    计算单笔基础佣金（不包含 Percentage，Percentage 在外部应用）
+    计算单笔基础佣金
+    如果 Multiplier 为 0 (未达标)，则直接返回 0。
     """
     if multiplier == 0: return 0
+    
     base_comm = 0
     if candidate_salary < 20000:
         base_comm = 1000
@@ -92,6 +102,7 @@ def calculate_single_deal_commission(candidate_salary, multiplier):
         base_comm = candidate_salary * 1.5 * 0.05
     else:
         base_comm = candidate_salary * 2.0 * 0.05
+    
     return base_comm * multiplier
 
 
@@ -192,7 +203,7 @@ def internal_fetch_sheet_data(client, conf, tab):
         return 0, 0, 0, []
 
 
-# --- 💰 获取业绩数据 (正式运行版 - 含Percentage) ---
+# --- 💰 获取业绩数据 (含 Percentage) ---
 def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
     try:
         sheet = client.open_by_key(SALES_SHEET_ID)
@@ -207,20 +218,16 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
         col_onboard = -1
         col_pay = -1
         col_sal = -1
-        col_pct = -1  # 新增：百分比列
+        col_pct = -1
         
         sales_records = []
-
-        # 状态机：寻找表头
         found_header = False
 
         for i, row in enumerate(rows):
-            # 跳过空行
             if not any(cell.strip() for cell in row): continue
 
             row_lower = [str(x).strip().lower() for x in row]
 
-            # 1. 寻找表头
             if not found_header:
                 has_cons = any("linkeazi" in c and "consultant" in c for c in row_lower)
                 has_onb = any("onboarding" in c for c in row_lower)
@@ -230,29 +237,22 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                         if "linkeazi" in cell and "consultant" in cell: col_cons = idx
                         if "onboarding" in cell and "date" in cell: col_onboard = idx
                         if "candidate" in cell and "salary" in cell: col_sal = idx
-                        if "payment" in cell:
-                            if "onboard" not in cell: col_pay = idx
-                        # 识别 Percentage 列 (percentage, %, pct)
-                        if "percentage" in cell or cell == "%" or "pct" in cell:
-                            col_pct = idx
+                        if "payment" in cell and "onboard" not in cell: col_pay = idx
+                        if "percentage" in cell or cell == "%" or "pct" in cell: col_pct = idx
 
                     found_header = True
-                    continue  # 跳过表头行
+                    continue
 
-            # 2. 读取数据
             if found_header:
-                # 遇到下一个区域标题停止
                 row_upper = " ".join(row_lower).upper()
                 if "POSITION" in row_upper and "PLACED" not in row_upper:
                     break
 
-                # 防越界
                 if len(row) <= max(col_cons, col_onboard, col_sal): continue
 
                 consultant_name = row[col_cons].strip()
                 if not consultant_name: continue
 
-                # 日期解析
                 onboard_str = row[col_onboard].strip()
                 onboard_date = None
                 formats = ["%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%m/%d/%Y", "%d-%b-%y", "%Y.%m.%d"]
@@ -264,11 +264,11 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                         pass
 
                 if not onboard_date: continue
-                # 季度筛选
+                # 季度筛选 (年 + 月)
                 if not (onboard_date.year == year and quarter_start_month <= onboard_date.month <= quarter_end_month):
                     continue
 
-                # 名字匹配 (去重音 + 模糊匹配)
+                # 名字匹配
                 matched = "Unknown"
                 c_norm = normalize_text(consultant_name)
 
@@ -277,7 +277,7 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                     if conf_norm in c_norm or c_norm in conf_norm:
                         matched = conf['name']
                         break
-                    if conf_norm.split()[0] in c_norm:  # 匹配 First Name
+                    if conf_norm.split()[0] in c_norm:
                         matched = conf['name']
                         break
 
@@ -290,15 +290,13 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                 except:
                     salary = 0
                 
-                # 百分比处理 (Percentage)
-                pct_val = 1.0 # 默认 100%
+                # 百分比处理
+                pct_val = 1.0
                 if col_pct != -1 and len(row) > col_pct:
                     p_str = str(row[col_pct]).replace('%', '').strip()
                     if p_str:
                         try:
                             p_float = float(p_str)
-                            # 如果大于1 (例如 50)，认为是 50%，需除以100。如果小于等于1 (例如 0.5)，直接使用
-                            # 除非是 1.0 (100%)
                             if p_float > 1.0:
                                 pct_val = p_float / 100.0
                             else:
@@ -306,7 +304,7 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                         except:
                             pct_val = 1.0
 
-                # 计算 GP (含 Percentage)
+                # 计算 GP: Salary * Factor * Percentage
                 base_gp_factor = 1.0 if salary < 20000 else 1.5
                 calc_gp = salary * base_gp_factor * pct_val
 
@@ -336,29 +334,45 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
 
 # --- 🚀 主程序 ---
 def main():
-    st.title("💼 Management Dashboard")
+    st.title("💼 Management Dashboard (Live Quarter)")
+
+    # === 🕒 自动获取当前季度 ===
+    now = datetime.now()
+    year = now.year
+    month = now.month
+    
+    # 简单的季度判定
+    if month <= 3:
+        quarter_num = 1
+        start_m, end_m = 1, 3
+    elif month <= 6:
+        quarter_num = 2
+        start_m, end_m = 4, 6
+    elif month <= 9:
+        quarter_num = 3
+        start_m, end_m = 7, 9
+    else:
+        quarter_num = 4
+        start_m, end_m = 10, 12
+
+    # 生成月份字符串用于招聘数据表 (如 '202510', '202511'...)
+    quarter_months_str = [f"{year}{m:02d}" for m in range(start_m, end_m + 1)]
+
+    st.caption(f"📅 Current Range: Q{quarter_num} {year} (Months: {start_m}-{end_m})")
 
     col1, col2 = st.columns([1, 5])
     with col1:
-        if st.button("🔄 LOAD Q3 DATA"):
+        if st.button(f"🔄 LOAD Q{quarter_num} DATA"):
             st.session_state['loaded'] = True
 
     if not st.session_state.get('loaded'):
-        st.info("Click 'LOAD Q3 DATA' to view reports.")
+        st.info(f"Click the button to load data for Q{quarter_num} {year}.")
         return
 
     client = connect_to_google()
     if not client: st.error("API Error"); return
 
-    # === 🔧 生产环境设置 (Q3 测试) ===
-    year = 2025
-    quarter_num = 3
-    start_m = 7
-    end_m = 9
-    quarter_months_str = [f"{year}{m:02d}" for m in range(start_m, end_m + 1)]
-    # ================================
-
-    with st.spinner("Analyzing Data..."):
+    with st.spinner("Analyzing Real-time Data..."):
         rec_stats_df, rec_details_df = fetch_recruitment_stats(client, quarter_months_str)
         sales_df = fetch_sales_data(client, start_m, end_m, year)
 
@@ -378,7 +392,7 @@ def main():
                 }
             )
         else:
-            st.warning(f"No recruitment data.")
+            st.warning(f"No recruitment data found for Q{quarter_num}.")
 
         st.divider()
 
@@ -392,17 +406,23 @@ def main():
             c_sales = sales_df[sales_df['Consultant'] == c_name] if not sales_df.empty else pd.DataFrame()
             total_gp = c_sales['GP'].sum() if not c_sales.empty else 0
 
+            # 计算阶梯和倍数
             level, multiplier = calculate_commission_tier(total_gp, base)
+            
             total_comm = 0
             if not c_sales.empty:
                 for _, row in c_sales.iterrows():
                     if row['Status'] == 'Paid':
-                        # 计算单笔佣金，同时乘以 Percentage
+                        # 计算逻辑：
+                        # 1. 如果 Multiplier 为 0 (未达标)，full_deal_comm 为 0
+                        # 2. 如果达标，算出该单子全额佣金
+                        # 3. 最后乘以该单子的 Percentage
                         full_deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier)
                         actual_comm = full_deal_comm * row['Percentage']
                         total_comm += actual_comm
 
             completion_rate = (total_gp / target) if target > 0 else 0
+            
             financial_summary.append({
                 "Consultant": c_name, "Base Salary": base, "Target": target,
                 "Total GP": total_gp, "Completion": completion_rate,
@@ -426,33 +446,38 @@ def main():
         for conf in TEAM_CONFIG:
             c_name = conf['name']
             fin_row = df_fin[df_fin['Consultant'] == c_name].iloc[0]
-            header = f"👤 {c_name} | GP: ${fin_row['Total GP']:,.0f} (Lvl {fin_row['Level']})"
+            
+            # 标题显示 GP 和 达标状态
+            level_text = f"Lvl {fin_row['Level']}" if fin_row['Level'] > 0 else "Missed Target"
+            header = f"👤 {c_name} | GP: ${fin_row['Total GP']:,.0f} ({level_text})"
 
             with st.expander(header):
                 st.markdown("#### 💸 Commission Breakdown")
                 c_sales = sales_df[sales_df['Consultant'] == c_name] if not sales_df.empty else pd.DataFrame()
                 if not c_sales.empty:
+                    # 重新获取 multiplier 以展示细节
                     multiplier = calculate_commission_tier(fin_row['Total GP'], fin_row['Base Salary'])[1]
 
                     def get_comm(row):
                         if row['Status'] != 'Paid': return 0
-                        # 佣金同样乘以 Percentage
+                        # 佣金计算：Base Comm * Multiplier (可能为0) * Percentage
                         base_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier)
                         return base_comm * row['Percentage']
 
                     c_sales['Commission'] = c_sales.apply(get_comm, axis=1)
                     
-                    # 格式化 Percentage 显示
+                    # 格式化显示
                     c_sales['Pct Display'] = c_sales['Percentage'].apply(lambda x: f"{x*100:.0f}%")
 
                     st.dataframe(c_sales[['Onboard Date', 'Payment Date', 'Candidate Salary', 'Pct Display', 'GP', 'Commission']],
                                  use_container_width=True, hide_index=True)
+                    
                     if multiplier > 0:
-                        st.success(f"✅ Multiplier: x{multiplier}")
+                        st.success(f"✅ Target Met! Multiplier: x{multiplier}")
                     else:
-                        st.warning("⚠️ Target not met")
+                        st.error(f"❌ Target Not Met (GP < {fin_row['Target']:,.0f}). Commission = 0")
                 else:
-                    st.info("No deals.")
+                    st.info("No deals found for this quarter.")
 
                 st.divider()
                 st.markdown("#### 📝 Recruitment Logs")
@@ -463,9 +488,9 @@ def main():
                         agg = agg.sort_values(by='Month', ascending=False)
                         st.dataframe(agg, use_container_width=True, hide_index=True)
                     else:
-                        st.info("No logs.")
+                        st.info("No recruitment logs.")
                 else:
-                    st.info("No data.")
+                    st.info("No logs data.")
 
 
 if __name__ == "__main__":
