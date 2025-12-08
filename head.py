@@ -10,15 +10,16 @@ import unicodedata
 # ==========================================
 # 🔧 TEAM CONFIGURATION
 # ==========================================
-# 财务数据源
+# 财务数据源 (新地址)
 SALES_SHEET_ID = '1jniQ-GpeMINjQMebniJ_J1eLVLQIR1NGbSjTtOFP9Q8'
+SALES_TAB_NAME = 'Positions'
 
 TEAM_CONFIG = [
     {
         "name": "Raul Solis",
         "id": "1vQuN-iNBRUug5J6gBMX-52jp6oogbA77SaeAf9j_zYs",
         "keyword": "Name",
-        "base_salary": 11000  # Added for Target Calculation
+        "base_salary": 11000
     },
     {
         "name": "Estela Peng",
@@ -289,51 +290,68 @@ def fetch_consultant_data(client, consultant_config, target_tab):
         return 0, []
 
 
-# --- FETCH FINANCIAL DATA (NEW) ---
+# --- FETCH FINANCIAL DATA (ROBUST VERSION) ---
 def fetch_financial_data(client, start_m, end_m, year):
+    """
+    使用与 Management Dashboard 相同的核心逻辑读取财务数据，并汇总为本季度业绩
+    """
     try:
         sheet = client.open_by_key(SALES_SHEET_ID)
         try:
-            ws = sheet.worksheet('Positions')
+            ws = sheet.worksheet(SALES_TAB_NAME)
         except:
             ws = sheet.get_worksheet(0)
 
         rows = ws.get_all_values()
         
-        # Headers Logic
+        # 初始化结果字典
+        aggregated_data = {conf['name']: 0.0 for conf in TEAM_CONFIG}
+
         col_cons = -1
         col_onboard = -1
+        col_pay = -1
         col_sal = -1
         col_pct = -1
 
-        data = {conf['name']: 0.0 for conf in TEAM_CONFIG}
-
         found_header = False
 
-        for row in rows:
+        for i, row in enumerate(rows):
+            # 跳过空行
             if not any(cell.strip() for cell in row): continue
             row_lower = [str(x).strip().lower() for x in row]
 
+            # 1. 寻找表头
             if not found_header:
                 has_cons = any("linkeazi" in c and "consultant" in c for c in row_lower)
                 has_onb = any("onboarding" in c for c in row_lower)
+
                 if has_cons and has_onb:
                     for idx, cell in enumerate(row_lower):
                         if "linkeazi" in cell and "consultant" in cell: col_cons = idx
                         if "onboarding" in cell and "date" in cell: col_onboard = idx
                         if "candidate" in cell and "salary" in cell: col_sal = idx
-                        if "percentage" in cell or cell == "%" or "pct" in cell: col_pct = idx
+                        if "payment" in cell:
+                            if "onboard" not in cell: col_pay = idx
+                        if "percentage" in cell or cell == "%" or "pct" in cell:
+                            col_pct = idx
+
                     found_header = True
-                    continue
+                    continue  # 跳过表头行
 
+            # 2. 读取数据
             if found_header:
-                if len(row) <= max(col_cons, col_onboard, col_sal): continue
-                
-                # Stop if header repeated or empty block
+                # 遇到下一个区域标题停止
                 row_upper = " ".join(row_lower).upper()
-                if "POSITION" in row_upper and "PLACED" not in row_upper: break
+                if "POSITION" in row_upper and "PLACED" not in row_upper:
+                    break
 
-                # Date Check
+                # 防越界
+                if len(row) <= max(col_cons, col_onboard, col_sal): continue
+
+                consultant_name = row[col_cons].strip()
+                if not consultant_name: continue
+
+                # 日期解析
                 onboard_str = row[col_onboard].strip()
                 onboard_date = None
                 formats = ["%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%m/%d/%Y", "%d-%b-%y", "%Y.%m.%d"]
@@ -341,51 +359,65 @@ def fetch_financial_data(client, start_m, end_m, year):
                     try:
                         onboard_date = datetime.strptime(onboard_str, fmt)
                         break
-                    except: pass
-                
+                    except:
+                        pass
+
                 if not onboard_date: continue
-                # Filter Quarter
+                
+                # 季度筛选 (只保留本季度)
                 if not (onboard_date.year == year and start_m <= onboard_date.month <= end_m):
                     continue
 
-                # Match Consultant
-                consultant_name = row[col_cons].strip()
+                # 名字匹配 (去重音 + 模糊匹配)
+                matched = "Unknown"
                 c_norm = normalize_text(consultant_name)
-                matched_name = None
 
                 for conf in TEAM_CONFIG:
                     conf_norm = normalize_text(conf['name'])
                     if conf_norm in c_norm or c_norm in conf_norm:
-                        matched_name = conf['name']
+                        matched = conf['name']
                         break
-                    if conf_norm.split()[0] in c_norm:
-                        matched_name = conf['name']
+                    if conf_norm.split()[0] in c_norm:  # 匹配 First Name
+                        matched = conf['name']
                         break
-                
-                if not matched_name: continue
 
-                # Calculate GP
-                salary_raw = str(row[col_sal]).replace(',', '').replace('$', '').replace('MXN', '').replace('CNY', '').strip()
-                try: salary = float(salary_raw)
-                except: salary = 0
+                if matched == "Unknown": continue
 
-                pct_val = 1.0
+                # 薪资处理
+                salary_raw = str(row[col_sal]).replace(',', '').replace('$', '').replace('MXN', '').replace('CNY',
+                                                                                                            '').strip()
+                try:
+                    salary = float(salary_raw)
+                except:
+                    salary = 0
+
+                # 百分比处理 (Percentage)
+                pct_val = 1.0  # 默认 100%
                 if col_pct != -1 and len(row) > col_pct:
                     p_str = str(row[col_pct]).replace('%', '').strip()
-                    try:
-                        p_float = float(p_str)
-                        if p_float > 1.0: pct_val = p_float / 100.0
-                        else: pct_val = p_float
-                    except: pct_val = 1.0
-                
-                base_gp_factor = 1.0 if salary < 20000 else 1.5
-                deal_gp = salary * base_gp_factor * pct_val
-                
-                data[matched_name] += deal_gp
+                    if p_str:
+                        try:
+                            p_float = float(p_str)
+                            if p_float > 1.0:
+                                pct_val = p_float / 100.0
+                            else:
+                                pct_val = p_float
+                        except:
+                            pct_val = 1.0
 
-        return data
+                # 计算 GP (含 Percentage)
+                base_gp_factor = 1.0 if salary < 20000 else 1.5
+                calc_gp = salary * base_gp_factor * pct_val
+                
+                # 累加到顾问的总业绩中
+                if matched in aggregated_data:
+                    aggregated_data[matched] += calc_gp
+
+        return aggregated_data
+
     except Exception as e:
         print(f"Financial Error: {e}")
+        # 出错时返回0
         return {conf['name']: 0.0 for conf in TEAM_CONFIG}
 
 
@@ -464,7 +496,7 @@ def main():
 
         with st.spinner(f"🛰️ SCANNING MONTH & Q{quarter_num} DATA..."):
             
-            # 1. Financial Data (Quarterly)
+            # 1. Financial Data (Quarterly) - Robust Fetch
             fin_data = fetch_financial_data(client, start_m, end_m, year)
 
             # 2. Recruitment Data
