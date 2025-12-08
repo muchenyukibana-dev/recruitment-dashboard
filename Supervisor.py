@@ -1,9 +1,11 @@
 import streamlit as st
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from gspread.exceptions import APIError
 import pandas as pd
 import os
 import time
+import random
 from datetime import datetime
 import unicodedata
 
@@ -60,8 +62,6 @@ st.markdown("""
         background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 15px;
         border-radius: 8px; color: #333; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
-
-    .stProgress > div > div > div > div { background-color: #28a745; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -79,9 +79,6 @@ def calculate_commission_tier(total_gp, base_salary):
 
 
 def calculate_single_deal_commission(candidate_salary, multiplier):
-    """
-    计算单笔基础佣金（不包含 Percentage，Percentage 在外部应用）
-    """
     if multiplier == 0: return 0
     base_comm = 0
     if candidate_salary < 20000:
@@ -96,9 +93,32 @@ def calculate_single_deal_commission(candidate_salary, multiplier):
 
 
 def normalize_text(text):
-    """去除重音符号 (Raúl -> raul)"""
     return ''.join(c for c in unicodedata.normalize('NFD', str(text)) if unicodedata.category(c) != 'Mn').lower()
 
+def safe_api_call(func, *args, **kwargs):
+    """
+    执行 Google API 调用，如果遇到 429 错误 (Quota exceeded)，则等待并重试。
+    """
+    max_retries = 5
+    base_delay = 2  # 基础等待时间（秒）
+    
+    for i in range(max_retries):
+        try:
+            return func(*args, **kwargs)
+        except APIError as e:
+            # 检查是否为 429 错误
+            if "429" in str(e):
+                wait_time = base_delay * (2 ** i) + random.uniform(0, 1) # 指数退避: 2s, 4s, 8s...
+                time.sleep(wait_time)
+                # 仅在最后一次尝试失败时抛出错误，否则继续循环重试
+                if i == max_retries - 1:
+                    st.error(f"⚠️ API Quota Exceeded. Please try again in a minute.")
+                    raise e
+            else:
+                raise e
+        except Exception as e:
+            raise e
+    return None
 
 # --- 🔗 连接 ---
 def connect_to_google():
@@ -125,7 +145,6 @@ def connect_to_google():
 
 # --- 📥 招聘数据 ---
 def fetch_recruitment_stats(client, months):
-    """获取指定月份的招聘数据"""
     all_stats = []
     all_details = []
     for month in months:
@@ -137,17 +156,12 @@ def fetch_recruitment_stats(client, months):
 
 
 def fetch_historical_recruitment_stats(client, exclude_months):
-    """
-    自动扫描所有类似 'YYYYMM' 的 sheet，排除当前季度的月份，
-    获取历史汇总数据。
-    """
     all_stats = []
     try:
-        # 随便打开一个表来获取所有 worksheets 列表 (这里用第一个配置的人)
-        sheet = client.open_by_key(TEAM_CONFIG[0]['id'])
-        worksheets = sheet.worksheets()
+        # 1. 获取所有月份 Sheet 名称 (只读取一次)
+        sheet = safe_api_call(client.open_by_key, TEAM_CONFIG[0]['id'])
+        worksheets = safe_api_call(sheet.worksheets)
         
-        # 筛选符合 YYYYMM 格式且不在exclude_months中的sheet
         hist_months = []
         for ws in worksheets:
             title = ws.title.strip()
@@ -155,29 +169,34 @@ def fetch_historical_recruitment_stats(client, exclude_months):
                 if title not in exclude_months:
                     hist_months.append(title)
         
-        # 获取历史数据
+        # 2. 遍历历史月份
         for month in hist_months:
             for consultant in TEAM_CONFIG:
-                # 即使 sheet 不存在 internal_fetch 也会处理异常返回 0
+                # ⚠️ 关键修正：每读取一个人的历史数据，暂停一下，防止瞬间触发 API 限制
+                time.sleep(0.5) 
+                
                 s, i, o, _ = internal_fetch_sheet_data(client, consultant, month)
-                if s + i + o > 0: # 只记录有数据的
+                if s + i + o > 0:
                     all_stats.append({"Consultant": consultant['name'], "Month": month, "Sent": s, "Int": i, "Off": o})
                     
         return pd.DataFrame(all_stats)
     except Exception as e:
-        print(f"Hist Error: {e}")
+        print(f"Historical Data Error: {e}")
         return pd.DataFrame()
 
 
 def internal_fetch_sheet_data(client, conf, tab):
     try:
-        sheet = client.open_by_key(conf['id'])
-        ws = sheet.worksheet(tab)
-        rows = ws.get_all_values()
-        details = [];
-        cs = 0;
-        ci = 0;
-        co = 0
+        sheet = safe_api_call(client.open_by_key, conf['id'])
+        try:
+            ws = safe_api_call(sheet.worksheet, tab)
+        except:
+            return 0, 0, 0, [] # Tab 不存在，直接跳过
+
+        # 使用安全调用获取数据
+        rows = safe_api_call(ws.get_all_values)
+        
+        details = []; cs = 0; ci = 0; co = 0
         target_key = conf.get('keyword', 'Name')
         COMPANY_KEYS = ["Company", "Client", "Cliente", "公司", "客户"]
         POSITION_KEYS = ["Position", "Role", "Posición", "职位", "岗位"]
@@ -185,8 +204,7 @@ def internal_fetch_sheet_data(client, conf, tab):
         block = {"c": "Unk", "p": "Unk", "cands": {}}
 
         def flush(b):
-            res = [];
-            nonlocal cs, ci, co
+            res = []; nonlocal cs, ci, co
             for _, c_data in b['cands'].items():
                 name = c_data.get('n');
                 stage = str(c_data.get('s', 'Sent')).lower()
@@ -197,9 +215,7 @@ def internal_fetch_sheet_data(client, conf, tab):
                 if is_int: ci += 1
                 cs += 1
                 stat = "Offered" if is_off else ("Interviewed" if is_int else "Sent")
-                res.append(
-                    {"Consultant": conf['name'], "Month": tab, "Company": b['c'], "Position": b['p'], "Status": stat,
-                     "Count": 1})
+                res.append({"Consultant": conf['name'], "Month": tab, "Company": b['c'], "Position": b['p'], "Status": stat, "Count": 1})
             return res
 
         for r in rows:
@@ -222,71 +238,52 @@ def internal_fetch_sheet_data(client, conf, tab):
                         block['cands'][idx]['s'] = v.strip()
         details.extend(flush(block))
         return cs, ci, co, details
-    except:
+    except Exception as e:
+        # 如果不是 tab 不存在，可能是其他错误，记录但不崩溃
         return 0, 0, 0, []
 
 
-# --- 💰 获取业绩数据 (所有数据，不分季度) ---
+# --- 💰 获取业绩数据 ---
 def fetch_all_sales_data(client):
     try:
-        sheet = client.open_by_key(SALES_SHEET_ID)
+        # ⚠️ 增加安全调用，因为这里也是一个重度读取操作
+        sheet = safe_api_call(client.open_by_key, SALES_SHEET_ID)
         try:
-            ws = sheet.worksheet(SALES_TAB_NAME)
+            ws = safe_api_call(sheet.worksheet, SALES_TAB_NAME)
         except:
-            ws = sheet.get_worksheet(0)
+            ws = safe_api_call(sheet.get_worksheet, 0)
 
-        rows = ws.get_all_values()
-
-        col_cons = -1
-        col_onboard = -1
-        col_pay = -1
-        col_sal = -1
-        col_pct = -1  # 新增：百分比列
-
+        rows = safe_api_call(ws.get_all_values)
+        
+        col_cons = -1; col_onboard = -1; col_pay = -1; col_sal = -1; col_pct = -1
         sales_records = []
-
-        # 状态机：寻找表头
         found_header = False
 
         for i, row in enumerate(rows):
-            # 跳过空行
             if not any(cell.strip() for cell in row): continue
-
             row_lower = [str(x).strip().lower() for x in row]
 
-            # 1. 寻找表头
             if not found_header:
                 has_cons = any("linkeazi" in c and "consultant" in c for c in row_lower)
                 has_onb = any("onboarding" in c for c in row_lower)
-
                 if has_cons and has_onb:
                     for idx, cell in enumerate(row_lower):
                         if "linkeazi" in cell and "consultant" in cell: col_cons = idx
                         if "onboarding" in cell and "date" in cell: col_onboard = idx
                         if "candidate" in cell and "salary" in cell: col_sal = idx
-                        if "payment" in cell:
-                            if "onboard" not in cell: col_pay = idx
-                        # 识别 Percentage 列 (percentage, %, pct)
-                        if "percentage" in cell or cell == "%" or "pct" in cell:
-                            col_pct = idx
-
+                        if "payment" in cell and "onboard" not in cell: col_pay = idx
+                        if "percentage" in cell or cell == "%" or "pct" in cell: col_pct = idx
                     found_header = True
-                    continue  # 跳过表头行
+                    continue
 
-            # 2. 读取数据
             if found_header:
-                # 遇到下一个区域标题停止
                 row_upper = " ".join(row_lower).upper()
-                if "POSITION" in row_upper and "PLACED" not in row_upper:
-                    break
-
-                # 防越界
+                if "POSITION" in row_upper and "PLACED" not in row_upper: break
                 if len(row) <= max(col_cons, col_onboard, col_sal): continue
 
                 consultant_name = row[col_cons].strip()
                 if not consultant_name: continue
 
-                # 日期解析
                 onboard_str = row[col_onboard].strip()
                 onboard_date = None
                 formats = ["%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%m/%d/%Y", "%d-%b-%y", "%Y.%m.%d"]
@@ -294,56 +291,34 @@ def fetch_all_sales_data(client):
                     try:
                         onboard_date = datetime.strptime(onboard_str, fmt)
                         break
-                    except:
-                        pass
-
+                    except: pass
                 if not onboard_date: continue
-                
-                # --- 修改：不再进行季度筛选，获取所有有效数据 ---
-                # (Filtering happens in main now)
 
-                # 名字匹配 (去重音 + 模糊匹配)
                 matched = "Unknown"
                 c_norm = normalize_text(consultant_name)
-
                 for conf in TEAM_CONFIG:
                     conf_norm = normalize_text(conf['name'])
-                    if conf_norm in c_norm or c_norm in conf_norm:
-                        matched = conf['name']
-                        break
-                    if conf_norm.split()[0] in c_norm:  # 匹配 First Name
-                        matched = conf['name']
-                        break
-
+                    if conf_norm in c_norm or c_norm in conf_norm: matched = conf['name']; break
+                    if conf_norm.split()[0] in c_norm: matched = conf['name']; break
                 if matched == "Unknown": continue
 
-                # 薪资处理
-                salary_raw = str(row[col_sal]).replace(',', '').replace('$', '').replace('MXN', '').replace('CNY',
-                                                                                                            '').strip()
-                try:
-                    salary = float(salary_raw)
-                except:
-                    salary = 0
+                salary_raw = str(row[col_sal]).replace(',', '').replace('$', '').replace('MXN', '').replace('CNY', '').strip()
+                try: salary = float(salary_raw)
+                except: salary = 0
 
-                # 百分比处理 (Percentage)
-                pct_val = 1.0  # 默认 100%
+                pct_val = 1.0
                 if col_pct != -1 and len(row) > col_pct:
                     p_str = str(row[col_pct]).replace('%', '').strip()
                     if p_str:
                         try:
                             p_float = float(p_str)
-                            if p_float > 1.0:
-                                pct_val = p_float / 100.0
-                            else:
-                                pct_val = p_float
-                        except:
-                            pct_val = 1.0
+                            if p_float > 1.0: pct_val = p_float / 100.0
+                            else: pct_val = p_float
+                        except: pct_val = 1.0
 
-                # 计算 GP (含 Percentage)
                 base_gp_factor = 1.0 if salary < 20000 else 1.5
                 calc_gp = salary * base_gp_factor * pct_val
-
-                # 付款状态
+                
                 pay_date_str = ""
                 status = "Pending"
                 if col_pay != -1 and len(row) > col_pay:
@@ -355,16 +330,14 @@ def fetch_all_sales_data(client):
                     "GP": calc_gp,
                     "Candidate Salary": salary,
                     "Percentage": pct_val,
-                    "Onboard Date": onboard_date, # Keep as datetime object for filtering
+                    "Onboard Date": onboard_date,
                     "Onboard Date Str": onboard_date.strftime("%Y-%m-%d"),
                     "Payment Date": pay_date_str,
                     "Status": status
                 })
-
         return pd.DataFrame(sales_records)
-
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error fetching sales data: {e}")
         return pd.DataFrame()
 
 
@@ -374,7 +347,6 @@ def main():
 
     col1, col2 = st.columns([1, 5])
     with col1:
-        # 更新按钮文本为 Q4
         if st.button("🔄 LOAD Q4 DATA"):
             st.session_state['loaded'] = True
 
@@ -385,31 +357,27 @@ def main():
     client = connect_to_google()
     if not client: st.error("API Error"); return
 
-    # === 🔧 Q4 时间设置 ===
+    # === Q4 时间设置 ===
     year = 2025
     quarter_num = 4
     start_m = 10
     end_m = 12
     quarter_months_str = [f"{year}{m:02d}" for m in range(start_m, end_m + 1)]
-    # ================================
 
-    with st.spinner("Analyzing Data (This may take a moment to fetch history)..."):
-        # 1. 获取 Q4 招聘数据
+    with st.spinner("Analyzing Data (API requests throttled to prevent quota errors)..."):
+        # 顺序获取，避免并行冲突
         rec_stats_df, rec_details_df = fetch_recruitment_stats(client, quarter_months_str)
+        time.sleep(1) # 休息一下
         
-        # 2. 获取 历史 招聘数据 (排除 Q4)
         rec_hist_df = fetch_historical_recruitment_stats(client, exclude_months=quarter_months_str)
-
-        # 3. 获取 所有 销售数据，然后在本地筛选
+        time.sleep(1) # 休息一下
+        
         all_sales_df = fetch_all_sales_data(client)
         
-        # 拆分 Q4 和 历史 Sales
         if not all_sales_df.empty:
-            # Q4 筛选条件
             q4_mask = (all_sales_df['Onboard Date'].dt.year == year) & \
                       (all_sales_df['Onboard Date'].dt.month >= start_m) & \
                       (all_sales_df['Onboard Date'].dt.month <= end_m)
-            
             sales_df_q4 = all_sales_df[q4_mask].copy()
             sales_df_hist = all_sales_df[~q4_mask].copy()
         else:
@@ -419,7 +387,7 @@ def main():
     tab_dash, tab_details = st.tabs(["📊 DASHBOARD", "📝 DETAILS"])
 
     with tab_dash:
-        # === Q4 Recruitment ===
+        # 1. Recruitment Stats
         st.markdown(f"### 🎯 Recruitment Stats (Q{quarter_num})")
         if not rec_stats_df.empty:
             rec_summary = rec_stats_df.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
@@ -435,27 +403,18 @@ def main():
         else:
             st.warning(f"No recruitment data for Q{quarter_num}.")
 
-        # === Historical Recruitment (Expander) ===
         with st.expander("📜 Historical Recruitment Data (All Time)"):
             if not rec_hist_df.empty:
-                # 汇总所有历史数据
                 hist_summary = rec_hist_df.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
                 hist_summary = hist_summary.sort_values(by='Sent', ascending=False)
-                st.markdown("#### Aggregated History (Excl. Current Q4)")
-                st.dataframe(
-                    hist_summary, use_container_width=True, hide_index=True
-                )
-                
-                # 按月份展示详细历史
-                st.markdown("#### Detailed History by Month")
-                hist_detail = rec_hist_df.sort_values(by=['Month', 'Sent'], ascending=[False, False])
-                st.dataframe(hist_detail, use_container_width=True, hide_index=True)
+                st.markdown("#### Aggregated History (Excl. Current Q)")
+                st.dataframe(hist_summary, use_container_width=True, hide_index=True)
             else:
-                st.info("No historical recruitment data found in other sheets.")
+                st.info("No historical recruitment data found.")
 
         st.divider()
 
-        # === Q4 Financial ===
+        # 2. Financial Performance (Q4)
         st.markdown(f"### 💰 Financial Performance (Q{quarter_num})")
         financial_summary = []
         for conf in TEAM_CONFIG:
@@ -476,9 +435,11 @@ def main():
                         total_comm += actual_comm
 
             completion_rate = (total_gp / target) if target > 0 else 0
+            
             financial_summary.append({
                 "Consultant": c_name, "Base Salary": base, "Target": target,
-                "Total GP": total_gp, "Completion": completion_rate,
+                "Total GP": total_gp, 
+                "Achieved": completion_rate * 100,  # 转换为 0-100 的数值
                 "Level": level, "Est. Commission": total_comm
             })
 
@@ -489,36 +450,31 @@ def main():
                 "Base Salary": st.column_config.NumberColumn(format="$%d"),
                 "Target": st.column_config.NumberColumn("Target Q", format="$%d"),
                 "Total GP": st.column_config.NumberColumn("Calculated GP", format="$%d"),
-                "Completion": st.column_config.ProgressColumn("Achieved", format="%.1f%%", min_value=0, max_value=1),
+                "Achieved": st.column_config.NumberColumn("Achieved", format="%.1f%%"), 
                 "Est. Commission": st.column_config.NumberColumn("Commission", format="$%d"),
             }
         )
 
-        # === Historical Financial (Expander) ===
-        with st.expander("📜 Historical Financial Performance (All Time)"):
+        # 3. Historical Financial Summary (Excl Q4)
+        with st.expander("📜 Historical GP Summary (All Time)"):
             if not sales_df_hist.empty:
-                # 简单汇总
-                st.markdown("#### Historical GP Summary (Excl. Current Q4)")
+                st.markdown("#### Aggregated GP (Excl. Current Q4)")
                 hist_fin_agg = sales_df_hist.groupby('Consultant')['GP'].sum().reset_index().sort_values(by='GP', ascending=False)
+                
                 st.dataframe(
                     hist_fin_agg, 
                     use_container_width=True, 
                     hide_index=True,
-                    column_config={"GP": st.column_config.NumberColumn(format="$%d")}
-                )
-
-                st.markdown("#### Historical Deals List")
-                # 展示详细列表，只取关键列
-                display_cols = ['Consultant', 'Onboard Date Str', 'Candidate Salary', 'Percentage', 'GP', 'Status']
-                st.dataframe(
-                    sales_df_hist[display_cols].sort_values(by='Onboard Date Str', ascending=False),
-                    use_container_width=True,
-                    hide_index=True
+                    column_config={
+                        "Consultant": st.column_config.TextColumn("Consultant"),
+                        "GP": st.column_config.NumberColumn("Total GP", format="$%d")
+                    }
                 )
             else:
-                st.info("No historical sales data found.")
+                st.info("No historical sales data found (excluding current Q4).")
 
     with tab_details:
+        # A. Q4 Details
         st.markdown("### 🔍 Drill Down Details (Q4 Only)")
         for conf in TEAM_CONFIG:
             c_name = conf['name']
@@ -533,22 +489,14 @@ def main():
 
                     def get_comm(row):
                         if row['Status'] != 'Paid': return 0
-                        # 佣金同样乘以 Percentage
                         base_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier)
                         return base_comm * row['Percentage']
 
                     c_sales['Commission'] = c_sales.apply(get_comm, axis=1)
-
-                    # 格式化 Percentage 显示
                     c_sales['Pct Display'] = c_sales['Percentage'].apply(lambda x: f"{x * 100:.0f}%")
 
-                    st.dataframe(c_sales[['Onboard Date Str', 'Payment Date', 'Candidate Salary', 'Pct Display', 'GP',
-                                          'Commission']],
+                    st.dataframe(c_sales[['Onboard Date Str', 'Payment Date', 'Candidate Salary', 'Pct Display', 'GP', 'Commission']],
                                  use_container_width=True, hide_index=True)
-                    if multiplier > 0:
-                        st.success(f"✅ Multiplier: x{multiplier}")
-                    else:
-                        st.warning("⚠️ Target not met")
                 else:
                     st.info("No deals in Q4.")
 
@@ -564,7 +512,8 @@ def main():
                         st.info("No logs.")
                 else:
                     st.info("No data.")
-
+        
+        # B. Historical List 已被移除
 
 if __name__ == "__main__":
     main()
