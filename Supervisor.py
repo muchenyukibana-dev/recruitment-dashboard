@@ -393,7 +393,8 @@ def main():
             financial_summary.append({
                 "Consultant": c_name, "Base Salary": base, "Target": target,
                 "Total GP": total_gp, 
-                "Achieved": completion_rate,  # Use raw float here
+                # 修改：这里乘以100，以便后续格式化
+                "Achieved": completion_rate * 100,  
                 "Level": level, "Est. Commission": total_comm
             })
 
@@ -404,8 +405,8 @@ def main():
                 "Base Salary": st.column_config.NumberColumn(format="$%d"),
                 "Target": st.column_config.NumberColumn("Target Q", format="$%d"),
                 "Total GP": st.column_config.NumberColumn("Calculated GP", format="$%d"),
-                # 修改：使用 NumberColumn 显示百分比，而不是 ProgressColumn
-                "Achieved": st.column_config.NumberColumn("Achieved", format="%.1%", min_value=0), 
+                # 修改：格式字符串改为标准格式 "%.1f%%"
+                "Achieved": st.column_config.NumberColumn("Achieved", format="%.1f%%"), 
                 "Est. Commission": st.column_config.NumberColumn("Commission", format="$%d"),
             }
         )
@@ -469,24 +470,7 @@ def main():
                 else:
                     st.info("No data.")
         
-        st.divider()
-        
-        # B. Historical List (Moved to Page 2)
-        st.markdown("### 📜 Historical Deals List (Excl. Q4)")
-        if not sales_df_hist.empty:
-            display_cols = ['Consultant', 'Onboard Date Str', 'Candidate Salary', 'Percentage', 'GP', 'Status']
-            st.dataframe(
-                sales_df_hist[display_cols].sort_values(by='Onboard Date Str', ascending=False),
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Candidate Salary": st.column_config.NumberColumn(format="$%d"),
-                    "GP": st.column_config.NumberColumn(format="$%d"),
-                    "Percentage": st.column_config.NumberColumn(format="%.2f")
-                }
-            )
-        else:
-            st.info("No historical deals found.")
+        # B. Historical List 已被移除
 
 if __name__ == "__main__":
     main()
