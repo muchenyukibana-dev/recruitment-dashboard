@@ -79,6 +79,9 @@ def calculate_commission_tier(total_gp, base_salary):
 
 
 def calculate_single_deal_commission(candidate_salary, multiplier):
+    """
+    计算单笔基础佣金（不包含 Percentage，Percentage 在外部应用）
+    """
     if multiplier == 0: return 0
     base_comm = 0
     if candidate_salary < 20000:
@@ -189,7 +192,7 @@ def internal_fetch_sheet_data(client, conf, tab):
         return 0, 0, 0, []
 
 
-# --- 💰 获取业绩数据 (正式运行版) ---
+# --- 💰 获取业绩数据 (正式运行版 - 含Percentage) ---
 def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
     try:
         sheet = client.open_by_key(SALES_SHEET_ID)
@@ -200,10 +203,12 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
 
         rows = ws.get_all_values()
 
-        col_cons = -1;
-        col_onboard = -1;
-        col_pay = -1;
+        col_cons = -1
+        col_onboard = -1
+        col_pay = -1
         col_sal = -1
+        col_pct = -1  # 新增：百分比列
+        
         sales_records = []
 
         # 状态机：寻找表头
@@ -215,8 +220,7 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
 
             row_lower = [str(x).strip().lower() for x in row]
 
-            # 1. 寻找表头 (基于你刚才成功的逻辑)
-            # 必须同时包含 linkeazi consultant 和 onboarding date
+            # 1. 寻找表头
             if not found_header:
                 has_cons = any("linkeazi" in c and "consultant" in c for c in row_lower)
                 has_onb = any("onboarding" in c for c in row_lower)
@@ -227,7 +231,10 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                         if "onboarding" in cell and "date" in cell: col_onboard = idx
                         if "candidate" in cell and "salary" in cell: col_sal = idx
                         if "payment" in cell:
-                            if "onboard" not in cell: col_pay = idx  # 避免混淆
+                            if "onboard" not in cell: col_pay = idx
+                        # 识别 Percentage 列 (percentage, %, pct)
+                        if "percentage" in cell or cell == "%" or "pct" in cell:
+                            col_pct = idx
 
                     found_header = True
                     continue  # 跳过表头行
@@ -239,7 +246,7 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                 if "POSITION" in row_upper and "PLACED" not in row_upper:
                     break
 
-                    # 防越界
+                # 防越界
                 if len(row) <= max(col_cons, col_onboard, col_sal): continue
 
                 consultant_name = row[col_cons].strip()
@@ -276,15 +283,32 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
 
                 if matched == "Unknown": continue
 
-                # 薪资与GP
-                salary_raw = str(row[col_sal]).replace(',', '').replace('$', '').replace('MXN', '').replace('CNY',
-                                                                                                            '').strip()
+                # 薪资处理
+                salary_raw = str(row[col_sal]).replace(',', '').replace('$', '').replace('MXN', '').replace('CNY', '').strip()
                 try:
                     salary = float(salary_raw)
                 except:
                     salary = 0
+                
+                # 百分比处理 (Percentage)
+                pct_val = 1.0 # 默认 100%
+                if col_pct != -1 and len(row) > col_pct:
+                    p_str = str(row[col_pct]).replace('%', '').strip()
+                    if p_str:
+                        try:
+                            p_float = float(p_str)
+                            # 如果大于1 (例如 50)，认为是 50%，需除以100。如果小于等于1 (例如 0.5)，直接使用
+                            # 除非是 1.0 (100%)
+                            if p_float > 1.0:
+                                pct_val = p_float / 100.0
+                            else:
+                                pct_val = p_float
+                        except:
+                            pct_val = 1.0
 
-                calc_gp = salary * 1.0 if salary < 20000 else salary * 1.5
+                # 计算 GP (含 Percentage)
+                base_gp_factor = 1.0 if salary < 20000 else 1.5
+                calc_gp = salary * base_gp_factor * pct_val
 
                 # 付款状态
                 pay_date_str = ""
@@ -297,6 +321,7 @@ def fetch_sales_data(client, quarter_start_month, quarter_end_month, year):
                     "Consultant": matched,
                     "GP": calc_gp,
                     "Candidate Salary": salary,
+                    "Percentage": pct_val,
                     "Onboard Date": onboard_date.strftime("%Y-%m-%d"),
                     "Payment Date": pay_date_str,
                     "Status": status
@@ -372,7 +397,10 @@ def main():
             if not c_sales.empty:
                 for _, row in c_sales.iterrows():
                     if row['Status'] == 'Paid':
-                        total_comm += calculate_single_deal_commission(row['Candidate Salary'], multiplier)
+                        # 计算单笔佣金，同时乘以 Percentage
+                        full_deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier)
+                        actual_comm = full_deal_comm * row['Percentage']
+                        total_comm += actual_comm
 
             completion_rate = (total_gp / target) if target > 0 else 0
             financial_summary.append({
@@ -407,11 +435,17 @@ def main():
                     multiplier = calculate_commission_tier(fin_row['Total GP'], fin_row['Base Salary'])[1]
 
                     def get_comm(row):
-                        return calculate_single_deal_commission(row['Candidate Salary'], multiplier) if row[
-                                                                                                            'Status'] == 'Paid' else 0
+                        if row['Status'] != 'Paid': return 0
+                        # 佣金同样乘以 Percentage
+                        base_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier)
+                        return base_comm * row['Percentage']
 
                     c_sales['Commission'] = c_sales.apply(get_comm, axis=1)
-                    st.dataframe(c_sales[['Onboard Date', 'Payment Date', 'Candidate Salary', 'GP', 'Commission']],
+                    
+                    # 格式化 Percentage 显示
+                    c_sales['Pct Display'] = c_sales['Percentage'].apply(lambda x: f"{x*100:.0f}%")
+
+                    st.dataframe(c_sales[['Onboard Date', 'Payment Date', 'Candidate Salary', 'Pct Display', 'GP', 'Commission']],
                                  use_container_width=True, hide_index=True)
                     if multiplier > 0:
                         st.success(f"✅ Multiplier: x{multiplier}")
