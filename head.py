@@ -4,14 +4,13 @@ from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 import os
 import time
-import json
 from datetime import datetime
 import unicodedata
 
 # ==========================================
 # 🔧 TEAM CONFIGURATION
 # ==========================================
-# 新增 SALES_SHEET_ID
+# 财务数据源
 SALES_SHEET_ID = '1jniQ-GpeMINjQMebniJ_J1eLVLQIR1NGbSjTtOFP9Q8'
 
 TEAM_CONFIG = [
@@ -19,7 +18,7 @@ TEAM_CONFIG = [
         "name": "Raul Solis",
         "id": "1vQuN-iNBRUug5J6gBMX-52jp6oogbA77SaeAf9j_zYs",
         "keyword": "Name",
-        "base_salary": 11000 # Added for Target Calculation
+        "base_salary": 11000  # Added for Target Calculation
     },
     {
         "name": "Estela Peng",
@@ -69,7 +68,7 @@ st.markdown("""
         margin-bottom: 20px;
     }
 
-    /* CENTERED BUTTON WITH OFFSET */
+    /* CENTERED BUTTON */
     .stButton {
         display: flex;
         justify-content: center;
@@ -122,7 +121,7 @@ st.markdown("""
         justify-content: flex-end; 
     }
     
-    /* MONEY BAR STYLE */
+    /* FINANCIAL BAR STYLE */
     .money-fill {
         background-color: #28a745; /* Money Green */
         height: 100%;
@@ -191,7 +190,7 @@ st.markdown("""
         font-size: 1.5em;
     }
 
-    /* 🔥 DETAILED LOG TABLE STYLE */
+    /* DETAILED LOG TABLE STYLE */
     .dataframe {
         font-family: 'Press Start 2P', monospace !important;
         font-size: 0.8em !important;
@@ -201,7 +200,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 
-# --- HELPER: GET QUARTER ---
+# --- HELPER: GET QUARTER INFO ---
 def get_quarter_info():
     today = datetime.now()
     year = today.year
@@ -425,9 +424,9 @@ def render_money_bar(name, achieved_gp, base_salary):
 
     st.markdown(f"""
     <div style="margin-bottom: 20px;">
-        <div style="display: flex; justify-content: space-between; font-size: 0.8em; color: #FFD700;">
+        <div style="display: flex; justify-content: space-between; font-size: 0.8em; color: #FFD700; font-family: 'Press Start 2P', monospace;">
             <span>{name}</span>
-            <span>{percent:.1f}% TARGET</span> 
+            <span>{percent:.1f}% COMPLETED</span> 
         </div>
         <div class="pit-container" style="height: 40px; margin-top: 5px; box-shadow: 4px 4px 0px #000;">
             <div class="money-fill" style="width: {display_pct}%;">
