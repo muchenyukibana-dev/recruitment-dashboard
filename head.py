@@ -68,11 +68,11 @@ st.markdown("""
 
 # --- 🧮 辅助函数 ---
 def calculate_commission_tier(total_gp, base_salary):
-    if total_gp < 3 * base_salary:
+    if total_gp < 9 * base_salary:
         return 0, 0
-    elif total_gp < 4.5 * base_salary:
+    elif total_gp < 13.5 * base_salary:
         return 1, 1
-    elif total_gp < 7.5 * base_salary:
+    elif total_gp < 22.5 * base_salary:
         return 2, 2
     else:
         return 3, 3
@@ -362,7 +362,7 @@ def main():
         for conf in TEAM_CONFIG:
             c_name = conf['name']
             base = conf['base_salary']
-            target = base * 3
+            target = base * 9
 
             c_sales = sales_df[sales_df['Consultant'] == c_name] if not sales_df.empty else pd.DataFrame()
             total_gp = c_sales['GP'].sum() if not c_sales.empty else 0
@@ -386,7 +386,7 @@ def main():
             df_fin, use_container_width=True, hide_index=True,
             column_config={
                 "Base Salary": st.column_config.NumberColumn(format="$%d"),
-                "Target": st.column_config.NumberColumn("Target (3x)", format="$%d"),
+                "Target": st.column_config.NumberColumn("Target Q", format="$%d"),
                 "Total GP": st.column_config.NumberColumn("Calculated GP", format="$%d"),
                 "Completion": st.column_config.ProgressColumn("Achieved", format="%.1f%%", min_value=0, max_value=1),
                 "Est. Commission": st.column_config.NumberColumn("Commission", format="$%d"),
