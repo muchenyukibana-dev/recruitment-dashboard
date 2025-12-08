@@ -4,38 +4,46 @@ from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 import os
 import time
-import json
 from datetime import datetime
+import unicodedata
 
 # ==========================================
 # 🔧 TEAM CONFIGURATION
 # ==========================================
+# 财务数据源 (新地址)
+SALES_SHEET_ID = '1jniQ-GpeMINjQMebniJ_J1eLVLQIR1NGbSjTtOFP9Q8'
+SALES_TAB_NAME = 'Positions'
+
 TEAM_CONFIG = [
     {
         "name": "Raul Solis",
         "id": "1vQuN-iNBRUug5J6gBMX-52jp6oogbA77SaeAf9j_zYs",
-        "keyword": "Name"
+        "keyword": "Name",
+        "base_salary": 11000
     },
     {
         "name": "Estela Peng",
         "id": "1sUkffAXzWnpzhhmklqBuwtoQylpR1U18zqBQ-lsp7Z4",
-        "keyword": "姓名"
+        "keyword": "姓名",
+        "base_salary": 20800
     },
     {
         "name": "Ana Cruz",
         "id": "1VMVw5YCV12eI8I-VQSXEKg86J2IVZJEgjPJT7ggAFD0",
-        "keyword": "Name"
+        "keyword": "Name",
+        "base_salary": 13000
     },
     {
         "name": "Karina Albarran",
         "id": "1zc4ghvfjIxH0eJ2aXfopOWHqiyTDlD8yFNjBzpH07D8",
-        "keyword": "Name"
+        "keyword": "Name",
+        "base_salary": 15000
     },
 ]
 
-# 🎯 目标设置
+# 🎯 Recruitment Goals
 MONTHLY_GOAL = 114
-QUARTERLY_GOAL = 342  # 114 * 3
+QUARTERLY_GOAL = 342
 # ==========================================
 
 st.set_page_config(page_title="Fill The Pit", page_icon="🐱", layout="wide")
@@ -61,7 +69,7 @@ st.markdown("""
         margin-bottom: 20px;
     }
 
-    /* CENTERED BUTTON WITH OFFSET */
+    /* CENTERED BUTTON */
     .stButton {
         display: flex;
         justify-content: center;
@@ -86,7 +94,7 @@ st.markdown("""
         border-color: yellow;
     }
 
-    /* THE PITS (Progress Bars) */
+    /* THE PITS (Recruitment Bars) */
     .pit-container {
         background-color: #222;
         border: 4px solid #fff;
@@ -112,6 +120,15 @@ st.markdown("""
         display: flex;
         align-items: center; 
         justify-content: flex-end; 
+    }
+
+    /* FINANCIAL BAR STYLE */
+    .money-fill {
+        background-color: #28a745; /* Money Green */
+        height: 100%;
+        display: flex;
+        align-items: center; 
+        justify-content: flex-end;
     }
 
     .cat-squad {
@@ -174,40 +191,34 @@ st.markdown("""
         font-size: 1.5em;
     }
 
-    /* 🔥 DETAILED LOG TABLE STYLE */
+    /* DETAILED LOG TABLE STYLE */
     .dataframe {
         font-family: 'Press Start 2P', monospace !important;
         font-size: 0.8em !important;
         color: white !important;
     }
-    /* Consultant Header in Logs 新增*/
-    .consultant-log-header {
-        color: #000000;           /* 黑色文字 */
-        background-color: #FFFFFF; /* 白色背景 */
-        padding: 10px;
-        font-size: 0.9em;         /* 字体大小 */
-        border: 4px solid #000000; /* 黑色边框 */
-        margin-top: 10px;
-        margin-bottom: 10px;
-        text-align: center;       /* 文字居中 */
-        font-weight: bold;
-        box-shadow: 4px 4px 0px #333; /* 加一点阴影更有质感 */
-    }
     </style>
     """, unsafe_allow_html=True)
 
 
-# --- HELPER: GET QUARTER MONTHS ---
-def get_quarter_tabs():
+# --- HELPER: GET QUARTER INFO ---
+def get_quarter_info():
     today = datetime.now()
     year = today.year
     month = today.month
     quarter = (month - 1) // 3 + 1
     start_month = (quarter - 1) * 3 + 1
-    tabs = []
-    for m in range(start_month, start_month + 3):
-        tabs.append(f"{year}{m:02d}")
-    return tabs, quarter
+    end_month = start_month + 2
+
+    # Generate tab names like "202501"
+    tabs = [f"{year}{m:02d}" for m in range(start_month, start_month + 3)]
+
+    return tabs, quarter, start_month, end_month, year
+
+
+def normalize_text(text):
+    """去除重音符号 (Raúl -> raul)"""
+    return ''.join(c for c in unicodedata.normalize('NFD', str(text)) if unicodedata.category(c) != 'Mn').lower()
 
 
 # --- GOOGLE CONNECTION ---
@@ -233,21 +244,13 @@ def connect_to_google():
             return None
 
 
-# --- FETCH DATA (With Details & Multi-language Support) ---
+# --- FETCH RECRUITMENT DATA ---
 def fetch_consultant_data(client, consultant_config, target_tab):
     sheet_id = consultant_config['id']
     target_key = consultant_config.get('keyword', 'Name')
 
-    # 📝在此处扩充识别关键词
-    # 只要表格第一列包含以下任意词汇，程序就会认为这一行是在记录公司或职位
-    COMPANY_KEYS = [
-        "Company", "Client", "Cliente",  # 英文/西语
-        "公司", "客户", "客户名称", "公司名称"  # 中文
-    ]
-    POSITION_KEYS = [
-        "Position", "Role", "Posición",  # 英文/西语
-        "职位", "岗位", "职位名称", "岗位名称"  # 中文
-    ]
+    COMPANY_KEYS = ["Company", "Client", "Cliente", "公司", "客户", "客户名称", "公司名称"]
+    POSITION_KEYS = ["Position", "Role", "Posición", "职位", "岗位", "职位名称", "岗位名称"]
 
     try:
         sheet = client.open_by_key(sheet_id)
@@ -257,36 +260,23 @@ def fetch_consultant_data(client, consultant_config, target_tab):
             return 0, []
 
         rows = worksheet.get_all_values()
-
         count = 0
         details = []
-
         current_company = "Unknown Company"
         current_position = "Unknown Position"
 
         for row in rows:
             if not row: continue
-
-            # 去除首尾空格，防止 "公司 " 这种带空格的情况匹配失败
             first_cell = row[0].strip()
 
-            # 1. 识别公司行
             if first_cell in COMPANY_KEYS:
-                # 获取 B 列的内容作为公司名
                 current_company = row[1].strip() if len(row) > 1 else "Unknown"
-
-            # 2. 识别职位行
             elif first_cell in POSITION_KEYS:
-                # 获取 B 列的内容作为岗位名
                 current_position = row[1].strip() if len(row) > 1 else "Unknown"
-
-            # 3. 识别候选人行 (Name/姓名)
-            # 这里对比的是你在 TEAM_CONFIG 里设置的 keyword (Estela的是"姓名")
             elif first_cell == target_key:
                 candidates = [x for x in row[1:] if x.strip()]
                 num_candidates = len(candidates)
                 count += num_candidates
-
                 if num_candidates > 0:
                     for _ in range(num_candidates):
                         details.append({
@@ -297,14 +287,144 @@ def fetch_consultant_data(client, consultant_config, target_tab):
                         })
 
         return count, details
-
     except Exception:
         return 0, []
 
 
-# --- RENDER PIT ---
+# --- FETCH FINANCIAL DATA (ROBUST VERSION) ---
+def fetch_financial_data(client, start_m, end_m, year):
+    """
+    使用与 Management Dashboard 相同的核心逻辑读取财务数据，并汇总为本季度业绩
+    """
+    try:
+        sheet = client.open_by_key(SALES_SHEET_ID)
+        try:
+            ws = sheet.worksheet(SALES_TAB_NAME)
+        except:
+            ws = sheet.get_worksheet(0)
+
+        rows = ws.get_all_values()
+
+        # 初始化结果字典
+        aggregated_data = {conf['name']: 0.0 for conf in TEAM_CONFIG}
+
+        col_cons = -1
+        col_onboard = -1
+        col_pay = -1
+        col_sal = -1
+        col_pct = -1
+
+        found_header = False
+
+        for i, row in enumerate(rows):
+            # 跳过空行
+            if not any(cell.strip() for cell in row): continue
+            row_lower = [str(x).strip().lower() for x in row]
+
+            # 1. 寻找表头
+            if not found_header:
+                has_cons = any("linkeazi" in c and "consultant" in c for c in row_lower)
+                has_onb = any("onboarding" in c for c in row_lower)
+
+                if has_cons and has_onb:
+                    for idx, cell in enumerate(row_lower):
+                        if "linkeazi" in cell and "consultant" in cell: col_cons = idx
+                        if "onboarding" in cell and "date" in cell: col_onboard = idx
+                        if "candidate" in cell and "salary" in cell: col_sal = idx
+                        if "payment" in cell:
+                            if "onboard" not in cell: col_pay = idx
+                        if "percentage" in cell or cell == "%" or "pct" in cell:
+                            col_pct = idx
+
+                    found_header = True
+                    continue  # 跳过表头行
+
+            # 2. 读取数据
+            if found_header:
+                # 遇到下一个区域标题停止
+                row_upper = " ".join(row_lower).upper()
+                if "POSITION" in row_upper and "PLACED" not in row_upper:
+                    break
+
+                # 防越界
+                if len(row) <= max(col_cons, col_onboard, col_sal): continue
+
+                consultant_name = row[col_cons].strip()
+                if not consultant_name: continue
+
+                # 日期解析
+                onboard_str = row[col_onboard].strip()
+                onboard_date = None
+                formats = ["%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%m/%d/%Y", "%d-%b-%y", "%Y.%m.%d"]
+                for fmt in formats:
+                    try:
+                        onboard_date = datetime.strptime(onboard_str, fmt)
+                        break
+                    except:
+                        pass
+
+                if not onboard_date: continue
+
+                # 季度筛选 (只保留本季度)
+                if not (onboard_date.year == year and start_m <= onboard_date.month <= end_m):
+                    continue
+
+                # 名字匹配 (去重音 + 模糊匹配)
+                matched = "Unknown"
+                c_norm = normalize_text(consultant_name)
+
+                for conf in TEAM_CONFIG:
+                    conf_norm = normalize_text(conf['name'])
+                    if conf_norm in c_norm or c_norm in conf_norm:
+                        matched = conf['name']
+                        break
+                    if conf_norm.split()[0] in c_norm:  # 匹配 First Name
+                        matched = conf['name']
+                        break
+
+                if matched == "Unknown": continue
+
+                # 薪资处理
+                salary_raw = str(row[col_sal]).replace(',', '').replace('$', '').replace('MXN', '').replace('CNY',
+                                                                                                            '').strip()
+                try:
+                    salary = float(salary_raw)
+                except:
+                    salary = 0
+
+                # 百分比处理 (Percentage)
+                pct_val = 1.0  # 默认 100%
+                if col_pct != -1 and len(row) > col_pct:
+                    p_str = str(row[col_pct]).replace('%', '').strip()
+                    if p_str:
+                        try:
+                            p_float = float(p_str)
+                            if p_float > 1.0:
+                                pct_val = p_float / 100.0
+                            else:
+                                pct_val = p_float
+                        except:
+                            pct_val = 1.0
+
+                # 计算 GP (含 Percentage)
+                base_gp_factor = 1.0 if salary < 20000 else 1.5
+                calc_gp = salary * base_gp_factor * pct_val
+
+                # 累加到顾问的总业绩中
+                if matched in aggregated_data:
+                    aggregated_data[matched] += calc_gp
+
+        return aggregated_data
+
+    except Exception as e:
+        print(f"Financial Error: {e}")
+        # 出错时返回0
+        return {conf['name']: 0.0 for conf in TEAM_CONFIG}
+
+
+# --- RENDER RECRUITMENT PIT ---
 def render_pit(placeholder, current_total, goal, color_class, label):
-    percent = (current_total / goal) * 100
+    percent = (current_total / goal) * 100 if goal > 0 else 0
     if percent > 100: percent = 100
     cats = "🐈"
     if percent > 30: cats = "🐈🐈"
@@ -321,10 +441,39 @@ def render_pit(placeholder, current_total, goal, color_class, label):
     placeholder.markdown(html, unsafe_allow_html=True)
 
 
+# --- RENDER FINANCIAL BAR (CONFIDENTIAL) ---
+def render_money_bar(name, achieved_gp, base_salary):
+    # Target = 9 * Base Salary (Quarterly)
+    target = base_salary * 9
+    percent = (achieved_gp / target) * 100 if target > 0 else 0
+
+    display_pct = min(percent, 100)
+
+    # Emoji based on percentage
+    icon = "💸"
+    if percent >= 50: icon = "💰"
+    if percent >= 80: icon = "💎"
+    if percent >= 100: icon = "👑"
+
+    st.markdown(f"""
+    <div style="margin-bottom: 20px;">
+        <div style="display: flex; justify-content: space-between; font-size: 0.8em; color: #FFD700; font-family: 'Press Start 2P', monospace;">
+            <span>{name}</span>
+            <span>{percent:.1f}% COMPLETED</span> 
+        </div>
+        <div class="pit-container" style="height: 40px; margin-top: 5px; box-shadow: 4px 4px 0px #000;">
+            <div class="money-fill" style="width: {display_pct}%;">
+                <div class="cat-squad" style="font-size: 20px; top: -10px;">{icon}</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
 # --- MAIN APP ---
 def main():
+    quarter_tabs, quarter_num, start_m, end_m, year = get_quarter_info()
     current_month_tab = datetime.now().strftime("%Y%m")
-    quarter_tabs, quarter_num = get_quarter_tabs()
 
     st.title("🔥 FILL THE PIT 🔥")
 
@@ -344,24 +493,23 @@ def main():
         monthly_results = []
         quarterly_results = []
         quarterly_total_count = 0
-        all_month_details = []  # 用于存储本月所有详细数据
+        all_month_details = []
 
         with st.spinner(f"🛰️ SCANNING MONTH & Q{quarter_num} DATA..."):
 
-            for consultant in TEAM_CONFIG:
-                # 1. Fetch Month Data (包含详细记录)
-                m_count, m_details = fetch_consultant_data(client, consultant, current_month_tab)
+            # 1. Financial Data (Quarterly) - Robust Fetch
+            fin_data = fetch_financial_data(client, start_m, end_m, year)
 
-                # 收集详细记录
+            # 2. Recruitment Data
+            for consultant in TEAM_CONFIG:
+                m_count, m_details = fetch_consultant_data(client, consultant, current_month_tab)
                 all_month_details.extend(m_details)
 
-                # 2. Fetch Quarter Data (只统计数量，为了速度不抓太细)
                 q_count = 0
                 for q_tab in quarter_tabs:
                     if q_tab == current_month_tab:
                         q_count += m_count
                     else:
-                        # 对于非本月的Tab，我们只需要数字，不需要detail
                         c, _ = fetch_consultant_data(client, consultant, q_tab)
                         q_count += c
 
@@ -385,10 +533,9 @@ def main():
             f'<div class="header-bordered" style="margin-top: 30px; border-color: #FFFF00; color: #FFA500;">SEASON CAMPAIGN (Q{quarter_num})</div>',
             unsafe_allow_html=True)
         pit_quarter_ph = st.empty()
-
         stats_quarter_ph = st.empty()
 
-        # Placeholders for MVPs at bottom
+        # Placeholders for MVPs
         mvp_col1, mvp_col2 = st.columns(2)
         with mvp_col1:
             mvp_month_ph = st.empty()
@@ -397,48 +544,58 @@ def main():
 
         monthly_total = sum([r['count'] for r in monthly_results])
 
-        # Animation
-        steps = 25
+        # Animation Loop
+        steps = 20
         for step in range(steps + 1):
-            # Animate Month
             curr_m = (monthly_total / steps) * step
             render_pit(pit_month_ph, curr_m, MONTHLY_GOAL, "pit-fill-month", "MONTH TOTAL")
 
-            # Animate Quarter
             curr_q = (quarterly_total_count / steps) * step
             render_pit(pit_quarter_ph, curr_q, QUARTERLY_GOAL, "pit-fill-season", "SEASON TOTAL")
 
-            # Show stats at end of animation
             if step == steps:
-                # 1. Monthly Cards
+                # Monthly Stats
                 cols_m = stats_month_ph.columns(len(monthly_results))
                 for idx, res in enumerate(monthly_results):
                     with cols_m[idx]:
-                        st.markdown(f"""
-                        <div class="stat-card">
-                            <div class="stat-name">{res['name']}</div>
-                            <div class="stat-val">{res['count']}</div>
-                        </div>
-                        """, unsafe_allow_html=True)
+                        st.markdown(
+                            f"""<div class="stat-card"><div class="stat-name">{res['name']}</div><div class="stat-val">{res['count']}</div></div>""",
+                            unsafe_allow_html=True)
 
-                # 2. Quarterly Cards
+                # Quarterly Stats
                 cols_q = stats_quarter_ph.columns(len(quarterly_results))
                 for idx, res in enumerate(quarterly_results):
                     with cols_q[idx]:
-                        st.markdown(f"""
-                        <div class="stat-card" style="border-color: #FFFF00;"> 
-                            <div class="stat-name">{res['name']}</div>
-                            <div class="stat-val" style="color: #000000;">{res['count']}</div> 
-                        </div>
-                        """, unsafe_allow_html=True)
+                        st.markdown(
+                            f"""<div class="stat-card" style="border-color: #FFFF00;"><div class="stat-name">{res['name']}</div><div class="stat-val" style="color: #000000;">{res['count']}</div></div>""",
+                            unsafe_allow_html=True)
 
-            time.sleep(0.04)
+            time.sleep(0.02)
 
         # ==========================================
-        # 🏆 PHASE 3: MVP & RESULTS
+        # 💰 PHASE 3: FINANCIAL QUEST (NEW)
+        # ==========================================
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="header-bordered" style="border-color: #28a745; color: #28a745;">💰 FINANCIAL QUEST (Q{quarter_num})</div>',
+            unsafe_allow_html=True
+        )
+
+        # Display 2 columns for financial bars
+        fin_cols = st.columns(2)
+        for idx, conf in enumerate(TEAM_CONFIG):
+            c_name = conf['name']
+            c_base = conf['base_salary']
+            c_achieved = fin_data.get(c_name, 0.0)
+
+            with fin_cols[idx % 2]:
+                render_money_bar(c_name, c_achieved, c_base)
+
+        # ==========================================
+        # 🏆 PHASE 4: MVP & RESULTS
         # ==========================================
 
-        # 1. Monthly MVP
+        # Monthly MVP
         df_m = pd.DataFrame(monthly_results)
         if not df_m.empty and monthly_total > 0:
             mvp_m = df_m.sort_values(by="count", ascending=False).iloc[0]
@@ -450,7 +607,7 @@ def main():
             </div>
             """, unsafe_allow_html=True)
 
-        # 2. Quarterly MVP
+        # Quarterly MVP
         df_q = pd.DataFrame(quarterly_results)
         if not df_q.empty and quarterly_total_count > 0:
             mvp_q = df_q.sort_values(by="count", ascending=False).iloc[0]
@@ -465,37 +622,23 @@ def main():
             st.balloons()
 
         # ==========================================
-        # 📝 PHASE 4: MISSION LOGS (HIDDEN BY DEFAULT & LEFT ALIGNED)
+        # 📝 PHASE 5: MISSION LOGS
         # ==========================================
         if all_month_details:
             st.markdown("---")
-
-            # 使用折叠框 (Expander) 包裹整个区域，expanded=False 表示默认关闭
             with st.expander(f"📜 MISSION LOGS ({current_month_tab}) - CLICK TO OPEN", expanded=False):
-
-                # 1. 准备数据
                 df_all = pd.DataFrame(all_month_details)
-
-                # 2. 创建标签页
                 tab_names = [c['name'] for c in TEAM_CONFIG]
                 tabs = st.tabs(tab_names)
 
-                # 3. 填充每个标签页
                 for idx, tab in enumerate(tabs):
                     with tab:
                         current_consultant = tab_names[idx]
                         df_c = df_all[df_all['Consultant'] == current_consultant]
-
                         if not df_c.empty:
-                            # 聚合数据
                             df_agg = df_c.groupby(['Company', 'Position'])['Count'].sum().reset_index()
                             df_agg = df_agg.sort_values(by='Count', ascending=False)
-
-                            # 🔥 关键技巧：把数字列转为字符串 (String)
-                            # 这样 Streamlit 就会把它当作文字处理，自动左对齐
                             df_agg['Count'] = df_agg['Count'].astype(str)
-
-                            # 显示表格
                             st.dataframe(
                                 df_agg,
                                 use_container_width=True,
@@ -503,7 +646,6 @@ def main():
                                 column_config={
                                     "Company": st.column_config.TextColumn("TARGET COMPANY"),
                                     "Position": st.column_config.TextColumn("TARGET ROLE"),
-                                    # 这里用 TextColumn 来展示数字，就能完美左对齐了
                                     "Count": st.column_config.TextColumn("CVs")
                                 }
                             )
@@ -512,14 +654,8 @@ def main():
 
         elif monthly_total == 0:
             st.markdown("---")
-            # 如果完全没数据，就不显示折叠框了，直接提示
             st.info("NO DATA FOUND FOR THIS MONTH YET.")
 
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
