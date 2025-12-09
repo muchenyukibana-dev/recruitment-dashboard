@@ -82,10 +82,6 @@ def get_quarter_str(date_obj):
     return f"{date_obj.year} Q{q}"
 
 def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
-    """
-    根据 Paid GP 和 Base Salary 计算 Level 和 Multiplier
-    如果是 Team Lead，门槛减半。
-    """
     if is_team_lead:
         t1, t2, t3 = 4.5, 6.75, 11.25
     else:
@@ -116,15 +112,10 @@ def calculate_single_deal_commission(candidate_salary, multiplier):
 
 
 def get_commission_pay_date(payment_date):
-    """
-    根据 Payment Date 计算佣金发放日（下个月 15 号）。
-    """
     if pd.isna(payment_date) or not payment_date:
         return None
     try:
-        # 下个月年份
         year = payment_date.year + (payment_date.month // 12)
-        # 下个月月份 (12月变成1月, 其他+1)
         month = (payment_date.month % 12) + 1
         return datetime(year, month, 15)
     except:
@@ -232,7 +223,7 @@ def internal_fetch_sheet_data(client, conf, tab):
         co = 0
         target_key = conf.get('keyword', 'Name')
         
-        # ⚠️ 修正1: 增加中文表头支持
+        # 中文表头支持
         COMPANY_KEYS = ["Company", "Client", "Cliente", "公司", "客户", "公司名称", "客户名称"]
         POSITION_KEYS = ["Position", "Role", "Posición", "职位", "岗位"]
         STAGE_KEYS = ["Stage", "Status", "Step", "阶段", "状态"]
@@ -247,16 +238,18 @@ def internal_fetch_sheet_data(client, conf, tab):
                 stage = str(c_data.get('s', 'Sent')).lower()
                 if not name: continue
                 
-                # ⚠️ 修正2: 漏斗逻辑
-                # Offer 必定是 Interview，也必定是 Sent
-                # Interview 必定是 Sent
+                # --- 漏斗逻辑 (Funnel Logic) ---
+                # 规则: 
+                # 1. Sent 是分母，包含所有人 (cs+=1)
+                # 2. Offered 属于 Interviewed (如果 offer, ci+=1, co+=1)
+                # 3. Interviewed 属于 Sent (如果 int, ci+=1)
+                
                 is_off = "offer" in stage;
                 is_int = ("interview" in stage) or ("面试" in stage) or is_off
-                # 只要存在这个候选人，就视为 Sent
                 
                 if is_off: co += 1
                 if is_int: ci += 1
-                cs += 1  # 任何记录都算作 Sent
+                cs += 1  # 所有人都是 Sent
                 
                 stat = "Offered" if is_off else ("Interviewed" if is_int else "Sent")
                 res.append(
@@ -397,7 +390,7 @@ def fetch_all_sales_data(client):
                     "Payment Date": pay_date_str,
                     "Payment Date Obj": pay_date_obj,
                     "Status": status,
-                    "Quarter": get_quarter_str(onboard_date) # ⚠️ 修正3: 计算季度
+                    "Quarter": get_quarter_str(onboard_date)
                 })
         return pd.DataFrame(sales_records)
     except Exception as e:
@@ -451,19 +444,48 @@ def main():
         # 1. Recruitment Stats
         st.markdown(f"### 🎯 Recruitment Stats (Q{CURRENT_QUARTER})")
         if not rec_stats_df.empty:
+            # 汇总数据
             rec_summary = rec_stats_df.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
-            rec_summary = rec_summary.sort_values(by='Sent', ascending=False)
+            
+            # --- 新增: 计算 Int Rate (Conversion) ---
+            rec_summary['Int Rate'] = (rec_summary['Int'] / rec_summary['Sent']).fillna(0)
+            
+            # --- 新增: 计算 TOTAL 行 ---
+            total_sent = rec_summary['Sent'].sum()
+            total_int = rec_summary['Int'].sum()
+            total_off = rec_summary['Off'].sum()
+            total_rate = (total_int / total_sent) if total_sent > 0 else 0
+            
+            total_row = pd.DataFrame([{
+                'Consultant': 'TOTAL',
+                'Sent': total_sent,
+                'Int': total_int,
+                'Off': total_off,
+                'Int Rate': total_rate
+            }])
+            
+            # 合并 Total 行
+            rec_summary = pd.concat([rec_summary, total_row], ignore_index=True)
+            
             st.dataframe(
                 rec_summary, use_container_width=True, hide_index=True,
                 column_config={
+                    "Consultant": st.column_config.TextColumn("Consultant", width="medium"),
                     "Sent": st.column_config.NumberColumn("Sent/Q", format="%d"),
                     "Int": st.column_config.NumberColumn("Int/Q", format="%d"),
-                    "Off": st.column_config.NumberColumn("Off/Q", format="%d")
+                    "Off": st.column_config.NumberColumn("Off/Q", format="%d"),
+                    "Int Rate": st.column_config.ProgressColumn(
+                        "Int/Sent Rate",
+                        format="%.1f%%",
+                        min_value=0,
+                        max_value=1,  # 0 to 100%
+                    )
                 }
             )
         else:
             st.warning(f"No recruitment data for Q{CURRENT_QUARTER}.")
 
+        # Historical Recruitment
         with st.expander("📜 Historical Recruitment Data (All Time)"):
             if not rec_hist_df.empty:
                 hist_summary = rec_hist_df.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
@@ -496,11 +518,9 @@ def main():
             role = conf.get('role', 'Consultant')
             is_team_lead = (role == "Team Lead")
             
-            # Target 计算
             target_multiplier = 4.5 if is_team_lead else 9.0
             target = base * target_multiplier
 
-            # 获取该顾问的数据
             c_sales = sales_df_q4[sales_df_q4['Consultant'] == c_name].copy() if not sales_df_q4.empty else pd.DataFrame()
             
             booked_gp = 0
@@ -508,7 +528,7 @@ def main():
             total_comm = 0
             current_level = 0
             
-            # --- A. 个人佣金计算 ---
+            # A. 个人佣金计算
             if not c_sales.empty:
                 booked_gp = c_sales['GP'].sum()
                 paid_gp = c_sales[c_sales['Status'] == 'Paid']['GP'].sum()
@@ -545,151 +565,11 @@ def main():
                 updated_sales_records.append(c_sales)
                 current_level, _ = calculate_commission_tier(running_paid_gp, base, is_team_lead)
 
-            # --- B. Team Lead Override ---
-            override_amt = 0
+            # B. Team Lead Override
             if is_team_lead:
                 if not sales_df_q4.empty:
                     override_mask = (sales_df_q4['Status'] == 'Paid') & \
                                     (sales_df_q4['Consultant'] != c_name) & \
                                     (sales_df_q4['Consultant'] != "Estela Peng")
                     
-                    potential_overrides = sales_df_q4[override_mask].copy()
-                    
-                    for _, row in potential_overrides.iterrows():
-                        comm_date = row['Commission Day Obj']
-                        if pd.notnull(comm_date) and comm_date <= datetime.now() + timedelta(days=20):
-                            bonus = 1000
-                            override_amt += bonus
-                            total_comm += bonus 
-                            
-                            team_lead_overrides.append({
-                                "Leader": c_name,
-                                "Source Consultant": row['Consultant'],
-                                "Company": "N/A", 
-                                "Candidate Salary": row['Candidate Salary'],
-                                "Comm Date": row['Commission Day'],
-                                "Bonus": bonus
-                            })
-
-            completion_rate = (paid_gp / target) if target > 0 else 0
-
-            financial_summary.append({
-                "Consultant": c_name, "Base Salary": base, "Target": target,
-                "Booked GP": booked_gp, 
-                "Paid GP": paid_gp,     
-                "Achieved": completion_rate * 100,
-                "Level": current_level, "Est. Commission": total_comm
-            })
-
-        if updated_sales_records:
-            final_sales_df = pd.concat(updated_sales_records)
-        else:
-            final_sales_df = pd.DataFrame()
-            
-        override_df = pd.DataFrame(team_lead_overrides)
-
-        df_fin = pd.DataFrame(financial_summary).sort_values(by='Paid GP', ascending=False)
-        st.dataframe(
-            df_fin, use_container_width=True, hide_index=True,
-            column_config={
-                "Base Salary": st.column_config.NumberColumn(format="$%d"),
-                "Target": st.column_config.NumberColumn("Target Q", format="$%d"),
-                "Booked GP": st.column_config.NumberColumn("Booked GP (Ref)", format="$%d"),
-                "Paid GP": st.column_config.NumberColumn("Paid GP (Cumulative)", format="$%d"),
-                "Achieved": st.column_config.ProgressColumn(
-                    "Target",
-                    format="%.1f%%",
-                    min_value=0,
-                    max_value=100,
-                ),
-                "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d"),
-            }
-        )
-
-        # ⚠️ 修正4: Historical GP Summary 按季度区分
-        with st.expander("📜 Historical GP Summary (By Quarter)"):
-            if not sales_df_hist.empty:
-                st.markdown("#### Historical Data (Read-Only)")
-                # 按 Quarter 和 Consultant 分组
-                hist_fin_agg = sales_df_hist.groupby(['Quarter', 'Consultant'])['GP'].sum().reset_index()
-                # 排序: 季度倒序 (最近的在前面), 顾问名排序
-                hist_fin_agg = hist_fin_agg.sort_values(by=['Quarter', 'Consultant'], ascending=[False, True])
-                
-                st.dataframe(
-                    hist_fin_agg,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "Quarter": st.column_config.TextColumn("Quarter"),
-                        "Consultant": st.column_config.TextColumn("Consultant"),
-                        "GP": st.column_config.NumberColumn("Total GP", format="$%d")
-                    }
-                )
-            else:
-                st.info("No historical sales data found (excluding current Q4).")
-
-    with tab_details:
-        st.markdown("### 🔍 Drill Down Details (Q4 Only)")
-        for conf in TEAM_CONFIG:
-            c_name = conf['name']
-            fin_row = df_fin[df_fin['Consultant'] == c_name].iloc[0]
-            header = f"👤 {c_name} | Paid GP: ${fin_row['Paid GP']:,.0f} (Current Lvl {fin_row['Level']})"
-
-            with st.expander(header):
-                st.markdown("#### 💸 Personal Commission Breakdown")
-                
-                if not final_sales_df.empty:
-                    c_sales_view = final_sales_df[final_sales_df['Consultant'] == c_name].copy()
-                else:
-                    c_sales_view = pd.DataFrame()
-                
-                if not c_sales_view.empty:
-                    c_sales_view['Pct Display'] = c_sales_view['Percentage'].apply(lambda x: f"{x * 100:.0f}%")
-                    
-                    if 'Commission Day' not in c_sales_view.columns:
-                        c_sales_view['Commission Day'] = ""
-
-                    st.dataframe(c_sales_view[['Onboard Date Str', 'Payment Date', 'Commission Day', 
-                                               'Candidate Salary', 'Pct Display', 'GP', 'Status',
-                                               'Applied Level', 'Final Comm']],
-                                 use_container_width=True, hide_index=True,
-                                 column_config={
-                                     "Commission Day": st.column_config.TextColumn("Comm. Date"),
-                                     "Applied Level": st.column_config.NumberColumn("Lvl Used"),
-                                     "Final Comm": st.column_config.NumberColumn("Comm ($)", format="$%.2f")
-                                 })
-                else:
-                    st.info("No personal deals in Q4.")
-
-                if conf.get('role') == 'Team Lead':
-                    st.divider()
-                    st.markdown("#### 👥 Team Overrides (1000 MXN per eligible deal)")
-                    if not override_df.empty:
-                        my_overrides = override_df[override_df['Leader'] == c_name]
-                        if not my_overrides.empty:
-                            st.dataframe(my_overrides[['Source Consultant', 'Candidate Salary', 'Comm Date', 'Bonus']],
-                                         use_container_width=True, hide_index=True,
-                                         column_config={
-                                             "Bonus": st.column_config.NumberColumn(format="$%d")
-                                         })
-                        else:
-                            st.info("No eligible team overrides yet.")
-                    else:
-                        st.info("No eligible team overrides yet.")
-
-                st.divider()
-                st.markdown("#### 📝 Recruitment Logs (Q4)")
-                if not rec_details_df.empty:
-                    c_logs = rec_details_df[rec_details_df['Consultant'] == c_name]
-                    if not c_logs.empty:
-                        agg = c_logs.groupby(['Month', 'Company', 'Position', 'Status'])['Count'].sum().reset_index()
-                        agg = agg.sort_values(by='Month', ascending=False)
-                        st.dataframe(agg, use_container_width=True, hide_index=True)
-                    else:
-                        st.info("No logs.")
-                else:
-                    st.info("No data.")
-
-
-if __name__ == "__main__":
-    main()
+                    potential_override
