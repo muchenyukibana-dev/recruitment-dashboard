@@ -15,6 +15,11 @@ import unicodedata
 SALES_SHEET_ID = '1rCmyqOUOBn-644KpCtF5FZwBMEnRGHTKSSUBxzvOSkI'
 SALES_TAB_NAME = 'Positions'
 
+# 定义当前季度，用于区分"当前"和"历史"
+CURRENT_YEAR = 2025
+CURRENT_QUARTER = 4
+CURRENT_Q_STR = f"{CURRENT_YEAR} Q{CURRENT_QUARTER}"
+
 TEAM_CONFIG = [
     {
         "name": "Raul Solis",
@@ -71,6 +76,11 @@ st.markdown("""
 
 
 # --- 🧮 辅助函数 ---
+def get_quarter_str(date_obj):
+    if pd.isna(date_obj): return "Unknown"
+    q = (date_obj.month - 1) // 3 + 1
+    return f"{date_obj.year} Q{q}"
+
 def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
     """
     根据 Paid GP 和 Base Salary 计算 Level 和 Multiplier
@@ -221,9 +231,12 @@ def internal_fetch_sheet_data(client, conf, tab):
         ci = 0;
         co = 0
         target_key = conf.get('keyword', 'Name')
-        COMPANY_KEYS = ["Company", "Client", "Cliente", "公司", "客户"]
+        
+        # ⚠️ 修正1: 增加中文表头支持
+        COMPANY_KEYS = ["Company", "Client", "Cliente", "公司", "客户", "公司名称", "客户名称"]
         POSITION_KEYS = ["Position", "Role", "Posición", "职位", "岗位"]
         STAGE_KEYS = ["Stage", "Status", "Step", "阶段", "状态"]
+        
         block = {"c": "Unk", "p": "Unk", "cands": {}}
 
         def flush(b):
@@ -233,11 +246,18 @@ def internal_fetch_sheet_data(client, conf, tab):
                 name = c_data.get('n');
                 stage = str(c_data.get('s', 'Sent')).lower()
                 if not name: continue
+                
+                # ⚠️ 修正2: 漏斗逻辑
+                # Offer 必定是 Interview，也必定是 Sent
+                # Interview 必定是 Sent
                 is_off = "offer" in stage;
-                is_int = "interview" in stage or "面试" in stage or is_off
+                is_int = ("interview" in stage) or ("面试" in stage) or is_off
+                # 只要存在这个候选人，就视为 Sent
+                
                 if is_off: co += 1
                 if is_int: ci += 1
-                cs += 1
+                cs += 1  # 任何记录都算作 Sent
+                
                 stat = "Offered" if is_off else ("Interviewed" if is_int else "Sent")
                 res.append(
                     {"Consultant": conf['name'], "Month": tab, "Company": b['c'], "Position": b['p'], "Status": stat,
@@ -376,7 +396,8 @@ def fetch_all_sales_data(client):
                     "Onboard Date Str": onboard_date.strftime("%Y-%m-%d"),
                     "Payment Date": pay_date_str,
                     "Payment Date Obj": pay_date_obj,
-                    "Status": status
+                    "Status": status,
+                    "Quarter": get_quarter_str(onboard_date) # ⚠️ 修正3: 计算季度
                 })
         return pd.DataFrame(sales_records)
     except Exception as e:
@@ -401,11 +422,9 @@ def main():
     if not client: st.error("API Error"); return
 
     # === Q4 时间设置 ===
-    year = 2025
-    quarter_num = 4
     start_m = 10
     end_m = 12
-    quarter_months_str = [f"{year}{m:02d}" for m in range(start_m, end_m + 1)]
+    quarter_months_str = [f"{CURRENT_YEAR}{m:02d}" for m in range(start_m, end_m + 1)]
 
     with st.spinner("Analyzing Data (API requests throttled to prevent quota errors)..."):
         rec_stats_df, rec_details_df = fetch_recruitment_stats(client, quarter_months_str)
@@ -417,11 +436,11 @@ def main():
         all_sales_df = fetch_all_sales_data(client)
 
         if not all_sales_df.empty:
-            q4_mask = (all_sales_df['Onboard Date'].dt.year == year) & \
+            q4_mask = (all_sales_df['Onboard Date'].dt.year == CURRENT_YEAR) & \
                       (all_sales_df['Onboard Date'].dt.month >= start_m) & \
                       (all_sales_df['Onboard Date'].dt.month <= end_m)
             sales_df_q4 = all_sales_df[q4_mask].copy()
-            sales_df_hist = all_sales_df[~q4_mask].copy()
+            sales_df_hist = all_sales_df[~q4_mask].copy() # 非Q4的都算历史
         else:
             sales_df_q4 = pd.DataFrame()
             sales_df_hist = pd.DataFrame()
@@ -430,7 +449,7 @@ def main():
 
     with tab_dash:
         # 1. Recruitment Stats
-        st.markdown(f"### 🎯 Recruitment Stats (Q{quarter_num})")
+        st.markdown(f"### 🎯 Recruitment Stats (Q{CURRENT_QUARTER})")
         if not rec_stats_df.empty:
             rec_summary = rec_stats_df.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
             rec_summary = rec_summary.sort_values(by='Sent', ascending=False)
@@ -443,7 +462,7 @@ def main():
                 }
             )
         else:
-            st.warning(f"No recruitment data for Q{quarter_num}.")
+            st.warning(f"No recruitment data for Q{CURRENT_QUARTER}.")
 
         with st.expander("📜 Historical Recruitment Data (All Time)"):
             if not rec_hist_df.empty:
@@ -457,7 +476,7 @@ def main():
         st.divider()
 
         # 2. Financial Performance (Q4)
-        st.markdown(f"### 💰 Financial Performance (Q{quarter_num})")
+        st.markdown(f"### 💰 Financial Performance (Q{CURRENT_QUARTER})")
         financial_summary = []
         
         # 预处理：计算 Commission Day
@@ -468,10 +487,7 @@ def main():
             
             sales_df_q4['Sort_Date'] = sales_df_q4['Commission Day Obj'].fillna(datetime(2099, 12, 31))
 
-        # 用于存储更新后的 DataFrame (包含计算出的 Locked Level)
         updated_sales_records = []
-        
-        # 存储 Team Lead 的 Override 数据
         team_lead_overrides = []
 
         for conf in TEAM_CONFIG:
@@ -480,7 +496,7 @@ def main():
             role = conf.get('role', 'Consultant')
             is_team_lead = (role == "Team Lead")
             
-            # Target 计算: Team Lead 减半 (4.5倍), 普通人 (9倍)
+            # Target 计算
             target_multiplier = 4.5 if is_team_lead else 9.0
             target = base * target_multiplier
 
@@ -492,7 +508,7 @@ def main():
             total_comm = 0
             current_level = 0
             
-            # --- A. 个人佣金计算 (Personal Commission) ---
+            # --- A. 个人佣金计算 ---
             if not c_sales.empty:
                 booked_gp = c_sales['GP'].sum()
                 paid_gp = c_sales[c_sales['Status'] == 'Paid']['GP'].sum()
@@ -514,7 +530,6 @@ def main():
                     month_new_gp = c_sales.loc[month_mask, 'GP'].sum()
                     running_paid_gp += month_new_gp
                     
-                    # 传入 is_team_lead 参数调整 Level 门槛
                     level, multiplier = calculate_commission_tier(running_paid_gp, base, is_team_lead)
                     
                     for idx in c_sales.index[month_mask]:
@@ -524,17 +539,15 @@ def main():
                         c_sales.at[idx, 'Final Comm'] = deal_comm
                         
                         comm_date = row['Commission Day Obj']
-                        # 日期判断放宽到 20 天
                         if pd.notnull(comm_date) and comm_date <= datetime.now() + timedelta(days=20):
                             total_comm += deal_comm
                 
                 updated_sales_records.append(c_sales)
                 current_level, _ = calculate_commission_tier(running_paid_gp, base, is_team_lead)
 
-            # --- B. Team Lead Override Commission (Team Commission) ---
+            # --- B. Team Lead Override ---
             override_amt = 0
             if is_team_lead:
-                # 规则：Team Lead 可以拿其他成员 (Estela除外) 的 Paid 单子的 Override
                 if not sales_df_q4.empty:
                     override_mask = (sales_df_q4['Status'] == 'Paid') & \
                                     (sales_df_q4['Consultant'] != c_name) & \
@@ -583,8 +596,8 @@ def main():
                 "Target": st.column_config.NumberColumn("Target Q", format="$%d"),
                 "Booked GP": st.column_config.NumberColumn("Booked GP (Ref)", format="$%d"),
                 "Paid GP": st.column_config.NumberColumn("Paid GP (Cumulative)", format="$%d"),
-                "Achieved": st.column_config.ProgressColumn(  # <--- 修改处
-                    "Target",  # 表头改为 Target
+                "Achieved": st.column_config.ProgressColumn(
+                    "Target",
                     format="%.1f%%",
                     min_value=0,
                     max_value=100,
@@ -593,16 +606,21 @@ def main():
             }
         )
 
-        with st.expander("📜 Historical GP Summary (All Time)"):
+        # ⚠️ 修正4: Historical GP Summary 按季度区分
+        with st.expander("📜 Historical GP Summary (By Quarter)"):
             if not sales_df_hist.empty:
-                st.markdown("#### Aggregated GP (Excl. Current Q4)")
-                hist_fin_agg = sales_df_hist.groupby('Consultant')['GP'].sum().reset_index().sort_values(by='GP',
-                                                                                                         ascending=False)
+                st.markdown("#### Historical Data (Read-Only)")
+                # 按 Quarter 和 Consultant 分组
+                hist_fin_agg = sales_df_hist.groupby(['Quarter', 'Consultant'])['GP'].sum().reset_index()
+                # 排序: 季度倒序 (最近的在前面), 顾问名排序
+                hist_fin_agg = hist_fin_agg.sort_values(by=['Quarter', 'Consultant'], ascending=[False, True])
+                
                 st.dataframe(
                     hist_fin_agg,
                     use_container_width=True,
                     hide_index=True,
                     column_config={
+                        "Quarter": st.column_config.TextColumn("Quarter"),
                         "Consultant": st.column_config.TextColumn("Consultant"),
                         "GP": st.column_config.NumberColumn("Total GP", format="$%d")
                     }
@@ -643,7 +661,6 @@ def main():
                 else:
                     st.info("No personal deals in Q4.")
 
-                # 展示 Team Override (仅针对 Team Lead)
                 if conf.get('role') == 'Team Lead':
                     st.divider()
                     st.markdown("#### 👥 Team Overrides (1000 MXN per eligible deal)")
