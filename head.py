@@ -98,7 +98,6 @@ def calculate_single_deal_commission(candidate_salary, multiplier):
 def get_commission_pay_date(payment_date):
     """
     根据 Payment Date 计算佣金发放日（下个月 15 号）。
-    增加安全检查。
     """
     if pd.isna(payment_date) or not payment_date:
         return None
@@ -411,9 +410,6 @@ def main():
     end_m = 12
     quarter_months_str = [f"{year}{m:02d}" for m in range(start_m, end_m + 1)]
 
-    # 用于判断"本月"的基准
-    now = datetime.now()
-
     with st.spinner("Analyzing Data (API requests throttled to prevent quota errors)..."):
         rec_stats_df, rec_details_df = fetch_recruitment_stats(client, quarter_months_str)
         time.sleep(1)
@@ -463,57 +459,112 @@ def main():
 
         st.divider()
 
-        # 2. Financial Performance (Q4)
+        # 2. Financial Performance (Q4) - 核心逻辑变更区域
         st.markdown(f"### 💰 Financial Performance (Q{quarter_num})")
         financial_summary = []
         
+        # 预处理：计算 Commission Day
         if not sales_df_q4.empty:
             sales_df_q4['Commission Day Obj'] = sales_df_q4['Payment Date Obj'].apply(get_commission_pay_date)
+            # 安全格式化字符串
             sales_df_q4['Commission Day'] = sales_df_q4['Commission Day Obj'].apply(
                 lambda x: x.strftime("%Y-%m-%d") if (pd.notnull(x) and x is not None) else "")
+            
+            # 增加一个排序列：如果有 Commission Day 就用它，没有就用一个大日期放到最后
+            sales_df_q4['Sort_Date'] = sales_df_q4['Commission Day Obj'].fillna(datetime(2099, 12, 31))
+
+        # 用于存储更新后的 DataFrame (包含计算出的 Locked Level)
+        updated_sales_records = []
 
         for conf in TEAM_CONFIG:
             c_name = conf['name']
             base = conf['base_salary']
             target = base * 9
 
-            c_sales = sales_df_q4[sales_df_q4['Consultant'] == c_name] if not sales_df_q4.empty else pd.DataFrame()
+            # 获取该顾问的数据
+            c_sales = sales_df_q4[sales_df_q4['Consultant'] == c_name].copy() if not sales_df_q4.empty else pd.DataFrame()
             
-            # 1. Booked GP: 入职即算 (Booked)
-            booked_gp = c_sales['GP'].sum() if not c_sales.empty else 0
-
-            # 2. Paid GP: 只有 Status = 'Paid' 的单子才算
-            # ⚠️ 关键修正: Level 和 Target 达成率 均基于 Q4 期间 回款的 GP
-            paid_sales = c_sales[c_sales['Status'] == 'Paid'] if not c_sales.empty else pd.DataFrame()
-            paid_gp = paid_sales['GP'].sum() if not paid_sales.empty else 0
-
-            # 3. 判定 Level (基于 Paid GP)
-            level, multiplier = calculate_commission_tier(paid_gp, base)
-            
-            # 4. 计算 Est. Commission
+            booked_gp = 0
+            paid_gp = 0
             total_comm = 0
+            current_level = 0
+            
             if not c_sales.empty:
-                for _, row in c_sales.iterrows():
-                    # 只有 Paid 的单子才可能有佣金
-                    if row['Status'] == 'Paid' and pd.notnull(row['Commission Day Obj']):
-                        full_deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier)
-                        potential_comm = full_deal_comm * row['Percentage']
+                # 1. Booked GP (Total)
+                booked_gp = c_sales['GP'].sum()
+                # 2. Paid GP (Total) - 用于显示最终累计达成
+                paid_gp = c_sales[c_sales['Status'] == 'Paid']['GP'].sum()
+                
+                # --- 🔑 关键变更：按时间轴逐月累加计算佣金 (Locking Logic) ---
+                
+                # 添加辅助列用于记录计算结果
+                c_sales['Applied Level'] = 0
+                c_sales['Final Comm'] = 0.0
+                
+                # 按佣金发放日排序 (非常重要，保证先发生的先算累计)
+                c_sales = c_sales.sort_values(by='Sort_Date')
+                
+                # 创建月份分组键 (YYYY-MM)
+                c_sales['Comm_Month_Key'] = c_sales['Commission Day Obj'].apply(
+                    lambda x: x.strftime('%Y-%m') if pd.notnull(x) else 'Pending'
+                )
+                
+                running_paid_gp = 0
+                
+                # 获取所有不重复的月份，并排序 (忽略 Pending)
+                month_keys = sorted([m for m in c_sales['Comm_Month_Key'].unique() if m != 'Pending'])
+                
+                # 1. 处理已回款的月份 (逐月累加锁定)
+                for month_key in month_keys:
+                    # 找到归属于该月份发放的单子
+                    month_mask = c_sales['Comm_Month_Key'] == month_key
+                    
+                    # 计算该月新增的 GP (Contribution)
+                    month_new_gp = c_sales.loc[month_mask, 'GP'].sum()
+                    
+                    # 更新累计 GP
+                    running_paid_gp += month_new_gp
+                    
+                    # 基于 *当时* 的累计 GP 确定 Level
+                    level, multiplier = calculate_commission_tier(running_paid_gp, base)
+                    
+                    # 应用到该月的单子上 (写入数据)
+                    for idx in c_sales.index[month_mask]:
+                        row = c_sales.loc[idx]
+                        deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * row['Percentage']
+                        c_sales.at[idx, 'Applied Level'] = level
+                        c_sales.at[idx, 'Final Comm'] = deal_comm
                         
+                        # 判断是否计入应发佣金 (如果日期 <= 今天+缓冲期)
                         comm_date = row['Commission Day Obj']
-                        # 佣金发放日 <= 今天 + 缓冲期，计入显示
-                        if comm_date <= datetime.now() + timedelta(days=5):
-                            total_comm += potential_comm
+                        if pd.notnull(comm_date) and comm_date <= datetime.now() + timedelta(days=5):
+                            total_comm += deal_comm
+                
+                # 2. 处理 Pending 的单子 (仅作展示，不计入 Level，Level 显示为 0 或预测值)
+                # Pending 的单子不产生 Commission，也不增加 running_paid_gp
+                # 但我们在明细里可以保留它们为 0
+                
+                # 为了后续明细展示，把处理过的 c_sales 存起来
+                updated_sales_records.append(c_sales)
+                
+                # 最终显示的 Level 是当前累计达到的最高 Level
+                current_level, _ = calculate_commission_tier(running_paid_gp, base)
 
-            # 5. 计算达成率 (基于 Paid GP)
             completion_rate = (paid_gp / target) if target > 0 else 0
 
             financial_summary.append({
                 "Consultant": c_name, "Base Salary": base, "Target": target,
-                "Booked GP": booked_gp,  # 仅作参考展示
-                "Paid GP": paid_gp,      # 实际用于 Level 的
+                "Booked GP": booked_gp, 
+                "Paid GP": paid_gp,     
                 "Achieved": completion_rate * 100,
-                "Level": level, "Est. Commission": total_comm
+                "Level": current_level, "Est. Commission": total_comm
             })
+
+        # 重新组合处理后的 DataFrame 用于 Details Tab
+        if updated_sales_records:
+            final_sales_df = pd.concat(updated_sales_records)
+        else:
+            final_sales_df = pd.DataFrame()
 
         df_fin = pd.DataFrame(financial_summary).sort_values(by='Paid GP', ascending=False)
         st.dataframe(
@@ -521,8 +572,8 @@ def main():
             column_config={
                 "Base Salary": st.column_config.NumberColumn(format="$%d"),
                 "Target": st.column_config.NumberColumn("Target Q", format="$%d"),
-                "Booked GP": st.column_config.NumberColumn("Booked GP (Ref)", format="$%d", help="Total GP of onboarded deals"),
-                "Paid GP": st.column_config.NumberColumn("Paid GP (Level)", format="$%d", help="GP collected, used for Level & Target"),
+                "Booked GP": st.column_config.NumberColumn("Booked GP (Ref)", format="$%d"),
+                "Paid GP": st.column_config.NumberColumn("Paid GP (Cumulative)", format="$%d"),
                 "Achieved": st.column_config.NumberColumn("Achieved", format="%.1f%%"),
                 "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d"),
             }
@@ -552,33 +603,30 @@ def main():
         for conf in TEAM_CONFIG:
             c_name = conf['name']
             fin_row = df_fin[df_fin['Consultant'] == c_name].iloc[0]
-            header = f"👤 {c_name} | Paid GP: ${fin_row['Paid GP']:,.0f} (Lvl {fin_row['Level']})"
+            header = f"👤 {c_name} | Paid GP: ${fin_row['Paid GP']:,.0f} (Current Lvl {fin_row['Level']})"
 
             with st.expander(header):
-                st.markdown("#### 💸 Commission Breakdown")
-                c_sales = sales_df_q4[sales_df_q4['Consultant'] == c_name] if not sales_df_q4.empty else pd.DataFrame()
-                if not c_sales.empty:
-                    # 使用基于 Paid GP 计算出的 Level Multiplier
-                    multiplier = calculate_commission_tier(fin_row['Paid GP'], fin_row['Base Salary'])[1]
-
-                    def get_comm_display(row):
-                        if row['Status'] != 'Paid': return 0
-                        base_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier)
-                        return base_comm * row['Percentage']
-
-                    c_sales['Comm Amt'] = c_sales.apply(get_comm_display, axis=1)
-                    c_sales['Pct Display'] = c_sales['Percentage'].apply(lambda x: f"{x * 100:.0f}%")
+                st.markdown("#### 💸 Commission Breakdown (Time-Locked)")
+                
+                if not final_sales_df.empty:
+                    c_sales_view = final_sales_df[final_sales_df['Consultant'] == c_name].copy()
+                else:
+                    c_sales_view = pd.DataFrame()
+                
+                if not c_sales_view.empty:
+                    c_sales_view['Pct Display'] = c_sales_view['Percentage'].apply(lambda x: f"{x * 100:.0f}%")
                     
-                    if 'Commission Day' not in c_sales.columns:
-                        c_sales['Commission Day'] = ""
+                    if 'Commission Day' not in c_sales_view.columns:
+                        c_sales_view['Commission Day'] = ""
 
-                    # 高亮 Status 是 Pending 的行可能有助于检查
-                    st.dataframe(c_sales[['Onboard Date Str', 'Payment Date', 'Commission Day', 'Candidate Salary', 'Pct Display', 'GP', 'Status',
-                                          'Comm Amt']],
+                    st.dataframe(c_sales_view[['Onboard Date Str', 'Payment Date', 'Commission Day', 
+                                               'Candidate Salary', 'Pct Display', 'GP', 'Status',
+                                               'Applied Level', 'Final Comm']],
                                  use_container_width=True, hide_index=True,
                                  column_config={
-                                     "Commission Day": st.column_config.TextColumn("Commission Day"),
-                                     "Comm Amt": st.column_config.NumberColumn("Comm ($)", format="$%.2f")
+                                     "Commission Day": st.column_config.TextColumn("Comm. Date"),
+                                     "Applied Level": st.column_config.NumberColumn("Lvl Used", help="Level locked at time of payment"),
+                                     "Final Comm": st.column_config.NumberColumn("Comm ($)", format="$%.2f")
                                  })
                 else:
                     st.info("No deals in Q4.")
