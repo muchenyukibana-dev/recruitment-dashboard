@@ -20,25 +20,29 @@ TEAM_CONFIG = [
         "name": "Raul Solis",
         "id": "1vQuN-iNBRUug5J6gBMX-52jp6oogbA77SaeAf9j_zYs",
         "keyword": "Name",
-        "base_salary": 11000
+        "base_salary": 11000,
+        "role": "Consultant"
     },
     {
         "name": "Estela Peng",
         "id": "1sUkffAXzWnpzhhmklqBuwtoQylpR1U18zqBQ-lsp7Z4",
         "keyword": "姓名",
-        "base_salary": 20800
+        "base_salary": 20800,
+        "role": "Consultant"
     },
     {
         "name": "Ana Cruz",
         "id": "1VMVw5YCV12eI8I-VQSXEKg86J2IVZJEgjPJT7ggAFD0",
         "keyword": "Name",
-        "base_salary": 13000
+        "base_salary": 13000,
+        "role": "Consultant"
     },
     {
         "name": "Karina Albarran",
         "id": "1zc4ghvfjIxH0eJ2aXfopOWHqiyTDlD8yFNjBzpH07D8",
         "keyword": "Name",
-        "base_salary": 15000
+        "base_salary": 15000,
+        "role": "Team Lead"  # <--- 标记为 Team Lead
     },
 ]
 
@@ -67,15 +71,24 @@ st.markdown("""
 
 
 # --- 🧮 辅助函数 ---
-def calculate_commission_tier(total_gp, base_salary):
+def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
     """
     根据 Paid GP 和 Base Salary 计算 Level 和 Multiplier
+    如果是 Team Lead，门槛减半。
     """
-    if total_gp < 9 * base_salary:
+    # 定义系数: [Level 0 limit, Level 1 limit, Level 2 limit]
+    if is_team_lead:
+        # Team Lead 门槛减半 (4.5x, 6.75x, 11.25x)
+        t1, t2, t3 = 4.5, 6.75, 11.25
+    else:
+        # 普通顾问 (9x, 13.5x, 22.5x)
+        t1, t2, t3 = 9.0, 13.5, 22.5
+
+    if total_gp < t1 * base_salary:
         return 0, 0
-    elif total_gp < 13.5 * base_salary:
+    elif total_gp < t2 * base_salary:
         return 1, 1
-    elif total_gp < 22.5 * base_salary:
+    elif total_gp < t3 * base_salary:
         return 2, 2
     else:
         return 3, 3
@@ -116,21 +129,15 @@ def normalize_text(text):
 
 
 def safe_api_call(func, *args, **kwargs):
-    """
-    执行 Google API 调用，如果遇到 429 错误 (Quota exceeded)，则等待并重试。
-    """
     max_retries = 5
-    base_delay = 2  # 基础等待时间（秒）
-
+    base_delay = 2
     for i in range(max_retries):
         try:
             return func(*args, **kwargs)
         except APIError as e:
-            # 检查是否为 429 错误
             if "429" in str(e):
-                wait_time = base_delay * (2 ** i) + random.uniform(0, 1)  # 指数退避: 2s, 4s, 8s...
+                wait_time = base_delay * (2 ** i) + random.uniform(0, 1)
                 time.sleep(wait_time)
-                # 仅在最后一次尝试失败时抛出错误，否则继续循环重试
                 if i == max_retries - 1:
                     st.error(f"⚠️ API Quota Exceeded. Please try again in a minute.")
                     raise e
@@ -164,7 +171,7 @@ def connect_to_google():
             return None
 
 
-# --- 📥 招聘数据 ---
+# --- 📥 数据获取 ---
 def fetch_recruitment_stats(client, months):
     all_stats = []
     all_details = []
@@ -179,7 +186,6 @@ def fetch_recruitment_stats(client, months):
 def fetch_historical_recruitment_stats(client, exclude_months):
     all_stats = []
     try:
-        # 1. 获取所有月份 Sheet 名称 (只读取一次)
         sheet = safe_api_call(client.open_by_key, TEAM_CONFIG[0]['id'])
         worksheets = safe_api_call(sheet.worksheets)
 
@@ -190,7 +196,6 @@ def fetch_historical_recruitment_stats(client, exclude_months):
                 if title not in exclude_months:
                     hist_months.append(title)
 
-        # 2. 遍历历史月份
         for month in hist_months:
             for consultant in TEAM_CONFIG:
                 time.sleep(0.5)
@@ -266,7 +271,6 @@ def internal_fetch_sheet_data(client, conf, tab):
         return 0, 0, 0, []
 
 
-# --- 💰 获取业绩数据 ---
 def fetch_all_sales_data(client):
     try:
         sheet = safe_api_call(client.open_by_key, SALES_SHEET_ID)
@@ -311,7 +315,6 @@ def fetch_all_sales_data(client):
                 consultant_name = row[col_cons].strip()
                 if not consultant_name: continue
 
-                # 解析 Onboard Date
                 onboard_str = row[col_onboard].strip()
                 onboard_date = None
                 for fmt in date_formats:
@@ -322,7 +325,6 @@ def fetch_all_sales_data(client):
                         pass
                 if not onboard_date: continue
 
-                # 匹配顾问
                 matched = "Unknown"
                 c_norm = normalize_text(consultant_name)
                 for conf in TEAM_CONFIG:
@@ -331,7 +333,6 @@ def fetch_all_sales_data(client):
                     if conf_norm.split()[0] in c_norm: matched = conf['name']; break
                 if matched == "Unknown": continue
 
-                # 工资与 GP 计算
                 salary_raw = str(row[col_sal]).replace(',', '').replace('$', '').replace('MXN', '').replace('CNY',
                                                                                                             '').strip()
                 try:
@@ -355,7 +356,6 @@ def fetch_all_sales_data(client):
                 base_gp_factor = 1.0 if salary < 20000 else 1.5
                 calc_gp = salary * base_gp_factor * pct_val
 
-                # 解析 Payment Date
                 pay_date_str = ""
                 pay_date_obj = None
                 status = "Pending"
@@ -459,27 +459,33 @@ def main():
 
         st.divider()
 
-        # 2. Financial Performance (Q4) - 核心逻辑变更区域
+        # 2. Financial Performance (Q4)
         st.markdown(f"### 💰 Financial Performance (Q{quarter_num})")
         financial_summary = []
         
         # 预处理：计算 Commission Day
         if not sales_df_q4.empty:
             sales_df_q4['Commission Day Obj'] = sales_df_q4['Payment Date Obj'].apply(get_commission_pay_date)
-            # 安全格式化字符串
             sales_df_q4['Commission Day'] = sales_df_q4['Commission Day Obj'].apply(
                 lambda x: x.strftime("%Y-%m-%d") if (pd.notnull(x) and x is not None) else "")
             
-            # 增加一个排序列：如果有 Commission Day 就用它，没有就用一个大日期放到最后
             sales_df_q4['Sort_Date'] = sales_df_q4['Commission Day Obj'].fillna(datetime(2099, 12, 31))
 
         # 用于存储更新后的 DataFrame (包含计算出的 Locked Level)
         updated_sales_records = []
+        
+        # 存储 Team Lead 的 Override 数据
+        team_lead_overrides = []
 
         for conf in TEAM_CONFIG:
             c_name = conf['name']
             base = conf['base_salary']
-            target = base * 9
+            role = conf.get('role', 'Consultant')
+            is_team_lead = (role == "Team Lead")
+            
+            # Target 计算: Team Lead 减半 (4.5倍), 普通人 (9倍)
+            target_multiplier = 4.5 if is_team_lead else 9.0
+            target = base * target_multiplier
 
             # 获取该顾问的数据
             c_sales = sales_df_q4[sales_df_q4['Consultant'] == c_name].copy() if not sales_df_q4.empty else pd.DataFrame()
@@ -489,66 +495,75 @@ def main():
             total_comm = 0
             current_level = 0
             
+            # --- A. 个人佣金计算 (Personal Commission) ---
             if not c_sales.empty:
-                # 1. Booked GP (Total)
                 booked_gp = c_sales['GP'].sum()
-                # 2. Paid GP (Total) - 用于显示最终累计达成
                 paid_gp = c_sales[c_sales['Status'] == 'Paid']['GP'].sum()
                 
-                # --- 🔑 关键变更：按时间轴逐月累加计算佣金 (Locking Logic) ---
-                
-                # 添加辅助列用于记录计算结果
                 c_sales['Applied Level'] = 0
                 c_sales['Final Comm'] = 0.0
                 
-                # 按佣金发放日排序 (非常重要，保证先发生的先算累计)
                 c_sales = c_sales.sort_values(by='Sort_Date')
                 
-                # 创建月份分组键 (YYYY-MM)
                 c_sales['Comm_Month_Key'] = c_sales['Commission Day Obj'].apply(
                     lambda x: x.strftime('%Y-%m') if pd.notnull(x) else 'Pending'
                 )
                 
                 running_paid_gp = 0
-                
-                # 获取所有不重复的月份，并排序 (忽略 Pending)
                 month_keys = sorted([m for m in c_sales['Comm_Month_Key'].unique() if m != 'Pending'])
                 
-                # 1. 处理已回款的月份 (逐月累加锁定)
                 for month_key in month_keys:
-                    # 找到归属于该月份发放的单子
                     month_mask = c_sales['Comm_Month_Key'] == month_key
-                    
-                    # 计算该月新增的 GP (Contribution)
                     month_new_gp = c_sales.loc[month_mask, 'GP'].sum()
-                    
-                    # 更新累计 GP
                     running_paid_gp += month_new_gp
                     
-                    # 基于 *当时* 的累计 GP 确定 Level
-                    level, multiplier = calculate_commission_tier(running_paid_gp, base)
+                    # 传入 is_team_lead 参数调整 Level 门槛
+                    level, multiplier = calculate_commission_tier(running_paid_gp, base, is_team_lead)
                     
-                    # 应用到该月的单子上 (写入数据)
                     for idx in c_sales.index[month_mask]:
                         row = c_sales.loc[idx]
                         deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * row['Percentage']
                         c_sales.at[idx, 'Applied Level'] = level
                         c_sales.at[idx, 'Final Comm'] = deal_comm
                         
-                        # 判断是否计入应发佣金 (如果日期 <= 今天+缓冲期)
                         comm_date = row['Commission Day Obj']
-                        if pd.notnull(comm_date) and comm_date <= datetime.now() + timedelta(days=5):
+                        # ⚠️ 修正日期判断：放宽到 20 天，确保本月15号（如果今天还没到）也能显示
+                        if pd.notnull(comm_date) and comm_date <= datetime.now() + timedelta(days=20):
                             total_comm += deal_comm
                 
-                # 2. 处理 Pending 的单子 (仅作展示，不计入 Level，Level 显示为 0 或预测值)
-                # Pending 的单子不产生 Commission，也不增加 running_paid_gp
-                # 但我们在明细里可以保留它们为 0
-                
-                # 为了后续明细展示，把处理过的 c_sales 存起来
                 updated_sales_records.append(c_sales)
-                
-                # 最终显示的 Level 是当前累计达到的最高 Level
-                current_level, _ = calculate_commission_tier(running_paid_gp, base)
+                current_level, _ = calculate_commission_tier(running_paid_gp, base, is_team_lead)
+
+            # --- B. Team Lead Override Commission (Team Commission) ---
+            override_amt = 0
+            if is_team_lead:
+                # 规则：Team Lead 可以拿其他成员 (Estela除外) 的 Paid 单子的 Override
+                # 需要在所有数据中筛选
+                if not sales_df_q4.empty:
+                    # 筛选条件：Status=Paid, Consultant != 自己, Consultant != Estela Peng
+                    override_mask = (sales_df_q4['Status'] == 'Paid') & \
+                                    (sales_df_q4['Consultant'] != c_name) & \
+                                    (sales_df_q4['Consultant'] != "Estela Peng")
+                    
+                    potential_overrides = sales_df_q4[override_mask].copy()
+                    
+                    for _, row in potential_overrides.iterrows():
+                        comm_date = row['Commission Day Obj']
+                        # 同样的日期显示逻辑 (本月应发)
+                        if pd.notnull(comm_date) and comm_date <= datetime.now() + timedelta(days=20):
+                            # 每单奖励 1000
+                            bonus = 1000
+                            override_amt += bonus
+                            total_comm += bonus # 加到总佣金里
+                            
+                            team_lead_overrides.append({
+                                "Leader": c_name,
+                                "Source Consultant": row['Consultant'],
+                                "Company": "N/A", # 这里没有公司名数据，Sales Sheet如果没读公司列就只有 Consultant
+                                "Candidate Salary": row['Candidate Salary'],
+                                "Comm Date": row['Commission Day'],
+                                "Bonus": bonus
+                            })
 
             completion_rate = (paid_gp / target) if target > 0 else 0
 
@@ -560,11 +575,12 @@ def main():
                 "Level": current_level, "Est. Commission": total_comm
             })
 
-        # 重新组合处理后的 DataFrame 用于 Details Tab
         if updated_sales_records:
             final_sales_df = pd.concat(updated_sales_records)
         else:
             final_sales_df = pd.DataFrame()
+            
+        override_df = pd.DataFrame(team_lead_overrides)
 
         df_fin = pd.DataFrame(financial_summary).sort_values(by='Paid GP', ascending=False)
         st.dataframe(
@@ -579,7 +595,6 @@ def main():
             }
         )
 
-        # 3. Historical Financial Summary (Excl Q4)
         with st.expander("📜 Historical GP Summary (All Time)"):
             if not sales_df_hist.empty:
                 st.markdown("#### Aggregated GP (Excl. Current Q4)")
@@ -598,7 +613,6 @@ def main():
                 st.info("No historical sales data found (excluding current Q4).")
 
     with tab_details:
-        # A. Q4 Details
         st.markdown("### 🔍 Drill Down Details (Q4 Only)")
         for conf in TEAM_CONFIG:
             c_name = conf['name']
@@ -606,7 +620,7 @@ def main():
             header = f"👤 {c_name} | Paid GP: ${fin_row['Paid GP']:,.0f} (Current Lvl {fin_row['Level']})"
 
             with st.expander(header):
-                st.markdown("#### 💸 Commission Breakdown (Time-Locked)")
+                st.markdown("#### 💸 Personal Commission Breakdown")
                 
                 if not final_sales_df.empty:
                     c_sales_view = final_sales_df[final_sales_df['Consultant'] == c_name].copy()
@@ -625,11 +639,28 @@ def main():
                                  use_container_width=True, hide_index=True,
                                  column_config={
                                      "Commission Day": st.column_config.TextColumn("Comm. Date"),
-                                     "Applied Level": st.column_config.NumberColumn("Lvl Used", help="Level locked at time of payment"),
+                                     "Applied Level": st.column_config.NumberColumn("Lvl Used"),
                                      "Final Comm": st.column_config.NumberColumn("Comm ($)", format="$%.2f")
                                  })
                 else:
-                    st.info("No deals in Q4.")
+                    st.info("No personal deals in Q4.")
+
+                # 展示 Team Override (仅针对 Team Lead)
+                if conf.get('role') == 'Team Lead':
+                    st.divider()
+                    st.markdown("#### 👥 Team Overrides (1000 MXN per eligible deal)")
+                    if not override_df.empty:
+                        my_overrides = override_df[override_df['Leader'] == c_name]
+                        if not my_overrides.empty:
+                            st.dataframe(my_overrides[['Source Consultant', 'Candidate Salary', 'Comm Date', 'Bonus']],
+                                         use_container_width=True, hide_index=True,
+                                         column_config={
+                                             "Bonus": st.column_config.NumberColumn(format="$%d")
+                                         })
+                        else:
+                            st.info("No eligible team overrides yet.")
+                    else:
+                        st.info("No eligible team overrides yet.")
 
                 st.divider()
                 st.markdown("#### 📝 Recruitment Logs (Q4)")
