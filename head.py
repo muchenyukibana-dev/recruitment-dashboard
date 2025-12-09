@@ -95,8 +95,9 @@ def calculate_single_deal_commission(candidate_salary, multiplier):
 def get_commission_pay_date(payment_date):
     """
     根据 Payment Date 计算佣金发放日（下个月 15 号）。
+    增加了 pd.isna 检查以防止 NaT 错误。
     """
-    if not payment_date:
+    if pd.isna(payment_date) or not payment_date:
         return None
     try:
         # 下个月年份
@@ -415,7 +416,6 @@ def main():
 
     # 用于判断"本月"的基准 (当前时间)
     now = datetime.now()
-    # 如果要模拟测试，可以修改这里，比如: now = datetime(2025, 12, 9)
 
     with st.spinner("Analyzing Data (API requests throttled to prevent quota errors)..."):
         # 顺序获取，避免并行冲突
@@ -474,8 +474,9 @@ def main():
         # 预先计算所有交易的 Commission Day，方便后续使用
         if not sales_df_q4.empty:
             sales_df_q4['Commission Day Obj'] = sales_df_q4['Payment Date Obj'].apply(get_commission_pay_date)
+            # 安全地格式化日期，防止 NaT 报错
             sales_df_q4['Commission Day'] = sales_df_q4['Commission Day Obj'].apply(
-                lambda x: x.strftime("%Y-%m-%d") if x else "")
+                lambda x: x.strftime("%Y-%m-%d") if (pd.notnull(x) and x is not None) else "")
 
         for conf in TEAM_CONFIG:
             c_name = conf['name']
@@ -484,35 +485,25 @@ def main():
 
             c_sales = sales_df_q4[sales_df_q4['Consultant'] == c_name] if not sales_df_q4.empty else pd.DataFrame()
             
-            # 计算总 GP (Level 判定依据): 包含所有Q4的单子，无论是否付款，或者是否是本月付款
-            # 规则：如果是上个月回款 -> 计入 Target。如果是本月回款 -> 也计入 Target。
-            # 所以 Total GP 保持 Q4 全部。
+            # 计算总 GP (Level 判定依据): 包含所有Q4的单子
             total_gp = c_sales['GP'].sum() if not c_sales.empty else 0
 
             # 判定 Level
             level, multiplier = calculate_commission_tier(total_gp, base)
             
             # 计算 实际发放佣金 (Est. Commission)
-            # 规则：
-            # - 如果 Payment 是上个月 (Commission Day 是这个月) -> 计入 Commission
-            # - 如果 Payment 是本月 (Commission Day 是下个月) -> 暂时不计入 Commission (但计入 Target 已在上面体现)
             total_comm = 0
             if not c_sales.empty:
                 for _, row in c_sales.iterrows():
-                    if row['Status'] == 'Paid' and row['Commission Day Obj']:
+                    # 确保 row['Commission Day Obj'] 不是 NaT 也不是 None
+                    if row['Status'] == 'Paid' and pd.notnull(row['Commission Day Obj']):
                         full_deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier)
                         potential_comm = full_deal_comm * row['Percentage']
                         
-                        # 只有当 Commission Day 早于或等于"今天"(或者本月月底)才算作"应发佣金"
-                        # 这里简单判定：如果 Commission Day <= 下个月1号 (即本月15号或之前)，则认为应该发
-                        # 或者更严格遵循用户指示：本月回款(下月发) -> 暂时不计入。
-                        # 因此，如果 Commission Day 的月份 > 当前月份，就不计入。
-                        
                         comm_date = row['Commission Day Obj']
-                        # 比较逻辑：如果佣金发放日还没到 (比如是下个月)，则不计入总额显示
-                        if comm_date <= datetime.now() + timedelta(days=5): # 给一点缓冲，比如显示本月15号的
+                        # 比较逻辑：如果佣金发放日 <= 今天 + 缓冲期，则计入显示
+                        if comm_date <= datetime.now() + timedelta(days=5):
                             total_comm += potential_comm
-                        # 否则 (未来发放)，不加到 total_comm 里
 
             completion_rate = (total_gp / target) if target > 0 else 0
 
@@ -570,14 +561,12 @@ def main():
 
                     def get_comm_display(row):
                         if row['Status'] != 'Paid': return 0
-                        # 无论是否发，先算出来，在表格里显示金额，但"是否计入总额"由上面的逻辑控制
                         base_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier)
                         return base_comm * row['Percentage']
 
                     c_sales['Comm Amt'] = c_sales.apply(get_comm_display, axis=1)
                     c_sales['Pct Display'] = c_sales['Percentage'].apply(lambda x: f"{x * 100:.0f}%")
                     
-                    # 确保 Commission Day 列存在 (虽然上面已经处理过，防止空 DataFrame 报错)
                     if 'Commission Day' not in c_sales.columns:
                         c_sales['Commission Day'] = ""
 
