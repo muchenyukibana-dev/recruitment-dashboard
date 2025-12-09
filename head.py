@@ -572,4 +572,144 @@ def main():
                                     (sales_df_q4['Consultant'] != c_name) & \
                                     (sales_df_q4['Consultant'] != "Estela Peng")
                     
-                    potential_override
+                    potential_overrides = sales_df_q4[override_mask].copy()
+                    
+                    for _, row in potential_overrides.iterrows():
+                        comm_date = row['Commission Day Obj']
+                        if pd.notnull(comm_date) and comm_date <= datetime.now() + timedelta(days=20):
+                            bonus = 1000
+                            total_comm += bonus 
+                            
+                            team_lead_overrides.append({
+                                "Leader": c_name,
+                                "Source Consultant": row['Consultant'],
+                                "Candidate Salary": row['Candidate Salary'],
+                                "Comm Date": row['Commission Day'],
+                                "Bonus": bonus
+                            })
+
+            completion_rate = (paid_gp / target) if target > 0 else 0
+
+            financial_summary.append({
+                "Consultant": c_name, "Base Salary": base, "Target": target,
+                "Booked GP": booked_gp, 
+                "Paid GP": paid_gp,     
+                "Achieved": completion_rate * 100,
+                "Level": current_level, "Est. Commission": total_comm
+            })
+
+        if updated_sales_records:
+            final_sales_df = pd.concat(updated_sales_records)
+        else:
+            final_sales_df = pd.DataFrame()
+            
+        override_df = pd.DataFrame(team_lead_overrides)
+
+        df_fin = pd.DataFrame(financial_summary).sort_values(by='Paid GP', ascending=False)
+        st.dataframe(
+            df_fin, use_container_width=True, hide_index=True,
+            column_config={
+                "Base Salary": st.column_config.NumberColumn(format="$%d"),
+                "Target": st.column_config.NumberColumn("Target Q", format="$%d"),
+                "Booked GP": st.column_config.NumberColumn("Booked GP (Ref)", format="$%d"),
+                "Paid GP": st.column_config.NumberColumn("Paid GP (Cumulative)", format="$%d"),
+                "Achieved": st.column_config.ProgressColumn("Target", format="%.1f%%", min_value=0, max_value=100),
+                "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d"),
+            }
+        )
+
+        # ⚠️ 修正: Historical GP Summary (增加按 Quarter 汇总的总和)
+        with st.expander("📜 Historical GP Summary (By Quarter)"):
+            if not sales_df_hist.empty:
+                st.markdown("#### Historical Data Breakdown")
+                
+                # 1. 先计算每个 Quarter 的总和
+                q_totals = sales_df_hist.groupby('Quarter')['GP'].sum().reset_index()
+                q_totals['Consultant'] = '📌 TOTAL' # 标记为总和行
+                
+                # 2. 计算明细
+                detail_rows = sales_df_hist.groupby(['Quarter', 'Consultant'])['GP'].sum().reset_index()
+                
+                # 3. 合并并排序
+                combined_hist = pd.concat([q_totals, detail_rows])
+                # 排序逻辑: 季度倒序 -> 'TOTAL' 置顶(通过空格或者特殊字符让它排在名字前) -> 名字排序
+                combined_hist = combined_hist.sort_values(by=['Quarter', 'Consultant'], ascending=[False, True])
+                
+                st.dataframe(
+                    combined_hist,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Quarter": st.column_config.TextColumn("Quarter"),
+                        "Consultant": st.column_config.TextColumn("Consultant/Summary"),
+                        "GP": st.column_config.NumberColumn("Total GP", format="$%d")
+                    }
+                )
+            else:
+                st.info("No historical sales data found (excluding current Q4).")
+
+    with tab_details:
+        st.markdown("### 🔍 Drill Down Details (Q4 Only)")
+        for conf in TEAM_CONFIG:
+            c_name = conf['name']
+            fin_row = df_fin[df_fin['Consultant'] == c_name].iloc[0]
+            header = f"👤 {c_name} | Paid GP: ${fin_row['Paid GP']:,.0f} (Current Lvl {fin_row['Level']})"
+
+            with st.expander(header):
+                st.markdown("#### 💸 Personal Commission Breakdown")
+                
+                if not final_sales_df.empty:
+                    c_sales_view = final_sales_df[final_sales_df['Consultant'] == c_name].copy()
+                else:
+                    c_sales_view = pd.DataFrame()
+                
+                if not c_sales_view.empty:
+                    c_sales_view['Pct Display'] = c_sales_view['Percentage'].apply(lambda x: f"{x * 100:.0f}%")
+                    
+                    if 'Commission Day' not in c_sales_view.columns:
+                        c_sales_view['Commission Day'] = ""
+
+                    st.dataframe(c_sales_view[['Onboard Date Str', 'Payment Date', 'Commission Day', 
+                                               'Candidate Salary', 'Pct Display', 'GP', 'Status',
+                                               'Applied Level', 'Final Comm']],
+                                 use_container_width=True, hide_index=True,
+                                 column_config={
+                                     "Commission Day": st.column_config.TextColumn("Comm. Date"),
+                                     "Applied Level": st.column_config.NumberColumn("Lvl Used"),
+                                     "Final Comm": st.column_config.NumberColumn("Comm ($)", format="$%.2f")
+                                 })
+                else:
+                    st.info("No personal deals in Q4.")
+
+                if conf.get('role') == 'Team Lead':
+                    st.divider()
+                    st.markdown("#### 👥 Team Overrides (1000 MXN per eligible deal)")
+                    if not override_df.empty:
+                        my_overrides = override_df[override_df['Leader'] == c_name]
+                        if not my_overrides.empty:
+                            st.dataframe(my_overrides[['Source Consultant', 'Candidate Salary', 'Comm Date', 'Bonus']],
+                                         use_container_width=True, hide_index=True,
+                                         column_config={
+                                             "Bonus": st.column_config.NumberColumn(format="$%d")
+                                         })
+                        else:
+                            st.info("No eligible team overrides yet.")
+                    else:
+                        st.info("No eligible team overrides yet.")
+
+                st.divider()
+                st.markdown("#### 📝 Recruitment Logs (Q4)")
+                if not rec_details_df.empty:
+                    c_logs = rec_details_df[rec_details_df['Consultant'] == c_name]
+                    if not c_logs.empty:
+                        agg = c_logs.groupby(['Month', 'Company', 'Position', 'Status'])['Count'].sum().reset_index()
+                        agg = agg.sort_values(by='Month', ascending=False)
+                        st.dataframe(agg, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("No logs.")
+                else:
+                    st.info("No data.")
+
+
+if __name__ == "__main__":
+    main()
