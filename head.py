@@ -42,7 +42,7 @@ TEAM_CONFIG = [
         "id": "1zc4ghvfjIxH0eJ2aXfopOWHqiyTDlD8yFNjBzpH07D8",
         "keyword": "Name",
         "base_salary": 15000,
-        "role": "Team Lead"  # <--- 标记为 Team Lead
+        "role": "Team Lead"
     },
 ]
 
@@ -76,12 +76,9 @@ def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
     根据 Paid GP 和 Base Salary 计算 Level 和 Multiplier
     如果是 Team Lead，门槛减半。
     """
-    # 定义系数: [Level 0 limit, Level 1 limit, Level 2 limit]
     if is_team_lead:
-        # Team Lead 门槛减半 (4.5x, 6.75x, 11.25x)
         t1, t2, t3 = 4.5, 6.75, 11.25
     else:
-        # 普通顾问 (9x, 13.5x, 22.5x)
         t1, t2, t3 = 9.0, 13.5, 22.5
 
     if total_gp < t1 * base_salary:
@@ -527,7 +524,7 @@ def main():
                         c_sales.at[idx, 'Final Comm'] = deal_comm
                         
                         comm_date = row['Commission Day Obj']
-                        # ⚠️ 修正日期判断：放宽到 20 天，确保本月15号（如果今天还没到）也能显示
+                        # 日期判断放宽到 20 天
                         if pd.notnull(comm_date) and comm_date <= datetime.now() + timedelta(days=20):
                             total_comm += deal_comm
                 
@@ -538,9 +535,7 @@ def main():
             override_amt = 0
             if is_team_lead:
                 # 规则：Team Lead 可以拿其他成员 (Estela除外) 的 Paid 单子的 Override
-                # 需要在所有数据中筛选
                 if not sales_df_q4.empty:
-                    # 筛选条件：Status=Paid, Consultant != 自己, Consultant != Estela Peng
                     override_mask = (sales_df_q4['Status'] == 'Paid') & \
                                     (sales_df_q4['Consultant'] != c_name) & \
                                     (sales_df_q4['Consultant'] != "Estela Peng")
@@ -549,17 +544,15 @@ def main():
                     
                     for _, row in potential_overrides.iterrows():
                         comm_date = row['Commission Day Obj']
-                        # 同样的日期显示逻辑 (本月应发)
                         if pd.notnull(comm_date) and comm_date <= datetime.now() + timedelta(days=20):
-                            # 每单奖励 1000
                             bonus = 1000
                             override_amt += bonus
-                            total_comm += bonus # 加到总佣金里
+                            total_comm += bonus 
                             
                             team_lead_overrides.append({
                                 "Leader": c_name,
                                 "Source Consultant": row['Consultant'],
-                                "Company": "N/A", # 这里没有公司名数据，Sales Sheet如果没读公司列就只有 Consultant
+                                "Company": "N/A", 
                                 "Candidate Salary": row['Candidate Salary'],
                                 "Comm Date": row['Commission Day'],
                                 "Bonus": bonus
@@ -590,7 +583,12 @@ def main():
                 "Target": st.column_config.NumberColumn("Target Q", format="$%d"),
                 "Booked GP": st.column_config.NumberColumn("Booked GP (Ref)", format="$%d"),
                 "Paid GP": st.column_config.NumberColumn("Paid GP (Cumulative)", format="$%d"),
-                "Achieved": st.column_config.NumberColumn("Achieved", format="%.1f%%"),
+                "Achieved": st.column_config.ProgressColumn(  # <--- 修改处
+                    "Target",  # 表头改为 Target
+                    format="%.1f%%",
+                    min_value=0,
+                    max_value=100,
+                ),
                 "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d"),
             }
         )
