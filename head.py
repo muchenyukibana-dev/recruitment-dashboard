@@ -545,13 +545,25 @@ def main():
         
         df_fin = pd.DataFrame(financial_summary).sort_values('Paid GP', ascending=False)
         
-        st.dataframe(df_fin, use_container_width=True, hide_index=True, column_config={
-            "GP Target": st.column_config.NumberColumn(format="$%d"),
-            "Paid GP": st.column_config.NumberColumn(format="$%d"),
-            "Fin %": st.column_config.ProgressColumn("Financial %", format="%.0f%%", min_value=0, max_value=100),
-            "Status": st.column_config.TextColumn("Status"), # 单独一列改了max从100到10
-            "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d"),
-        })
+# ... (代码上下文: df_fin = pd.DataFrame(financial_summary).sort_values('Paid GP', ascending=False))
+
+        # --- 修改开始：Financial Performance ---
+        st.dataframe(
+            df_fin, 
+            use_container_width=True, 
+            hide_index=True, 
+            column_config={
+                "Consultant": st.column_config.TextColumn("Consultant", width=150),
+                "Role": st.column_config.TextColumn("Role", width=100),
+                "GP Target": st.column_config.NumberColumn("GP Target", format="$%d", width=100),
+                "Paid GP": st.column_config.NumberColumn("Paid GP", format="$%d", width=100),
+                "Fin %": st.column_config.ProgressColumn("Financial %", format="%.0f%%", min_value=0, max_value=100, width=150),
+                "Status": st.column_config.TextColumn("Status", width=140), # 保持与上方 Int 列一致
+                "Level": st.column_config.NumberColumn("Level", width=80),
+                "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d", width=130),
+            }
+        )
+        # --- 修改结束 ---
 
         with st.expander("📜 Historical GP Summary"):
             if not sales_df_hist.empty:
