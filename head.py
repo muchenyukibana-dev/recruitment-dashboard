@@ -423,7 +423,7 @@ def main():
                     # 👇 修改这里：恢复进度条
                     "Activity %": st.column_config.ProgressColumn(
                         "Activity %", 
-                        format="%.0f%%", 
+                        format="%.0%", 
                         min_value=0, 
                         max_value=1
                     ),
