@@ -74,7 +74,7 @@ st.markdown("""
         display: flex;
         justify-content: center;
         width: 100%;
-        margin-left: 220px; 
+        margin-left: 200px; 
     }
     .stButton>button {
         background-color: #FF4757;
