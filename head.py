@@ -1,5 +1,3 @@
---- START OF FILE game.py ---
-
 import streamlit as st
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -44,10 +42,8 @@ TEAM_CONFIG_TEMPLATE = [
 ]
 
 # 🎯 Recruitment Goals
-# Modified per request: 29 per person * 4 people = 116 Monthly
-# 116 * 3 months = 348 Quarterly
-MONTHLY_GOAL = 116
-QUARTERLY_GOAL = 348
+MONTHLY_GOAL = 114
+QUARTERLY_GOAL = 342
 # ==========================================
 
 st.set_page_config(page_title="Fill The Pit", page_icon="🎮", layout="wide")
@@ -669,11 +665,7 @@ def render_player_card(conf, rec_count, fin_summary, card_index):
     fin_achieved_pct = fin_summary.get("Target Achieved", 0.0)
     est_comm = fin_summary.get("Est. Commission", 0.0)
 
-    # Individual goal (29 * 3 = 87 per person per quarter) or just using TEAM goal logic?
-    # For individual cards, usually we split the goal.
-    # 348 / 4 = 87 per person per quarter.
-    INDIVIDUAL_Q_GOAL = QUARTERLY_GOAL / 4
-    rec_pct = (rec_count / INDIVIDUAL_Q_GOAL) * 100
+    rec_pct = (rec_count / QUARTERLY_GOAL) * 100
 
     # 🎯 达标逻辑
     goal_passed = False
@@ -708,7 +700,7 @@ def render_player_card(conf, rec_count, fin_summary, card_index):
     """, unsafe_allow_html=True)
 
     # 1. Recruitment Bar (Thinner, standard)
-    render_bar(rec_count, INDIVIDUAL_Q_GOAL, "pit-fill-season", "CVs SENT (Q4)")
+    render_bar(rec_count, QUARTERLY_GOAL, "pit-fill-season", "CVs SENT (Q4)")
 
     # 2. Financial Bar
     if not is_intern:
@@ -790,7 +782,7 @@ def main():
 
         time.sleep(0.5)
 
-        # --- BOSS BAR 1: MONTHLY AGGREGATE ---
+        # --- BOSS BAR: MONTHLY AGGREGATE ---
         st.markdown(
             f'<div class="header-bordered" style="border-color: #feca57; background: #fff;">🏆 TEAM MONTHLY GOAL ({current_month_tab})</div>',
             unsafe_allow_html=True)
@@ -799,10 +791,10 @@ def main():
 
         monthly_total = sum([r['count'] for r in monthly_results])
         steps = 15
-        
-        # Monthly Animation Loop
         for step in range(steps + 1):
             curr_m = (monthly_total / steps) * step
+
+            # 🚀 RENDER THE BIG BOSS BAR
             render_pit_html = f"""
             <div class="sub-label" style="font-size: 1.2em; text-align:center;">{int(curr_m)} / {MONTHLY_GOAL} CVs</div>
             <div class="pit-container pit-height-boss">
@@ -812,36 +804,14 @@ def main():
             </div>
             """
             pit_month_ph.markdown(render_pit_html, unsafe_allow_html=True)
+
             if step == steps:
                 cols_m = stats_month_ph.columns(len(monthly_results))
                 for idx, res in enumerate(monthly_results):
                     with cols_m[idx]: st.markdown(
                         f"""<div class="stat-card"><div class="stat-name">{res['name']}</div><div class="stat-val">{res['count']}</div></div>""",
                         unsafe_allow_html=True)
-            time.sleep(0.01)
-
-        # --- BOSS BAR 2: QUARTERLY AGGREGATE ---
-        quarterly_total = sum([r['count'] for r in quarterly_results])
-        st.markdown(
-            f'<div class="header-bordered" style="border-color: #54a0ff; background: #fff; margin-top: 20px;">🌊 TEAM QUARTERLY GOAL (Q{quarter_num})</div>',
-            unsafe_allow_html=True)
-        pit_quarter_ph = st.empty()
-        
-        # Quarterly Animation Loop
-        for step in range(steps + 1):
-            curr_q = (quarterly_total / steps) * step
-            # Note: Using 'pit-fill-season' (blue/purple) for distinction
-            render_q_html = f"""
-            <div class="sub-label" style="font-size: 1.2em; text-align:center;">{int(curr_q)} / {QUARTERLY_GOAL} CVs</div>
-            <div class="pit-container pit-height-boss">
-                <div class="pit-fill-season" style="width: {min((curr_q / QUARTERLY_GOAL) * 100, 100)}%;">
-                    <div class="cat-squad" style="font-size: 40px; top: 5px;">🌊</div>
-                </div>
-            </div>
-            """
-            pit_quarter_ph.markdown(render_q_html, unsafe_allow_html=True)
-            time.sleep(0.01)
-
+            time.sleep(0.02)
 
         # --- PLAYER HUB ---
         st.markdown("<br>", unsafe_allow_html=True)
