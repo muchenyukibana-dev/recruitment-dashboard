@@ -414,7 +414,7 @@ def main():
             cols = ['Consultant', 'Role', 'CV Target', 'Sent', 'Activity %', 'Int', 'Off', 'Int Rate']
             rec_summary = rec_summary[cols]
 
-            st.dataframe(
+st.dataframe(
                 rec_summary,
                 use_container_width=True,
                 hide_index=True,
@@ -423,10 +423,22 @@ def main():
                     "Role": st.column_config.TextColumn("Role", width=100),
                     "CV Target": st.column_config.NumberColumn("Target (Q)", format="%d", width=100),
                     "Sent": st.column_config.NumberColumn("Sent", format="%d", width=100),
-                    "Activity %": st.column_config.ProgressColumn("Activity %", format="%.0f%%", min_value=0, max_value=100, width=150),
-                    "Int": st.column_config.NumberColumn("Int", width=140), # 宽度增加以对齐下表的Status
+                    # Activity % 依然保持进度条，现在数据是 0-100 了，显示会正常
+                    "Activity %": st.column_config.ProgressColumn(
+                        "Activity %", 
+                        format="%.0f%%", 
+                        min_value=0, 
+                        max_value=100, 
+                        width=150
+                    ),
+                    "Int": st.column_config.NumberColumn("Int", width=140),
                     "Off": st.column_config.NumberColumn("Off", width=80),
-                    "Int Rate": st.column_config.NumberColumn("Int/Sent", format="%.0f%%", width=130),
+                    # 🔴 修改 3：Int Rate 改为纯数字显示，保留2位小数
+                    "Int Rate": st.column_config.NumberColumn(
+                        "Int/Sent", 
+                        format="%.2f%%", 
+                        width=130
+                    ),
                 }
             )
         else: st.warning("No data.")
