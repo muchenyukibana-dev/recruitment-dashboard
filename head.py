@@ -759,4 +759,56 @@ def main():
             render_pit_html = f"""
             <div class="sub-label" style="font-size: 1.2em; text-align:center;">{int(curr_m)} / {MONTHLY_GOAL} CVs</div>
             <div class="pit-container pit-height-boss">
-                <div class="pit-fill-boss" style="width: {min((cur
+                <div class="pit-fill-boss" style="width: {min((curr_m/MONTHLY_GOAL)*100, 100)}%;">
+                    <div class="cat-squad" style="font-size: 40px; top: 5px;">🔥</div>
+                </div>
+            </div>
+            """
+            pit_month_ph.markdown(render_pit_html, unsafe_allow_html=True)
+            
+            if step == steps:
+                cols_m = stats_month_ph.columns(len(monthly_results))
+                for idx, res in enumerate(monthly_results):
+                    with cols_m[idx]: st.markdown(f"""<div class="stat-card"><div class="stat-name">{res['name']}</div><div class="stat-val">{res['count']}</div></div>""", unsafe_allow_html=True)
+            time.sleep(0.02)
+
+        # --- PLAYER HUB ---
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(f'<div class="header-bordered" style="border-color: #48dbfb;">❄️ PLAYER STATS (Q{quarter_num})</div>', unsafe_allow_html=True)
+        
+        row1 = st.columns(2)
+        row2 = st.columns(2)
+        all_cols = row1 + row2
+        
+        for idx, conf in enumerate(active_team_config):
+            c_name = conf['name']
+            q_rec_count = next((item['count'] for item in quarterly_results if item['name'] == c_name), 0)
+            fin_sum = financial_summaries.get(c_name, {})
+            
+            with all_cols[idx]:
+                render_player_card(conf, q_rec_count, fin_sum, idx)
+
+        # --- LOGS ---
+        if all_month_details:
+            st.markdown("---")
+            with st.expander(f"📜 MISSION LOGS ({current_month_tab})", expanded=False):
+                df_all = pd.DataFrame(all_month_details)
+                tab_names = [c['name'] for c in active_team_config]
+                tabs = st.tabs(tab_names)
+                for idx, tab in enumerate(tabs):
+                    with tab:
+                        current_consultant = tab_names[idx]
+                        df_c = df_all[df_all['Consultant'] == current_consultant]
+                        if not df_c.empty:
+                            df_agg = df_c.groupby(['Company', 'Position'])['Count'].sum().reset_index()
+                            df_agg = df_agg.sort_values(by='Count', ascending=False)
+                            df_agg['Count'] = df_agg['Count'].astype(str)
+                            st.dataframe(df_agg, use_container_width=True, hide_index=True, column_config={"Company": st.column_config.TextColumn("TARGET COMPANY"), "Position": st.column_config.TextColumn("TARGET ROLE"), "Count": st.column_config.TextColumn("CVs")})
+                        else: st.info(f"NO DATA FOR {current_consultant}")
+
+        elif monthly_total == 0:
+            st.markdown("---")
+            st.info("NO DATA FOUND FOR THIS MONTH YET.")
+
+if __name__ == "__main__":
+    main()
