@@ -21,7 +21,7 @@ CURRENT_QUARTER = 4
 CURRENT_Q_STR = f"{CURRENT_YEAR} Q{CURRENT_QUARTER}"
 
 # 🎯 简历目标设置 (季度)
-CV_TARGET_QUARTERLY = 87
+CV_TARGET_QUARTERLY = 87 * 3  # 261
 
 TEAM_CONFIG = [
     {
@@ -410,7 +410,6 @@ def main():
             }])
             rec_summary = pd.concat([rec_summary, total_row], ignore_index=True)
             
-            # 调整列顺序
             cols = ['Consultant', 'Role', 'CV Target', 'Sent', 'Activity %', 'Int', 'Off', 'Int Rate']
             rec_summary = rec_summary[cols]
 
@@ -421,8 +420,8 @@ def main():
                 column_config={
                     "CV Target": st.column_config.NumberColumn("Target (Q)", format="%d"),
                     "Sent": st.column_config.NumberColumn("Sent", format="%d"),
-                    "Activity %": st.column_config.ProgressColumn("Activity %", format="%.0f%%", min_value=0, max_value=1),
-                    "Int Rate": st.column_config.ProgressColumn("Conversion %", format="%.1f%%", min_value=0, max_value=1)
+                    "Activity %": st.column_config.NumberColumn("Activity %", format="%.0f%%"), # 改为数字列，确保显示完全
+                    "Int Rate": st.column_config.NumberColumn("Int/Sent", format="%.1f%%") # 改为 Int/Sent，去进度条
                 }
             )
         else: st.warning("No data.")
@@ -448,7 +447,7 @@ def main():
             is_team_lead = (role == "Team Lead")
             
             gp_target = 0 if is_intern else base * (4.5 if is_team_lead else 9.0)
-            cv_target = CV_TARGET_QUARTERLY # 仍然需要用于内部计算 Status，但不展示
+            cv_target = CV_TARGET_QUARTERLY # 仍然需要用于内部计算 Status
 
             # 获取数据
             c_sales = sales_df_q4[sales_df_q4['Consultant'] == c_name].copy() if not sales_df_q4.empty else pd.DataFrame()
@@ -522,16 +521,15 @@ def main():
             fin_pct = (paid_gp / gp_target * 100) if gp_target > 0 else 0
             rec_pct = (sent_count / cv_target * 100) if cv_target > 0 else 0
             
-            status_text = "Pending"
-            if is_intern:
-                status_text = "✅ Achieved (CV)" if sent_count >= cv_target else f"Running ({rec_pct:.0f}%)"
-            elif is_team_lead:
-                if fin_pct >= 100 and rec_pct >= 100: status_text = "🌟 Super Star"
-                elif fin_pct >= 100: status_text = "✅ Financial OK"
-                elif rec_pct >= 100: status_text = "✅ Activity OK"
-                else: status_text = "In Progress"
+            # --- Status 判定逻辑更新 ---
+            achieved = []
+            if fin_pct >= 100: achieved.append("Financial")
+            if rec_pct >= 100: achieved.append("Activity")
+            
+            if not achieved:
+                status_text = "In Progress"
             else:
-                status_text = "✅ Achieved" if (fin_pct >= 100 or rec_pct >= 100) else "In Progress"
+                status_text = " & ".join(achieved)
 
             financial_summary.append({
                 "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp, "Fin %": fin_pct,
@@ -542,10 +540,12 @@ def main():
         override_df = pd.DataFrame(team_lead_overrides)
         
         df_fin = pd.DataFrame(financial_summary).sort_values('Paid GP', ascending=False)
+        
         st.dataframe(df_fin, use_container_width=True, hide_index=True, column_config={
             "GP Target": st.column_config.NumberColumn(format="$%d"),
             "Paid GP": st.column_config.NumberColumn(format="$%d"),
             "Fin %": st.column_config.ProgressColumn("Financial %", format="%.0f%%", min_value=0, max_value=100),
+            "Status": st.column_config.TextColumn("Status"), # 单独一列
             "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d"),
         })
 
