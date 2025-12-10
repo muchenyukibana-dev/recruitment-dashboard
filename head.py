@@ -20,9 +20,8 @@ CURRENT_YEAR = 2025
 CURRENT_QUARTER = 4
 CURRENT_Q_STR = f"{CURRENT_YEAR} Q{CURRENT_QUARTER}"
 
-# 🎯 简历目标设置
-CV_TARGET_MONTHLY = 87  # 每月目标
-CV_TARGET_QUARTERLY = CV_TARGET_MONTHLY * 3  # 季度目标 (87 * 3 = 261)
+# 🎯 简历目标设置 (季度)
+CV_TARGET_QUARTERLY = 87 * 3  # 87 * 3 = 261
 
 TEAM_CONFIG = [
     {
@@ -30,7 +29,6 @@ TEAM_CONFIG = [
         "id": "1vQuN-iNBRUug5J6gBMX-52jp6oogbA77SaeAf9j_zYs",
         "keyword": "Name",
         "base_salary": 11000,
-        # role 将从表格动态读取
     },
     {
         "name": "Estela Peng",
@@ -110,9 +108,6 @@ def get_commission_pay_date(payment_date):
     except: return None
 
 def get_payout_date_from_month_key(month_key):
-    """
-    输入 '2025-11'，返回 2025-12-15
-    """
     try:
         dt = datetime.strptime(str(month_key), "%Y-%m")
         year = dt.year + (dt.month // 12)
@@ -156,16 +151,12 @@ def connect_to_google():
 
 # --- 🛠️ 角色获取 ---
 def fetch_role_from_personal_sheet(client, sheet_id):
-    """
-    从顾问个人的 Google Sheet (Credentials!B1) 读取角色
-    """
     try:
         sheet = safe_api_call(client.open_by_key, sheet_id)
         try:
             ws = safe_api_call(sheet.worksheet, 'Credentials')
         except:
             return "Consultant"
-        
         role = safe_api_call(ws.acell, 'B1').value
         if role:
             return role.strip()
@@ -381,17 +372,59 @@ def main():
         st.markdown(f"### 🎯 Recruitment Stats (Q{CURRENT_QUARTER})")
         if not rec_stats_df.empty:
             rec_summary = rec_stats_df.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
+            
+            # 整合 Role 到 Recruitment 表格，计算 Activity %
+            def get_role_target(c_name):
+                for member in dynamic_team_config:
+                    if member['name'] == c_name:
+                        return member.get('role', 'Consultant'), CV_TARGET_QUARTERLY
+                return 'Consultant', CV_TARGET_QUARTERLY
+
+            # 应用函数获取 Role 和 Target
+            rec_summary[['Role', 'CV Target']] = rec_summary['Consultant'].apply(
+                lambda x: pd.Series(get_role_target(x))
+            )
+
+            # 计算 Activity % 和 Int Rate
+            rec_summary['Activity %'] = (rec_summary['Sent'] / rec_summary['CV Target']).fillna(0)
             rec_summary['Int Rate'] = (rec_summary['Int'] / rec_summary['Sent']).fillna(0)
             
+            # 计算 Total 行
             total_sent = rec_summary['Sent'].sum()
             total_int = rec_summary['Int'].sum()
             total_off = rec_summary['Off'].sum()
-            total_rate = (total_int / total_sent) if total_sent > 0 else 0
+            total_target = rec_summary['CV Target'].sum()
             
-            total_row = pd.DataFrame([{'Consultant': 'TOTAL', 'Sent': total_sent, 'Int': total_int, 'Off': total_off, 'Int Rate': total_rate}])
+            total_activity_rate = (total_sent / total_target) if total_target > 0 else 0
+            total_int_rate = (total_int / total_sent) if total_sent > 0 else 0
+            
+            total_row = pd.DataFrame([{
+                'Consultant': 'TOTAL', 
+                'Role': '-',
+                'CV Target': total_target,
+                'Sent': total_sent, 
+                'Activity %': total_activity_rate,
+                'Int': total_int, 
+                'Off': total_off, 
+                'Int Rate': total_int_rate
+            }])
             rec_summary = pd.concat([rec_summary, total_row], ignore_index=True)
             
-            st.dataframe(rec_summary, use_container_width=True, hide_index=True, column_config={"Int Rate": st.column_config.ProgressColumn("Int/Sent Rate", format="%.1f%%", min_value=0, max_value=1)})
+            # 调整列顺序
+            cols = ['Consultant', 'Role', 'CV Target', 'Sent', 'Activity %', 'Int', 'Off', 'Int Rate']
+            rec_summary = rec_summary[cols]
+
+            st.dataframe(
+                rec_summary, 
+                use_container_width=True, 
+                hide_index=True, 
+                column_config={
+                    "CV Target": st.column_config.NumberColumn("Target (Q)", format="%d"),
+                    "Sent": st.column_config.NumberColumn("Sent", format="%d"),
+                    "Activity %": st.column_config.ProgressColumn("Activity %", format="%.0f%%", min_value=0, max_value=1),
+                    "Int Rate": st.column_config.ProgressColumn("Conversion %", format="%.1f%%", min_value=0, max_value=1)
+                }
+            )
         else: st.warning("No data.")
         
         with st.expander("📜 Historical Recruitment Data"):
@@ -401,7 +434,7 @@ def main():
         st.divider()
 
         # 2. Financial Performance
-        st.markdown(f"### 💰 Financial & Target Performance (Q{CURRENT_QUARTER})")
+        st.markdown(f"### 💰 Financial Performance (Q{CURRENT_QUARTER})")
         financial_summary = []
         updated_sales_records = []
         team_lead_overrides = []
@@ -414,9 +447,8 @@ def main():
             is_intern = (role == "Intern")
             is_team_lead = (role == "Team Lead")
             
-            # Target 设置
             gp_target = 0 if is_intern else base * (4.5 if is_team_lead else 9.0)
-            cv_target = CV_TARGET_QUARTERLY
+            cv_target = CV_TARGET_QUARTERLY # 仍然需要用于内部计算 Status，但不展示
 
             # 获取数据
             c_sales = sales_df_q4[sales_df_q4['Consultant'] == c_name].copy() if not sales_df_q4.empty else pd.DataFrame()
@@ -425,20 +457,18 @@ def main():
             booked_gp = 0
             paid_gp = 0
             total_comm = 0
+            current_level = 0
             
             # 佣金计算逻辑
             if is_intern:
-                # Intern: 无佣金
                 if not c_sales.empty:
                     booked_gp = c_sales['GP'].sum()
                     c_sales['Applied Level'] = 0; c_sales['Final Comm'] = 0; c_sales['Commission Day'] = ""
                     updated_sales_records.append(c_sales)
             else:
-                # Consultant & Team Lead: 阈值回溯
                 if not c_sales.empty:
                     c_sales['Applied Level'] = 0; c_sales['Final Comm'] = 0.0
                     c_sales['Commission Day Obj'] = pd.NaT; c_sales['Commission Day'] = ""
-                    
                     booked_gp = c_sales['GP'].sum()
                     paid_sales = c_sales[c_sales['Status'] == 'Paid'].copy()
                     
@@ -455,7 +485,6 @@ def main():
                             month_deals = paid_sales[paid_sales['Pay_Month_Key'] == month_key]
                             running_paid_gp += month_deals['GP'].sum()
                             pending_indices.extend(month_deals.index.tolist())
-                            
                             level, multiplier = calculate_commission_tier(running_paid_gp, base, is_team_lead)
                             
                             if level > 0:
@@ -469,8 +498,8 @@ def main():
                                 pending_indices = []
                         
                         paid_gp = running_paid_gp
-                        
-                        # 统计佣金
+                        current_level, _ = calculate_commission_tier(running_paid_gp, base, is_team_lead)
+
                         for idx, row in paid_sales.iterrows():
                             comm_date = row['Commission Day Obj']
                             if pd.notnull(comm_date) and comm_date <= datetime.now() + timedelta(days=20):
@@ -478,10 +507,8 @@ def main():
                         
                         c_sales.update(paid_sales)
                         c_sales['Commission Day'] = c_sales['Commission Day Obj'].apply(lambda x: x.strftime("%Y-%m-%d") if pd.notnull(x) else "")
-                    
                     updated_sales_records.append(c_sales)
 
-                # Team Override
                 if is_team_lead and not sales_df_q4.empty:
                     override_mask = (sales_df_q4['Status'] == 'Paid') & (sales_df_q4['Consultant'] != c_name) & (sales_df_q4['Consultant'] != "Estela Peng")
                     pot_overrides = sales_df_q4[override_mask].copy()
@@ -492,11 +519,10 @@ def main():
                             total_comm += bonus
                             team_lead_overrides.append({"Leader": c_name, "Source": row['Consultant'], "Salary": row['Candidate Salary'], "Date": comm_pay_obj.strftime("%Y-%m-%d"), "Bonus": bonus})
 
-            # Target 状态判定
             fin_pct = (paid_gp / gp_target * 100) if gp_target > 0 else 0
             rec_pct = (sent_count / cv_target * 100) if cv_target > 0 else 0
-            status_text = "Pending"
             
+            status_text = "Pending"
             if is_intern:
                 status_text = "✅ Achieved (CV)" if sent_count >= cv_target else f"Running ({rec_pct:.0f}%)"
             elif is_team_lead:
@@ -509,7 +535,7 @@ def main():
 
             financial_summary.append({
                 "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp, "Fin %": fin_pct,
-                "CV Target": cv_target, "Sent": sent_count, "CV %": rec_pct, "Status": status_text, "Est. Commission": total_comm
+                "Status": status_text, "Level": current_level, "Est. Commission": total_comm
             })
 
         final_sales_df = pd.concat(updated_sales_records) if updated_sales_records else pd.DataFrame()
@@ -520,8 +546,6 @@ def main():
             "GP Target": st.column_config.NumberColumn(format="$%d"),
             "Paid GP": st.column_config.NumberColumn(format="$%d"),
             "Fin %": st.column_config.ProgressColumn("Financial %", format="%.0f%%", min_value=0, max_value=100),
-            "CV Target": st.column_config.NumberColumn(format="%d"),
-            "CV %": st.column_config.ProgressColumn("Activity %", format="%.0f%%", min_value=0, max_value=100),
             "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d"),
         })
 
