@@ -1,3 +1,5 @@
+--- START OF FILE game.py ---
+
 import streamlit as st
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -42,8 +44,10 @@ TEAM_CONFIG_TEMPLATE = [
 ]
 
 # 🎯 Recruitment Goals
-MONTHLY_GOAL = 114
-QUARTERLY_GOAL = 342
+# 29 per person * 4 people = 116 Monthly
+# 116 * 3 months = 348 Quarterly
+MONTHLY_GOAL = 116
+QUARTERLY_GOAL = 348
 # ==========================================
 
 st.set_page_config(page_title="Fill The Pit", page_icon="🎮", layout="wide")
@@ -52,7 +56,7 @@ st.set_page_config(page_title="Fill The Pit", page_icon="🎮", layout="wide")
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
-    @import url('https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap'); /* Adding a rounder font for non-headers */
+    @import url('https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap');
 
     /* Global Background: Fun Arcade Purple/Blue Gradient */
     .stApp {
@@ -69,7 +73,7 @@ st.markdown("""
         -webkit-text-stroke: 2px #000;
     }
 
-    /* CENTERED START BUTTON - BOUNCY & JUICY */
+    /* CENTERED START BUTTON */
     .stButton {
         display: flex;
         justify-content: center;
@@ -101,8 +105,6 @@ st.markdown("""
     }
 
     /* --- PROGRESS BARS --- */
-
-    /* Container for bars */
     .pit-container {
         background-color: #eee;
         border: 3px solid #000;
@@ -114,13 +116,9 @@ st.markdown("""
         overflow: hidden;
     }
 
-    /* Standard Bar Height */
     .pit-height-std { height: 25px; }
-
-    /* 🔥 BOSS BAR: THICKER Monthly Bar */
     .pit-height-boss { height: 60px; border-width: 4px; }
 
-    /* Bar Fills with Striped Animations */
     @keyframes barberpole {
         from { background-position: 0 0; }
         to { background-position: 50px 50px; }
@@ -153,6 +151,7 @@ st.markdown("""
         justify-content: flex-end;
     }
 
+    /* Blue/Purple for Team Quarterly */
     .pit-fill-season { 
         background-image: linear-gradient(45deg, #3742fa 25%, #5352ed 25%, #5352ed 50%, #3742fa 50%, #3742fa 75%, #5352ed 75%, #5352ed 100%);
         background-size: 50px 50px;
@@ -180,7 +179,6 @@ st.markdown("""
     }
 
     /* --- CARDS --- */
-
     .player-card {
         background-color: #FFFFFF;
         border: 4px solid #000;
@@ -195,7 +193,6 @@ st.markdown("""
         transform: translateY(-2px);
     }
 
-    /* Colored borders for fun */
     .card-border-1 { border-bottom: 6px solid #ff6b6b; }
     .card-border-2 { border-bottom: 6px solid #feca57; }
     .card-border-3 { border-bottom: 6px solid #48dbfb; }
@@ -215,7 +212,6 @@ st.markdown("""
         color: #2d3436;
     }
 
-    /* Friendly Badges */
     .status-badge-pass {
         background-color: #2ed573;
         color: white;
@@ -241,14 +237,13 @@ st.markdown("""
     .sub-label {
         font-family: 'Fredoka One', sans-serif;
         font-size: 0.8em;
-        color: #FFFFFF;  /* 改为白色，清晰可见 */
+        color: #FFFFFF;
         margin-bottom: 5px;
         text-transform: uppercase;
         letter-spacing: 1px;
-        text-shadow: 1px 1px 0px #000; /* 可以加一点阴影增加对比度 */
+        text-shadow: 1px 1px 0px #000;
     }
 
-    /* TREASURE CHEST COMMISSION */
     .comm-unlocked {
         background-color: #fff4e6;
         border: 2px solid #ff9f43;
@@ -272,7 +267,6 @@ st.markdown("""
         font-size: 0.8em;
     }
 
-    /* HEADER BOXES */
     .header-bordered {
         background-color: #FFFFFF;
         border: 4px solid #000;
@@ -285,7 +279,6 @@ st.markdown("""
         font-size: 1.2em;
     }
 
-    /* Stats Card for Animation */
     .stat-card {
         background-color: #fff;
         border: 3px solid #000;
@@ -297,31 +290,17 @@ st.markdown("""
     .stat-val { color: #000; font-size: 1.2em; font-weight: bold; }
     .stat-name { color: #555; font-size: 0.8em; }
 
-    /* MVP Card */
-    .mvp-card {
-        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-        border: 4px solid #fff;
-        border-radius: 20px;
-        padding: 20px; 
-        box-shadow: 0 10px 20px rgba(0,0,0,0.2);
-        text-align: center;
-        color: white;
-        margin-top: 20px;
-        transform: rotate(-2deg);
-    }
-
     .dataframe { font-family: 'Press Start 2P', monospace !important; font-size: 0.8em !important; }
     </style>
     """, unsafe_allow_html=True)
 
 
 # ==========================================
-# 🧮 逻辑函数 (保持不变)
+# 🧮 逻辑函数
 # ==========================================
 
 def normalize_text(text):
     return ''.join(c for c in unicodedata.normalize('NFD', str(text)) if unicodedata.category(c) != 'Mn').lower()
-
 
 def get_payout_date_from_month_key(month_key):
     try:
@@ -331,7 +310,6 @@ def get_payout_date_from_month_key(month_key):
         return datetime(year, month, 15)
     except:
         return None
-
 
 def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
     if is_team_lead:
@@ -348,7 +326,6 @@ def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
     else:
         return 3, 3
 
-
 def calculate_single_deal_commission(candidate_salary, multiplier):
     if multiplier == 0: return 0
     base_comm = 0
@@ -361,7 +338,6 @@ def calculate_single_deal_commission(candidate_salary, multiplier):
     else:
         base_comm = candidate_salary * 2.0 * 0.05
     return base_comm * multiplier
-
 
 def calculate_consultant_performance(all_sales_df, consultant_name, base_salary, is_team_lead=False):
     target_multiplier = 4.5 if is_team_lead else 9.0
@@ -472,7 +448,6 @@ def connect_to_google():
     else:
         return None
 
-
 def get_quarter_info():
     today = datetime.now()
     year = today.year
@@ -482,7 +457,6 @@ def get_quarter_info():
     end_month = start_month + 2
     tabs = [f"{year}{m:02d}" for m in range(start_month, start_month + 3)]
     return tabs, quarter, start_month, end_month, year
-
 
 def fetch_role_from_personal_sheet(client, sheet_id):
     try:
@@ -508,7 +482,6 @@ def fetch_role_from_personal_sheet(client, sheet_id):
 
     except Exception as e:
         return "Full-Time", False, "Consultant"
-
 
 def fetch_consultant_data(client, consultant_config, target_tab):
     sheet_id = consultant_config['id']
@@ -542,7 +515,6 @@ def fetch_consultant_data(client, consultant_config, target_tab):
         return count, details
     except:
         return 0, []
-
 
 def fetch_financial_df(client, start_m, end_m, year):
     try:
@@ -656,7 +628,8 @@ def render_bar(current_total, goal, color_class, label_text, is_monthly_boss=Fal
     """, unsafe_allow_html=True)
 
 
-def render_player_card(conf, rec_count, fin_summary, card_index):
+def render_player_card(conf, fin_summary, card_index):
+    # Removed rec_count argument as it's no longer used for individual bars
     name = conf['name']
     role = conf.get('role', 'Full-Time')
     is_team_lead = conf.get('is_team_lead', False)
@@ -665,14 +638,18 @@ def render_player_card(conf, rec_count, fin_summary, card_index):
     fin_achieved_pct = fin_summary.get("Target Achieved", 0.0)
     est_comm = fin_summary.get("Est. Commission", 0.0)
 
-    rec_pct = (rec_count / QUARTERLY_GOAL) * 100
-
     # 🎯 达标逻辑
+    # Since we removed individual CV goals, Level Up depends on Financials for Full-time
+    # For Interns, we can just leave it as Loading or Pass if they have any placements (future logic)
     goal_passed = False
-    if is_intern:
-        if rec_pct >= 100: goal_passed = True
+    
+    if not is_intern:
+        if fin_achieved_pct >= 100: 
+            goal_passed = True
     else:
-        if rec_pct >= 100 or fin_achieved_pct >= 100: goal_passed = True
+        # Intern Logic: Pass if team goal is met? Or just default. 
+        # For now, let's keep it simple: No GP target = No 'Level Up' unless we track something else.
+        pass
 
     crown = "👑" if is_team_lead else ""
     role_tag = "🎓 INTERN" if is_intern else "💼 FULL-TIME"
@@ -699,14 +676,15 @@ def render_player_card(conf, rec_count, fin_summary, card_index):
         </div>
     """, unsafe_allow_html=True)
 
-    # 1. Recruitment Bar (Thinner, standard)
-    render_bar(rec_count, QUARTERLY_GOAL, "pit-fill-season", "CVs SENT (Q4)")
+    # 1. Recruitment Bar REMOVED per user request
+    # Instead, we just show Financials
 
     # 2. Financial Bar
     if not is_intern:
         render_bar(fin_achieved_pct, 100, "money-fill", "GP TARGET")
     else:
-        st.markdown(f'<div class="sub-label">GP TARGET: N/A (INTERN)</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="sub-label" style="color:#aaa;">GP TARGET: N/A (INTERN)</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="text-align:center; padding: 20px; font-size: 0.8em; color: #aaa;">CONTRIBUTING TO TEAM GOAL...</div>', unsafe_allow_html=True)
 
     # 3. Commission Box
     if est_comm > 0:
@@ -782,7 +760,7 @@ def main():
 
         time.sleep(0.5)
 
-        # --- BOSS BAR: MONTHLY AGGREGATE ---
+        # --- BOSS BAR 1: MONTHLY AGGREGATE ---
         st.markdown(
             f'<div class="header-bordered" style="border-color: #feca57; background: #fff;">🏆 TEAM MONTHLY GOAL ({current_month_tab})</div>',
             unsafe_allow_html=True)
@@ -791,10 +769,10 @@ def main():
 
         monthly_total = sum([r['count'] for r in monthly_results])
         steps = 15
+        
+        # Monthly Animation Loop
         for step in range(steps + 1):
             curr_m = (monthly_total / steps) * step
-
-            # 🚀 RENDER THE BIG BOSS BAR
             render_pit_html = f"""
             <div class="sub-label" style="font-size: 1.2em; text-align:center;">{int(curr_m)} / {MONTHLY_GOAL} CVs</div>
             <div class="pit-container pit-height-boss">
@@ -804,14 +782,36 @@ def main():
             </div>
             """
             pit_month_ph.markdown(render_pit_html, unsafe_allow_html=True)
-
             if step == steps:
                 cols_m = stats_month_ph.columns(len(monthly_results))
                 for idx, res in enumerate(monthly_results):
                     with cols_m[idx]: st.markdown(
                         f"""<div class="stat-card"><div class="stat-name">{res['name']}</div><div class="stat-val">{res['count']}</div></div>""",
                         unsafe_allow_html=True)
-            time.sleep(0.02)
+            time.sleep(0.01)
+
+        # --- BOSS BAR 2: QUARTERLY AGGREGATE ---
+        quarterly_total = sum([r['count'] for r in quarterly_results])
+        st.markdown(
+            f'<div class="header-bordered" style="border-color: #54a0ff; background: #fff; margin-top: 20px;">🌊 TEAM QUARTERLY GOAL (Q{quarter_num})</div>',
+            unsafe_allow_html=True)
+        pit_quarter_ph = st.empty()
+        
+        # Quarterly Animation Loop
+        for step in range(steps + 1):
+            curr_q = (quarterly_total / steps) * step
+            # Note: Using 'pit-fill-season' (blue/purple) for distinction
+            render_q_html = f"""
+            <div class="sub-label" style="font-size: 1.2em; text-align:center;">{int(curr_q)} / {QUARTERLY_GOAL} CVs</div>
+            <div class="pit-container pit-height-boss">
+                <div class="pit-fill-season" style="width: {min((curr_q / QUARTERLY_GOAL) * 100, 100)}%;">
+                    <div class="cat-squad" style="font-size: 40px; top: 5px;">🌊</div>
+                </div>
+            </div>
+            """
+            pit_quarter_ph.markdown(render_q_html, unsafe_allow_html=True)
+            time.sleep(0.01)
+
 
         # --- PLAYER HUB ---
         st.markdown("<br>", unsafe_allow_html=True)
@@ -825,11 +825,10 @@ def main():
 
         for idx, conf in enumerate(active_team_config):
             c_name = conf['name']
-            q_rec_count = next((item['count'] for item in quarterly_results if item['name'] == c_name), 0)
             fin_sum = financial_summaries.get(c_name, {})
 
             with all_cols[idx]:
-                render_player_card(conf, q_rec_count, fin_sum, idx)
+                render_player_card(conf, fin_sum, idx)
 
         # --- LOGS ---
         if all_month_details:
