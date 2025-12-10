@@ -207,15 +207,15 @@ st.markdown("""
     .sub-label {
         font-family: 'Fredoka One', sans-serif;
         font-size: 0.9em;
-        color: #FFFFFF; /* ✅ 修复：白色字体 */
+        color: #FFFFFF; /* ✅ 白色字体，适应深色背景 */
         margin-bottom: 6px;
         text-transform: uppercase;
-        text-shadow: 2px 2px 0px #000; /* ✅ 增加阴影，对比度更强 */
+        text-shadow: 2px 2px 0px #000; /* ✅ 增加阴影，增强对比度 */
         letter-spacing: 1px;
     }
     
     .card-label {
-        /* 卡片内部的标签，背景是白色，所以用深色字 */
+        /* 卡片内部的标签（白色背景上） */
         font-family: 'Fredoka One', sans-serif;
         font-size: 0.7em;
         color: #636e72;
@@ -256,7 +256,7 @@ st.markdown("""
 
 
 # ==========================================
-# 🧮 核心逻辑 (保持功能一致)
+# 🧮 逻辑函数
 # ==========================================
 
 def normalize_text(text):
@@ -268,23 +268,35 @@ def get_payout_date_from_month_key(month_key):
         year = dt.year + (dt.month // 12)
         month = (dt.month % 12) + 1
         return datetime(year, month, 15)
-    except: return None
+    except:
+        return None
 
 def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
-    if is_team_lead: t1, t2, t3 = 4.5, 6.75, 11.25
-    else: t1, t2, t3 = 9.0, 13.5, 22.5
-    if total_gp < t1 * base_salary: return 0, 0
-    elif total_gp < t2 * base_salary: return 1, 1
-    elif total_gp < t3 * base_salary: return 2, 2
-    else: return 3, 3
+    if is_team_lead:
+        t1, t2, t3 = 4.5, 6.75, 11.25
+    else:
+        t1, t2, t3 = 9.0, 13.5, 22.5
+
+    if total_gp < t1 * base_salary:
+        return 0, 0
+    elif total_gp < t2 * base_salary:
+        return 1, 1
+    elif total_gp < t3 * base_salary:
+        return 2, 2
+    else:
+        return 3, 3
 
 def calculate_single_deal_commission(candidate_salary, multiplier):
     if multiplier == 0: return 0
     base_comm = 0
-    if candidate_salary < 20000: base_comm = 1000
-    elif candidate_salary < 30000: base_comm = candidate_salary * 0.05
-    elif candidate_salary < 50000: base_comm = candidate_salary * 1.5 * 0.05
-    else: base_comm = candidate_salary * 2.0 * 0.05
+    if candidate_salary < 20000:
+        base_comm = 1000
+    elif candidate_salary < 30000:
+        base_comm = candidate_salary * 0.05
+    elif candidate_salary < 50000:
+        base_comm = candidate_salary * 1.5 * 0.05
+    else:
+        base_comm = candidate_salary * 2.0 * 0.05
     return base_comm * multiplier
 
 def calculate_consultant_performance(all_sales_df, consultant_name, base_salary, is_team_lead=False):
@@ -292,98 +304,162 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
     c_sales = all_sales_df[all_sales_df['Consultant'] == consultant_name].copy()
     
     if c_sales.empty:
-        return {"Booked GP": 0, "Paid GP": 0, "Level": 0, "Est. Commission": 0, "Target Achieved": 0}
+        return {
+            "Booked GP": 0, "Paid GP": 0, "Level": 0, 
+            "Est. Commission": 0, "Target Achieved": 0
+        }
 
     c_sales['Final Comm'] = 0.0
     c_sales['Commission Day Obj'] = pd.NaT
 
     booked_gp = c_sales['GP'].sum()
-    paid_gp = 0; total_comm = 0; current_level = 0
+    paid_gp = 0
+    total_comm = 0
+    current_level = 0
     
     paid_sales = c_sales[c_sales['Status'] == 'Paid'].copy()
 
     if not paid_sales.empty:
         if 'Payment Date Obj' not in paid_sales.columns:
              paid_sales['Payment Date Obj'] = pd.to_datetime(paid_sales['Payment Date'], errors='coerce')
+             
         paid_sales = paid_sales.dropna(subset=['Payment Date Obj']).sort_values(by='Payment Date Obj')
         paid_sales['Pay_Month_Key'] = paid_sales['Payment Date Obj'].dt.to_period('M')
         unique_months = sorted(paid_sales['Pay_Month_Key'].unique())
-        running_paid_gp = 0; pending_indices = []
+
+        running_paid_gp = 0
+        pending_indices = []
 
         for month_key in unique_months:
             month_deals = paid_sales[paid_sales['Pay_Month_Key'] == month_key]
-            running_paid_gp += month_deals['GP'].sum()
+            month_new_gp = month_deals['GP'].sum()
+            running_paid_gp += month_new_gp
             pending_indices.extend(month_deals.index.tolist())
+            
             level, multiplier = calculate_commission_tier(running_paid_gp, base_salary, is_team_lead)
+            
             if level > 0:
                 payout_date = get_payout_date_from_month_key(str(month_key))
                 for idx in pending_indices:
                     row = paid_sales.loc[idx]
-                    paid_sales.at[idx, 'Final Comm'] = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * row['Percentage']
+                    deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * row['Percentage']
+                    paid_sales.at[idx, 'Final Comm'] = deal_comm
                     paid_sales.at[idx, 'Commission Day Obj'] = payout_date
                 pending_indices = []
             
         paid_gp = running_paid_gp
         current_level, _ = calculate_commission_tier(running_paid_gp, base_salary, is_team_lead)
+
         limit_date = datetime.now() + timedelta(days=20)
+        
         for idx, row in paid_sales.iterrows():
-            if pd.notnull(row['Commission Day Obj']) and row['Commission Day Obj'] <= limit_date:
+            comm_date = row['Commission Day Obj']
+            if pd.notnull(comm_date) and comm_date <= limit_date:
                 total_comm += row['Final Comm']
 
     if is_team_lead and not all_sales_df.empty:
-        mask = (all_sales_df['Status'] == 'Paid') & (all_sales_df['Consultant'] != consultant_name) & (all_sales_df['Consultant'] != "Estela Peng")
+        mask = (all_sales_df['Status'] == 'Paid') & \
+               (all_sales_df['Consultant'] != consultant_name) & \
+               (all_sales_df['Consultant'] != "Estela Peng")
+        
         pot_overrides = all_sales_df[mask].copy()
-        if 'Payment Date Obj' not in pot_overrides.columns: pot_overrides['Payment Date Obj'] = pd.to_datetime(pot_overrides['Payment Date'], errors='coerce')
-        for _, row in pot_overrides.iterrows():
-            if pd.isna(row['Payment Date Obj']): continue
-            comm_pay_obj = datetime(row['Payment Date Obj'].year + (row['Payment Date Obj'].month // 12), (row['Payment Date Obj'].month % 12) + 1, 15)
-            if comm_pay_obj <= (datetime.now() + timedelta(days=20)): total_comm += 1000 
+        
+        if 'Payment Date Obj' not in pot_overrides.columns:
+            pot_overrides['Payment Date Obj'] = pd.to_datetime(pot_overrides['Payment Date'], errors='coerce')
 
-    return {
-        "Consultant": consultant_name, "Booked GP": booked_gp, "Paid GP": paid_gp,
-        "Level": current_level, "Target Achieved": (paid_gp / target * 100) if target > 0 else 0,
+        for _, row in pot_overrides.iterrows():
+            pay_date = row['Payment Date Obj']
+            if pd.isna(pay_date): continue
+            
+            comm_pay_obj = datetime(
+                pay_date.year + (pay_date.month // 12), 
+                (pay_date.month % 12) + 1, 
+                15
+            )
+            
+            if comm_pay_obj <= (datetime.now() + timedelta(days=20)):
+                total_comm += 1000 
+
+    summary = {
+        "Consultant": consultant_name,
+        "Booked GP": booked_gp,
+        "Paid GP": paid_gp,
+        "Level": current_level,
+        "Target Achieved": (paid_gp / target * 100) if target > 0 else 0,
         "Est. Commission": total_comm
     }
+    return summary
 
-# --- 数据获取 ---
+
+# --- 🔗 数据获取 ---
 def connect_to_google():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     if "gcp_service_account" in st.secrets:
-        try: return gspread.authorize(ServiceAccountCredentials.from_json_keyfile_dict(dict(st.secrets["gcp_service_account"]), scope))
-        except: return None
-    return None
+        try:
+            creds_dict = dict(st.secrets["gcp_service_account"])
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+            return gspread.authorize(creds)
+        except Exception: return None
+    else:
+        return None 
 
 def get_quarter_info():
-    today = datetime.now(); year = today.year; month = today.month
-    quarter = (month - 1) // 3 + 1; start_month = (quarter - 1) * 3 + 1
-    return [f"{year}{m:02d}" for m in range(start_month, start_month + 3)], quarter, start_month, start_month + 2, year
+    today = datetime.now()
+    year = today.year
+    month = today.month
+    quarter = (month - 1) // 3 + 1
+    start_month = (quarter - 1) * 3 + 1
+    end_month = start_month + 2
+    tabs = [f"{year}{m:02d}" for m in range(start_month, start_month + 3)]
+    return tabs, quarter, start_month, end_month, year
 
 def fetch_role_from_personal_sheet(client, sheet_id):
     try:
         sheet = client.open_by_key(sheet_id)
-        try: ws = sheet.worksheet('Credentials')
-        except: ws = sheet.get_worksheet(0)
+        try:
+            ws = sheet.worksheet('Credentials')
+        except:
+            ws = sheet.get_worksheet(0)
+            
         header_vals = ws.range('A1:B1')
-        title_text = header_vals[1].value.strip() if "title" in header_vals[0].value.strip().lower() else "Consultant"
+        a1_val = header_vals[0].value.strip().lower()
+        b1_val = header_vals[1].value.strip()
+        
+        title_text = "Consultant"
+        if "title" in a1_val:
+            title_text = b1_val
+            
         is_intern = "intern" in title_text.lower()
         is_lead = "team lead" in title_text.lower() or "manager" in title_text.lower()
-        return ("Intern" if is_intern else "Full-Time"), is_lead, title_text.title()
-    except: return "Full-Time", False, "Consultant"
+        
+        role = "Intern" if is_intern else "Full-Time"
+        return role, is_lead, title_text.title()
+
+    except Exception as e:
+        return "Full-Time", False, "Consultant"
 
 def fetch_consultant_data(client, consultant_config, target_tab):
     sheet_id = consultant_config['id']
     target_key = consultant_config.get('keyword', 'Name')
+    COMPANY_KEYS = ["Company", "Client", "Cliente", "公司", "客户"]
+    POSITION_KEYS = ["Position", "Role", "Posición", "职位", "岗位"]
     try:
-        ws = client.open_by_key(sheet_id).worksheet(target_tab)
-        rows = ws.get_all_values(); count = 0; details = []
-        curr_co = "Unk"; curr_pos = "Unk"
+        sheet = client.open_by_key(sheet_id)
+        try: worksheet = sheet.worksheet(target_tab)
+        except: return 0, []
+        rows = worksheet.get_all_values()
+        count = 0; details = []
+        current_company = "Unknown"; current_position = "Unknown"
         for row in rows:
             if not row: continue
-            if row[0].strip() in ["Company", "Client", "Cliente", "公司"]: curr_co = row[1].strip() if len(row)>1 else "Unk"
-            elif row[0].strip() in ["Position", "Role", "Posición", "职位"]: curr_pos = row[1].strip() if len(row)>1 else "Unk"
-            elif row[0].strip() == target_key:
-                cands = [x for x in row[1:] if x.strip()]; count += len(cands)
-                for _ in cands: details.append({"Consultant": consultant_config['name'], "Company": curr_co, "Position": curr_pos, "Count": 1})
+            first_cell = row[0].strip()
+            if first_cell in COMPANY_KEYS: current_company = row[1].strip() if len(row) > 1 else "Unknown"
+            elif first_cell in POSITION_KEYS: current_position = row[1].strip() if len(row) > 1 else "Unknown"
+            elif first_cell == target_key:
+                candidates = [x for x in row[1:] if x.strip()]
+                count += len(candidates)
+                for _ in range(len(candidates)):
+                    details.append({"Consultant": consultant_config['name'], "Company": current_company, "Position": current_position, "Count": 1})
         return count, details
     except: return 0, []
 
@@ -392,57 +468,67 @@ def fetch_financial_df(client, start_m, end_m, year):
         sheet = client.open_by_key(SALES_SHEET_ID)
         try: ws = sheet.worksheet(SALES_TAB_NAME)
         except: ws = sheet.get_worksheet(0)
-        rows = ws.get_all_values(); records = []
-        col_cons=-1; col_onb=-1; col_pay=-1; col_sal=-1; col_pct=-1; found=False
-        for row in rows:
-            if not any(r.strip() for r in row): continue
-            r_low = [str(x).strip().lower() for x in row]
-            if not found:
-                if any("linkeazi" in c for c in r_low) and any("onboarding" in c for c in r_low):
-                    for i, c in enumerate(r_low):
-                        if "linkeazi" in c: col_cons=i
-                        if "onboarding" in c: col_onb=i
-                        if "candidate" in c and "salary" in c: col_sal=i
-                        if "payment" in c and "onboard" not in c: col_pay=i
-                        if "percentage" in c or c=="%": col_pct=i
-                    found=True; continue
-            if found:
-                if "POSITION" in " ".join(r_low).upper() and "PLACED" not in " ".join(r_low).upper(): break
-                if len(row) <= max(col_cons, col_onb, col_sal): continue
-                c_name = row[col_cons].strip(); onb_str = row[col_onb].strip()
-                if not c_name or not onb_str: continue
-                onb_date = None
-                for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%m/%d/%Y"]:
-                    try: onb_date = datetime.strptime(onb_str, fmt); break
-                    except: pass
-                if not onb_date or not (onb_date.year==year and start_m<=onb_date.month<=end_m): continue
-                
-                matched = "Unknown"
-                for conf in TEAM_CONFIG_TEMPLATE:
-                    if normalize_text(conf['name']) in normalize_text(c_name): matched = conf['name']; break
-                if matched == "Unknown": continue
+        rows = ws.get_all_values()
+        col_cons = -1; col_onboard = -1; col_pay = -1; col_sal = -1; col_pct = -1
+        found_header = False; records = []
 
-                sal_raw = str(row[col_sal]).replace(',','').replace('$','').replace('MXN','').strip()
-                try: sal = float(sal_raw)
-                except: sal = 0
-                pct = 1.0
-                if col_pct!=-1 and len(row)>col_pct:
-                    try: 
-                        p_f = float(str(row[col_pct]).replace('%','').strip())
-                        pct = p_f/100.0 if p_f>1.0 else p_f
+        for row in rows:
+            if not any(cell.strip() for cell in row): continue
+            row_lower = [str(x).strip().lower() for x in row]
+            if not found_header:
+                if any("linkeazi" in c for c in row_lower) and any("onboarding" in c for c in row_lower):
+                    for idx, cell in enumerate(row_lower):
+                        if "linkeazi" in cell and "consultant" in cell: col_cons = idx
+                        if "onboarding" in cell and "date" in cell: col_onboard = idx
+                        if "candidate" in cell and "salary" in cell: col_sal = idx
+                        if "payment" in cell and "onboard" not in cell: col_pay = idx
+                        if "percentage" in cell or "pct" in cell or cell == "%": col_pct = idx
+                    found_header = True
+                    continue
+            if found_header:
+                row_upper = " ".join(row_lower).upper()
+                if "POSITION" in row_upper and "PLACED" not in row_upper: break
+                if len(row) <= max(col_cons, col_onboard, col_sal): continue
+                consultant_name = row[col_cons].strip()
+                if not consultant_name: continue
+                onboard_str = row[col_onboard].strip()
+                onboard_date = None
+                for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%m/%d/%Y", "%d-%b-%y"]:
+                    try: onboard_date = datetime.strptime(onboard_str, fmt); break
                     except: pass
-                
-                pay_str = ""; status = "Pending"
-                if col_pay!=-1 and len(row)>col_pay:
-                    pay_str = row[col_pay].strip()
-                    if len(pay_str)>5: status = "Paid"
-                
+                if not onboard_date: continue
+                if not (onboard_date.year == year and start_m <= onboard_date.month <= end_m): continue
+                matched = "Unknown"
+                c_norm = normalize_text(consultant_name)
+                for conf in TEAM_CONFIG_TEMPLATE:
+                    conf_norm = normalize_text(conf['name'])
+                    if conf_norm in c_norm or c_norm in conf_norm: matched = conf['name']; break
+                    if conf_norm.split()[0] in c_norm: matched = conf['name']; break
+                if matched == "Unknown": continue
+                salary_raw = str(row[col_sal]).replace(',', '').replace('$', '').replace('MXN', '').strip()
+                try: salary = float(salary_raw)
+                except: salary = 0
+                pct_val = 1.0
+                if col_pct != -1 and len(row) > col_pct:
+                    p_str = str(row[col_pct]).replace('%', '').strip()
+                    try:
+                        p_float = float(p_str)
+                        if p_float > 1.0: pct_val = p_float / 100.0
+                        else: pct_val = p_float
+                    except: pct_val = 1.0
+                base_gp_factor = 1.0 if salary < 20000 else 1.5
+                calc_gp = salary * base_gp_factor * pct_val
+                pay_date_str = ""; status = "Pending"
+                if col_pay != -1 and len(row) > col_pay:
+                    pay_date_str = row[col_pay].strip()
+                    if len(pay_date_str) > 5: status = "Paid"
                 records.append({
-                    "Consultant": matched, "GP": sal*(1.0 if sal<20000 else 1.5)*pct, 
-                    "Candidate Salary": sal, "Percentage": pct, "Payment Date": pay_str, "Status": status
+                    "Consultant": matched, "GP": calc_gp, "Candidate Salary": salary,
+                    "Percentage": pct_val, "Onboard Date": onboard_date, "Payment Date": pay_date_str, "Status": status
                 })
         return pd.DataFrame(records)
-    except: return pd.DataFrame()
+    except Exception as e:
+        print(f"Financial Error: {e}"); return pd.DataFrame()
 
 
 # --- 🖥️ UI RENDER ---
@@ -454,7 +540,7 @@ def render_bar(current, goal, css_class, label, height_class="pit-h-std", is_whi
     icon = ""
     if pct >= 100: icon = "🌟"
     
-    # 根据背景决定标签颜色
+    # 标签颜色控制：深色背景用白色，卡片内用灰色
     lbl_class = "sub-label" if is_white_label else "card-label"
 
     st.markdown(f"""
@@ -469,15 +555,16 @@ def render_bar(current, goal, css_class, label, height_class="pit-h-std", is_whi
     """, unsafe_allow_html=True)
 
 def render_player_card(conf, rec_count, fin_sum, idx):
-    name = conf['name']; role = conf.get('role', 'Full-Time')
-    is_intern = (role == 'Intern'); is_lead = conf.get('is_team_lead', False)
+    name = conf['name']
+    role = conf.get('role', 'Full-Time') 
+    is_team_lead = conf.get('is_team_lead', False)
+    is_intern = (role == 'Intern')
     
     # 🎯 Calculate Individual Progress for Visuals (Reduce Stress)
     # We divide the Team Goal by 4 to show individual contribution bar, but Logic remains Team-based
-    # This prevents the bar from looking empty (e.g. 10/342)
     VISUAL_TARGET = QUARTERLY_GOAL / 4
     
-    rec_pct_team = (rec_count / QUARTERLY_GOAL) * 100
+    rec_pct = (rec_count / QUARTERLY_GOAL) * 100
     fin_pct = fin_sum.get("Target Achieved", 0.0)
     comm = fin_sum.get("Est. Commission", 0.0)
     
@@ -493,20 +580,23 @@ def render_player_card(conf, rec_count, fin_sum, idx):
 
     status_badge = '<span class="badge-pass">LEVEL UP! 🚀</span>' if passed else '<span class="badge-load">IN PROGRESS... 🐢</span>'
     bd_cls = f"bd-{(idx%4)+1}"
-    crown = "👑" if is_lead else ""
+    crown = "👑" if is_team_lead else ""
 
     st.markdown(f"""
     <div class="player-card {bd_cls}">
         <div class="player-header">
-            <div><span class="p-name">{name} {crown}</span><br><span class="p-role">{conf.get('title_display')}</span></div>
-            {status_html(passed)}
+            <div>
+                <span class="p-name">{name} {crown}</span><br>
+                <span class="p-role">{conf.get('title_display')}</span>
+            </div>
+            {status_badge}
         </div>
     """, unsafe_allow_html=True)
-    
-    # 1. Recruitment (Blue)
+
+    # 1. Recruitment Bar (Thinner, standard)
     render_bar(rec_count, VISUAL_TARGET, "fill-blue", "CVs SENT (Q4)", "pit-h-std", False)
-    
-    # 2. Financial (Green)
+
+    # 2. Financial Bar
     if not is_intern:
         render_bar(fin_pct, 100, "fill-green", "GP TARGET", "pit-h-std", False)
     else:
@@ -517,12 +607,9 @@ def render_player_card(conf, rec_count, fin_sum, idx):
         st.markdown(f'<div class="loot-box-unlocked">💰 UNLOCKED: ${comm:,.0f}</div>', unsafe_allow_html=True)
     else:
         st.markdown(f'<div class="loot-box-locked">🔒 LOCKED</div>', unsafe_allow_html=True)
-    
+
     st.markdown("</div>", unsafe_allow_html=True)
 
-def status_html(passed):
-    if passed: return '<span class="badge-pass">LEVEL UP! 🚀</span>'
-    return '<span class="badge-load">LOADING... ⏳</span>'
 
 # --- MAIN ---
 def main():
@@ -541,53 +628,93 @@ def main():
         
         # Load Config
         active_config = []
-        for c in TEAM_CONFIG_TEMPLATE:
-            nc = c.copy()
-            r, l, t = fetch_role_from_personal_sheet(client, c['id'])
-            nc.update({'role':r, 'is_team_lead':l, 'title_display':t})
-            active_config.append(nc)
-            
-        # Fetch Data
-        sales_df = fetch_financial_df(client, sm, em, yr)
-        m_res = []; q_res = []; fin_sums = {}; all_dets = []
+        config_status = st.empty()
+        config_status.info("🔐 CONNECTING TO PLAYER PROFILES...")
         
-        with st.spinner("💾 LOADING SAVE DATA..."):
-            for c in active_config:
-                fin_sums[c['name']] = calculate_consultant_performance(sales_df, c['name'], c['base_salary'], c.get('is_team_lead'))
+        for conf in TEAM_CONFIG_TEMPLATE:
+            new_conf = conf.copy()
+            role, is_lead, raw_title = fetch_role_from_personal_sheet(client, conf['id'])
+            new_conf['role'] = role
+            new_conf['is_team_lead'] = is_lead
+            new_conf['title_display'] = raw_title
+            active_config.append(new_conf)
             
-            for c in active_config:
-                mc, md = fetch_consultant_data(client, c, m_tab)
-                all_month_details.extend(md)
-                qc = 0
-                for qt in q_tabs:
-                    if qt == m_tab: qc += mc
-                    else: qc += fetch_consultant_data(client, c, qt)[0]
-                m_res.append({'name':c['name'], 'count':mc})
-                q_res.append({'name':c['name'], 'count':qc})
+        config_status.empty()
 
-        # --- BOSS BARS ---
-        m_total = sum([x['count'] for x in m_res])
-        q_total = sum([x['count'] for x in q_res])
+        monthly_results = []
+        quarterly_results = []
+        all_month_details = [] 
+        financial_summaries = {}
+
+        with st.spinner(f"🛰️ SCANNING SECTOR Q{quarter_num}..."):
+            
+            # Fetch Data
+            sales_df = fetch_financial_df(client, sm, em, yr)
+            
+            for conf in active_config:
+                summary = calculate_consultant_performance(
+                    sales_df, 
+                    conf['name'], 
+                    conf['base_salary'], 
+                    conf.get('is_team_lead', False)
+                )
+                financial_summaries[conf['name']] = summary
+
+            for consultant in active_config:
+                m_count, m_details = fetch_consultant_data(client, consultant, m_tab)
+                all_month_details.extend(m_details)
+
+                q_count = 0
+                for q_tab in q_tabs:
+                    if q_tab == m_tab: q_count += m_count
+                    else:
+                        c, _ = fetch_consultant_data(client, consultant, q_tab)
+                        q_count += c
+
+                monthly_results.append({"name": consultant['name'], "count": m_count})
+                quarterly_results.append({"name": consultant['name'], "count": q_count})
+
+        time.sleep(0.5)
+
+        # --- BOSS BAR: MONTHLY AGGREGATE ---
+        st.markdown(f'<div class="header-box" style="border-color: #f39c12;">🏆 TEAM MONTHLY GOAL ({m_tab})</div>', unsafe_allow_html=True)
+        
+        m_total = sum([x['count'] for x in monthly_results])
+        q_total = sum([x['count'] for x in quarterly_results])
         
         # Monthly Bar (Medium, Gold)
-        st.markdown(f'<div class="header-box" style="border-color: #f39c12;">🏆 TEAM MONTHLY GOAL ({m_tab})</div>', unsafe_allow_html=True)
         render_bar(m_total, MONTHLY_GOAL, "fill-gold", "TEAM PROGRESS", "pit-h-med", True)
         
         st.write("") # Spacer
 
         # Quarterly Bar (Big Boss, Rainbow) - 季度的简历统计数据 (The BIG ONE)
         st.markdown(f'<div class="header-box" style="border-color: #ff6b6b;">🔥 TEAM SEASON GOAL (Q{q_num})</div>', unsafe_allow_html=True)
+        
+        # 🚀 RENDER THE BIG BOSS BAR manually for rainbow effect
+        pct_q = (q_total / QUARTERLY_GOAL) * 100
         render_bar(q_total, QUARTERLY_GOAL, "fill-rainbow", "TOTAL SEASON CVs", "pit-h-big", True)
 
-        # --- PLAYER SELECT ---
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        cols = st.columns(2) + st.columns(2)
+        # Stats Cards
+        cols_stats = st.columns(len(quarterly_results))
+        for idx, res in enumerate(quarterly_results):
+            with cols_stats[idx]:
+                st.markdown(f"""<div class="stat-card"><div class="stat-name">{res['name']}</div><div class="stat-val">{res['count']}</div></div>""", unsafe_allow_html=True)
+
+        # --- PLAYER HUB ---
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(f'<div class="header-bordered" style="border-color: #48dbfb;">❄️ PLAYER STATS (Q{quarter_num})</div>', unsafe_allow_html=True)
         
-        for i, conf in enumerate(active_config):
+        row1 = st.columns(2)
+        row2 = st.columns(2)
+        all_cols = row1 + row2
+        
+        for idx, conf in enumerate(active_config):
             c_name = conf['name']
-            qc = next((x['count'] for x in q_res if x['name']==c_name), 0)
-            with cols[i]:
-                render_player_card(conf, qc, fin_sums.get(c_name,{}), i)
+            q_rec_count = next((item['count'] for item in quarterly_results if item['name'] == c_name), 0)
+            fin_sum = financial_summaries.get(c_name, {})
+            
+            with all_cols[idx]:
+                render_player_card(conf, q_rec_count, fin_sum, idx)
 
         # --- LOGS ---
         if all_month_details:
