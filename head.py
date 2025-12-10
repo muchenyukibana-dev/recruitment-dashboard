@@ -241,10 +241,11 @@ st.markdown("""
     .sub-label {
         font-family: 'Fredoka One', sans-serif;
         font-size: 0.8em;
-        color: #ffeaa7;
+        color: #FFFFFF;  /* 改为白色，清晰可见 */
         margin-bottom: 5px;
         text-transform: uppercase;
         letter-spacing: 1px;
+        text-shadow: 1px 1px 0px #000; /* 可以加一点阴影增加对比度 */
     }
 
     /* TREASURE CHEST COMMISSION */
