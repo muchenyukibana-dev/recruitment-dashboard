@@ -380,23 +380,24 @@ def main():
                         return member.get('role', 'Consultant'), CV_TARGET_QUARTERLY
                 return 'Consultant', CV_TARGET_QUARTERLY
 
-            # 应用函数获取 Role 和 Target
+# ... (前文代码)
             rec_summary[['Role', 'CV Target']] = rec_summary['Consultant'].apply(
                 lambda x: pd.Series(get_role_target(x))
             )
 
-            # 计算 Activity % 和 Int Rate
-            rec_summary['Activity %'] = (rec_summary['Sent'] / rec_summary['CV Target']).fillna(0)
-            rec_summary['Int Rate'] = (rec_summary['Int'] / rec_summary['Sent']).fillna(0)
-            
+            # 🔴 修改 1：计算时直接乘以 100
+            rec_summary['Activity %'] = (rec_summary['Sent'] / rec_summary['CV Target']).fillna(0) * 100
+            rec_summary['Int Rate'] = (rec_summary['Int'] / rec_summary['Sent']).fillna(0) * 100
+
             # 计算 Total 行
             total_sent = rec_summary['Sent'].sum()
             total_int = rec_summary['Int'].sum()
             total_off = rec_summary['Off'].sum()
             total_target = rec_summary['CV Target'].sum()
-            
-            total_activity_rate = (total_sent / total_target) if total_target > 0 else 0
-            total_int_rate = (total_int / total_sent) if total_sent > 0 else 0
+
+            # 🔴 修改 2：Total 行的计算也要乘以 100
+            total_activity_rate = (total_sent / total_target * 100) if total_target > 0 else 0
+            total_int_rate = (total_int / total_sent * 100) if total_sent > 0 else 0
             
             total_row = pd.DataFrame([{
                 'Consultant': 'TOTAL', 
