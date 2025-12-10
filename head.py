@@ -420,13 +420,7 @@ def main():
                 column_config={
                     "CV Target": st.column_config.NumberColumn("Target (Q)", format="%d"),
                     "Sent": st.column_config.NumberColumn("Sent", format="%d"),
-                    # 👇 修改这里：恢复进度条
-                    "Activity %": st.column_config.ProgressColumn(
-                        "Activity %", 
-                        format="%.0%", 
-                        min_value=0, 
-                        max_value=1
-                    ),
+                    "Activity %": st.column_config.ProgressColumn("Activity %", format="%.0f%%", min_value=0, max_value=200), #这里改成200了
                     "Int Rate": st.column_config.NumberColumn("Int/Sent", format="%.1f%%")
                 }
             )
@@ -550,8 +544,8 @@ def main():
         st.dataframe(df_fin, use_container_width=True, hide_index=True, column_config={
             "GP Target": st.column_config.NumberColumn(format="$%d"),
             "Paid GP": st.column_config.NumberColumn(format="$%d"),
-            "Fin %": st.column_config.ProgressColumn("Financial %", format="%.0f%%", min_value=0, max_value=100),
-            "Status": st.column_config.TextColumn("Status"), # 单独一列
+            "Fin %": st.column_config.ProgressColumn("Financial %", format="%.0f%%", min_value=0, max_value=10),
+            "Status": st.column_config.TextColumn("Status"), # 单独一列改了max从100到10
             "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d"),
         })
 
