@@ -12,7 +12,6 @@ import unicodedata
 # ==========================================
 # 🔧 配置区域
 # ==========================================
-# ⚠️ 已更新新的 Sales Sheet ID
 SALES_SHEET_ID = '1jniQ-GpeMINjQMebniJ_J1eLVLQIR1NGbSjTtOFP9Q8' 
 SALES_TAB_NAME = 'Positions'
 
@@ -21,34 +20,33 @@ CURRENT_YEAR = 2025
 CURRENT_QUARTER = 4
 CURRENT_Q_STR = f"{CURRENT_YEAR} Q{CURRENT_QUARTER}"
 
+# 🎯 简历目标设置 (季度)
+CV_TARGET_QUARTERLY = 87
+
 TEAM_CONFIG = [
     {
         "name": "Raul Solis",
         "id": "1vQuN-iNBRUug5J6gBMX-52jp6oogbA77SaeAf9j_zYs",
         "keyword": "Name",
         "base_salary": 11000,
-        "role": "Consultant"
     },
     {
         "name": "Estela Peng",
         "id": "1sUkffAXzWnpzhhmklqBuwtoQylpR1U18zqBQ-lsp7Z4",
         "keyword": "姓名",
         "base_salary": 20800,
-        "role": "Consultant"
     },
     {
         "name": "Ana Cruz",
         "id": "1VMVw5YCV12eI8I-VQSXEKg86J2IVZJEgjPJT7ggAFD0",
         "keyword": "Name",
         "base_salary": 13000,
-        "role": "Consultant"
     },
     {
         "name": "Karina Albarran",
         "id": "1zc4ghvfjIxH0eJ2aXfopOWHqiyTDlD8yFNjBzpH07D8",
         "keyword": "Name",
         "base_salary": 15000,
-        "role": "Team Lead"
     },
 ]
 
@@ -110,12 +108,8 @@ def get_commission_pay_date(payment_date):
     except: return None
 
 def get_payout_date_from_month_key(month_key):
-    """
-    输入 '2025-11'，返回 2025-12-15
-    """
     try:
-        dt = datetime.strptime(month_key, "%Y-%m")
-        # 下个月
+        dt = datetime.strptime(str(month_key), "%Y-%m")
         year = dt.year + (dt.month // 12)
         month = (dt.month % 12) + 1
         return datetime(year, month, 15)
@@ -154,6 +148,22 @@ def connect_to_google():
                 return gspread.authorize(creds)
             except: return None
         return None
+
+# --- 🛠️ 角色获取 ---
+def fetch_role_from_personal_sheet(client, sheet_id):
+    try:
+        sheet = safe_api_call(client.open_by_key, sheet_id)
+        try:
+            ws = safe_api_call(sheet.worksheet, 'Credentials')
+        except:
+            return "Consultant"
+        role = safe_api_call(ws.acell, 'B1').value
+        if role:
+            return role.strip()
+        return "Consultant"
+    except Exception as e:
+        print(f"Error fetching role: {e}")
+        return "Consultant"
 
 # --- 数据获取 ---
 def fetch_recruitment_stats(client, months):
@@ -296,35 +306,56 @@ def fetch_all_sales_data(client):
 
 # --- 📦 数据加载封装 ---
 def load_data_from_api(client, quarter_months_str):
+    team_data = []
+    for conf in TEAM_CONFIG:
+        member = conf.copy()
+        fetched_role = fetch_role_from_personal_sheet(client, conf['id'])
+        member['role'] = fetched_role
+        team_data.append(member)
+        time.sleep(0.5)
+
     rec_stats_df, rec_details_df = fetch_recruitment_stats(client, quarter_months_str)
     time.sleep(1)
     rec_hist_df = fetch_historical_recruitment_stats(client, exclude_months=quarter_months_str)
     time.sleep(1)
     all_sales_df = fetch_all_sales_data(client)
-    return {"rec_stats": rec_stats_df, "rec_details": rec_details_df, "rec_hist": rec_hist_df, "sales_all": all_sales_df, "last_updated": datetime.now().strftime("%H:%M:%S")}
+    
+    return {
+        "team_data": team_data,
+        "rec_stats": rec_stats_df,
+        "rec_details": rec_details_df,
+        "rec_hist": rec_hist_df,
+        "sales_all": all_sales_df,
+        "last_updated": datetime.now().strftime("%H:%M:%S")
+    }
 
 # --- 🚀 主程序 ---
 def main():
     st.title("💼 Management Dashboard")
+
     client = connect_to_google()
     if not client: st.error("❌ API Error"); return
+
     start_m, end_m = 10, 12
     quarter_months_str = [f"{CURRENT_YEAR}{m:02d}" for m in range(start_m, end_m + 1)]
-    
+
     col1, col2 = st.columns([1, 5])
     with col1:
         if st.button("🔄 REFRESH DATA", type="primary"):
-            with st.spinner("⏳ Fetching live data..."):
+            with st.spinner("⏳ Fetching live data & roles..."):
                 try:
                     data_package = load_data_from_api(client, quarter_months_str)
                     st.session_state['data_cache'] = data_package
                     st.success(f"Updated: {data_package['last_updated']}")
+                    time.sleep(0.5)
+                    st.rerun()
                 except Exception as e: st.error(str(e))
-    
+
     if 'data_cache' not in st.session_state:
-        st.info("👋 Welcome! Click 'REFRESH DATA' to start."); st.stop()
+        st.info("👋 Welcome! Click 'REFRESH DATA' to load the Q4 report."); st.stop()
 
     cache = st.session_state['data_cache']
+    dynamic_team_config = cache['team_data']
     rec_stats_df, rec_details_df, rec_hist_df, all_sales_df = cache['rec_stats'], cache['rec_details'], cache['rec_hist'], cache['sales_all']
     st.caption(f"📅 Snapshot: {cache['last_updated']}")
 
@@ -337,14 +368,79 @@ def main():
     tab_dash, tab_details = st.tabs(["📊 DASHBOARD", "📝 DETAILS"])
 
     with tab_dash:
-        # Recruitment Stats
+        # 1. Recruitment Stats
         st.markdown(f"### 🎯 Recruitment Stats (Q{CURRENT_QUARTER})")
         if not rec_stats_df.empty:
             rec_summary = rec_stats_df.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
-            rec_summary['Int Rate'] = (rec_summary['Int'] / rec_summary['Sent']).fillna(0)
-            total_row = pd.DataFrame([{'Consultant': 'TOTAL', 'Sent': rec_summary['Sent'].sum(), 'Int': rec_summary['Int'].sum(), 'Off': rec_summary['Off'].sum(), 'Int Rate': (rec_summary['Int'].sum()/rec_summary['Sent'].sum() if rec_summary['Sent'].sum()>0 else 0)}])
+            
+            # 整合 Role 到 Recruitment 表格，计算 Activity %
+            def get_role_target(c_name):
+                for member in dynamic_team_config:
+                    if member['name'] == c_name:
+                        return member.get('role', 'Consultant'), CV_TARGET_QUARTERLY
+                return 'Consultant', CV_TARGET_QUARTERLY
+
+# ... (前文代码)
+            rec_summary[['Role', 'CV Target']] = rec_summary['Consultant'].apply(
+                lambda x: pd.Series(get_role_target(x))
+            )
+
+            # 🔴 修改 1：计算时直接乘以 100
+            rec_summary['Activity %'] = (rec_summary['Sent'] / rec_summary['CV Target']).fillna(0) * 100
+            rec_summary['Int Rate'] = (rec_summary['Int'] / rec_summary['Sent']).fillna(0) * 100
+
+            # 计算 Total 行
+            total_sent = rec_summary['Sent'].sum()
+            total_int = rec_summary['Int'].sum()
+            total_off = rec_summary['Off'].sum()
+            total_target = rec_summary['CV Target'].sum()
+
+            # 🔴 修改 2：Total 行的计算也要乘以 100
+            total_activity_rate = (total_sent / total_target * 100) if total_target > 0 else 0
+            total_int_rate = (total_int / total_sent * 100) if total_sent > 0 else 0
+            
+            total_row = pd.DataFrame([{
+                'Consultant': 'TOTAL', 
+                'Role': '-',
+                'CV Target': total_target,
+                'Sent': total_sent, 
+                'Activity %': total_activity_rate,
+                'Int': total_int, 
+                'Off': total_off, 
+                'Int Rate': total_int_rate
+            }])
             rec_summary = pd.concat([rec_summary, total_row], ignore_index=True)
-            st.dataframe(rec_summary, use_container_width=True, hide_index=True, column_config={"Int Rate": st.column_config.ProgressColumn("Int/Sent Rate", format="%.1f%%", min_value=0, max_value=1)})
+            
+            cols = ['Consultant', 'Role', 'CV Target', 'Sent', 'Activity %', 'Int', 'Off', 'Int Rate']
+            rec_summary = rec_summary[cols]
+
+            st.dataframe(
+                rec_summary,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Consultant": st.column_config.TextColumn("Consultant", width=150),
+                    "Role": st.column_config.TextColumn("Role", width=100),
+                    "CV Target": st.column_config.NumberColumn("Target (Q)", format="%d", width=100),
+                    "Sent": st.column_config.NumberColumn("Sent", format="%d", width=100),
+                    # Activity % 依然保持进度条，现在数据是 0-100 了，显示会正常
+                    "Activity %": st.column_config.ProgressColumn(
+                        "Activity %", 
+                        format="%.0f%%", 
+                        min_value=0, 
+                        max_value=100, 
+                        width=150
+                    ),
+                    "Int": st.column_config.NumberColumn("Int", width=140),
+                    "Off": st.column_config.NumberColumn("Off", width=80),
+                    # 🔴 修改 3：Int Rate 改为纯数字显示，保留2位小数
+                    "Int Rate": st.column_config.NumberColumn(
+                        "Int/Sent", 
+                        format="%.2f%%", 
+                        width=130
+                    ),
+                }
+            )
         else: st.warning("No data.")
         
         with st.expander("📜 Historical Recruitment Data"):
@@ -353,110 +449,83 @@ def main():
             else: st.info("No data.")
         st.divider()
 
-        # Financial Performance
+        # 2. Financial Performance
         st.markdown(f"### 💰 Financial Performance (Q{CURRENT_QUARTER})")
         financial_summary = []
         updated_sales_records = []
         team_lead_overrides = []
 
-        for conf in TEAM_CONFIG:
+        for conf in dynamic_team_config:
             c_name = conf['name']
             base = conf['base_salary']
-            is_team_lead = (conf.get('role') == "Team Lead")
-            target = base * (4.5 if is_team_lead else 9.0)
-
-            c_sales = sales_df_q4[sales_df_q4['Consultant'] == c_name].copy() if not sales_df_q4.empty else pd.DataFrame()
+            role = conf.get('role', 'Consultant')
             
+            is_intern = (role == "Intern")
+            is_team_lead = (role == "Team Lead")
+            
+            gp_target = 0 if is_intern else base * (4.5 if is_team_lead else 9.0)
+            cv_target = CV_TARGET_QUARTERLY # 仍然需要用于内部计算 Status
+
+            # 获取数据
+            c_sales = sales_df_q4[sales_df_q4['Consultant'] == c_name].copy() if not sales_df_q4.empty else pd.DataFrame()
+            sent_count = rec_stats_df[rec_stats_df['Consultant'] == c_name]['Sent'].sum() if not rec_stats_df.empty else 0
+
             booked_gp = 0
             paid_gp = 0
             total_comm = 0
             current_level = 0
-
-            # --- 核心逻辑: 阈值触发回溯累积 (Threshold Triggered Catch-up) ---
-            if not c_sales.empty:
-                # 1. 基础字段初始化
-                c_sales['Applied Level'] = 0
-                c_sales['Final Comm'] = 0.0
-                c_sales['Commission Day Obj'] = pd.NaT 
-                c_sales['Commission Day'] = ""         
-                
-                booked_gp = c_sales['GP'].sum()
-                
-                # 2. 筛选已付款的单子用于计算
-                # 注意：必须按付款时间排序，模拟时间轴
-                paid_sales = c_sales[c_sales['Status'] == 'Paid'].copy()
-                
-                if not paid_sales.empty:
-                    # 确保按付款日期排序
-                    paid_sales['Payment Date Obj'] = pd.to_datetime(paid_sales['Payment Date Obj'])
-                    paid_sales = paid_sales.sort_values(by='Payment Date Obj')
+            
+            # 佣金计算逻辑
+            if is_intern:
+                if not c_sales.empty:
+                    booked_gp = c_sales['GP'].sum()
+                    c_sales['Applied Level'] = 0; c_sales['Final Comm'] = 0; c_sales['Commission Day'] = ""
+                    updated_sales_records.append(c_sales)
+            else:
+                if not c_sales.empty:
+                    c_sales['Applied Level'] = 0; c_sales['Final Comm'] = 0.0
+                    c_sales['Commission Day Obj'] = pd.NaT; c_sales['Commission Day'] = ""
+                    booked_gp = c_sales['GP'].sum()
+                    paid_sales = c_sales[c_sales['Status'] == 'Paid'].copy()
                     
-                    # 提取月份Key (YYYY-MM)
-                    paid_sales['Pay_Month_Key'] = paid_sales['Payment Date Obj'].dt.to_period('M')
-                    unique_months = sorted(paid_sales['Pay_Month_Key'].unique())
-                    
-                    running_paid_gp = 0
-                    pending_indices = [] # 蓄水池：存的是 paid_sales 中的 index
-                    
-                    for month_key in unique_months:
-                        # 获取该月新回款的单子
-                        month_deals = paid_sales[paid_sales['Pay_Month_Key'] == month_key]
+                    if not paid_sales.empty:
+                        paid_sales['Payment Date Obj'] = pd.to_datetime(paid_sales['Payment Date Obj'])
+                        paid_sales = paid_sales.sort_values(by='Payment Date Obj')
+                        paid_sales['Pay_Month_Key'] = paid_sales['Payment Date Obj'].dt.to_period('M')
+                        unique_months = sorted(paid_sales['Pay_Month_Key'].unique())
                         
-                        # 累加 GP
-                        month_new_gp = month_deals['GP'].sum()
-                        running_paid_gp += month_new_gp
+                        running_paid_gp = 0
+                        pending_indices = []
                         
-                        # 把新单子加入"待发蓄水池"
-                        pending_indices.extend(month_deals.index.tolist())
-                        
-                        # 检查当前累计 GP 是否达标
-                        level, multiplier = calculate_commission_tier(running_paid_gp, base, is_team_lead)
-                        
-                        if level > 0:
-                            # === 触发发放 ===
-                            # 发放日期 = 本月(month_key) 的下个月 15 号
-                            payout_date = get_payout_date_from_month_key(str(month_key))
+                        for month_key in unique_months:
+                            month_deals = paid_sales[paid_sales['Pay_Month_Key'] == month_key]
+                            running_paid_gp += month_deals['GP'].sum()
+                            pending_indices.extend(month_deals.index.tolist())
+                            level, multiplier = calculate_commission_tier(running_paid_gp, base, is_team_lead)
                             
-                            # 将蓄水池里的单子全部结算
-                            for idx in pending_indices:
-                                row = paid_sales.loc[idx]
-                                deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * row['Percentage']
-                                
-                                # 更新 DataFrame
-                                paid_sales.at[idx, 'Applied Level'] = level
-                                paid_sales.at[idx, 'Commission Day Obj'] = payout_date
-                                paid_sales.at[idx, 'Final Comm'] = deal_comm
-                            
-                            # 清空蓄水池 (已结算的单子不再受未来更高Level影响)
-                            pending_indices = []
-                        else:
-                            # === 未达标 ===
-                            # 单子保留在 pending_indices 里
-                            pass
-                    
-                    # 更新 paid_gp 用于显示
-                    paid_gp = running_paid_gp
-                    current_level, _ = calculate_commission_tier(running_paid_gp, base, is_team_lead)
-                    
-                    # 统计可见的 Payable Commission (条件: 有日期 且 日期 <= 今天+20天)
-                    for idx, row in paid_sales.iterrows():
-                        comm_date = row['Commission Day Obj']
-                        if pd.notnull(comm_date) and comm_date <= datetime.now() + timedelta(days=20):
-                            total_comm += row['Final Comm']
-                            
-                    # 将计算结果合并回 c_sales (为了展示)
-                    c_sales.update(paid_sales)
-                    
-                    # 格式化日期字符串 (用于显示)
-                    c_sales['Commission Day'] = c_sales['Commission Day Obj'].apply(
-                        lambda x: x.strftime("%Y-%m-%d") if pd.notnull(x) else ""
-                    )
+                            if level > 0:
+                                payout_date = get_payout_date_from_month_key(str(month_key))
+                                for idx in pending_indices:
+                                    row = paid_sales.loc[idx]
+                                    deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * row['Percentage']
+                                    paid_sales.at[idx, 'Applied Level'] = level
+                                    paid_sales.at[idx, 'Commission Day Obj'] = payout_date
+                                    paid_sales.at[idx, 'Final Comm'] = deal_comm
+                                pending_indices = []
+                        
+                        paid_gp = running_paid_gp
+                        current_level, _ = calculate_commission_tier(running_paid_gp, base, is_team_lead)
 
-                updated_sales_records.append(c_sales)
+                        for idx, row in paid_sales.iterrows():
+                            comm_date = row['Commission Day Obj']
+                            if pd.notnull(comm_date) and comm_date <= datetime.now() + timedelta(days=20):
+                                total_comm += row['Final Comm']
+                        
+                        c_sales.update(paid_sales)
+                        c_sales['Commission Day'] = c_sales['Commission Day Obj'].apply(lambda x: x.strftime("%Y-%m-%d") if pd.notnull(x) else "")
+                    updated_sales_records.append(c_sales)
 
-            # Team Override
-            if is_team_lead:
-                if not sales_df_q4.empty:
+                if is_team_lead and not sales_df_q4.empty:
                     override_mask = (sales_df_q4['Status'] == 'Paid') & (sales_df_q4['Consultant'] != c_name) & (sales_df_q4['Consultant'] != "Estela Peng")
                     pot_overrides = sales_df_q4[override_mask].copy()
                     for _, row in pot_overrides.iterrows():
@@ -466,27 +535,50 @@ def main():
                             total_comm += bonus
                             team_lead_overrides.append({"Leader": c_name, "Source": row['Consultant'], "Salary": row['Candidate Salary'], "Date": comm_pay_obj.strftime("%Y-%m-%d"), "Bonus": bonus})
 
+            fin_pct = (paid_gp / gp_target * 100) if gp_target > 0 else 0
+            rec_pct = (sent_count / cv_target * 100) if cv_target > 0 else 0
+            
+            # --- Status 判定逻辑更新 ---
+            achieved = []
+            if fin_pct >= 100: achieved.append("Financial")
+            if rec_pct >= 100: achieved.append("Activity")
+            
+            if not achieved:
+                status_text = "In Progress"
+            else:
+                status_text = " & ".join(achieved)
+
             financial_summary.append({
-                "Consultant": c_name, "Base Salary": base, "Target": target,
-                "Booked GP": booked_gp, "Paid GP": paid_gp,
-                "Achieved": (paid_gp/target*100) if target>0 else 0,
-                "Level": current_level, "Est. Commission": total_comm
+                "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp, "Fin %": fin_pct,
+                "Status": status_text, "Level": current_level, "Est. Commission": total_comm
             })
 
         final_sales_df = pd.concat(updated_sales_records) if updated_sales_records else pd.DataFrame()
         override_df = pd.DataFrame(team_lead_overrides)
         
         df_fin = pd.DataFrame(financial_summary).sort_values('Paid GP', ascending=False)
-        st.dataframe(df_fin, use_container_width=True, hide_index=True, column_config={
-            "Base Salary": st.column_config.NumberColumn(format="$%d"),
-            "Target": st.column_config.NumberColumn("Target Q", format="$%d"),
-            "Booked GP": st.column_config.NumberColumn(format="$%d"),
-            "Paid GP": st.column_config.NumberColumn(format="$%d"),
-            "Achieved": st.column_config.ProgressColumn("Target", format="%.1f%%", min_value=0, max_value=100),
-            "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d"),
-        })
+        
+# ... (代码上下文: df_fin = pd.DataFrame(financial_summary).sort_values('Paid GP', ascending=False))
 
-        with st.expander("📜 Historical GP Summary (By Quarter)"):
+        # --- 修改开始：Financial Performance ---
+        st.dataframe(
+            df_fin, 
+            use_container_width=True, 
+            hide_index=True, 
+            column_config={
+                "Consultant": st.column_config.TextColumn("Consultant", width=150),
+                "Role": st.column_config.TextColumn("Role", width=100),
+                "GP Target": st.column_config.NumberColumn("GP Target", format="$%d", width=100),
+                "Paid GP": st.column_config.NumberColumn("Paid GP", format="$%d", width=100),
+                "Fin %": st.column_config.ProgressColumn("Financial %", format="%.0f%%", min_value=0, max_value=100, width=150),
+                "Status": st.column_config.TextColumn("Status", width=140), # 保持与上方 Int 列一致
+                "Level": st.column_config.NumberColumn("Level", width=80),
+                "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d", width=130),
+            }
+        )
+        # --- 修改结束 ---
+
+        with st.expander("📜 Historical GP Summary"):
             if not sales_df_hist.empty:
                 q_totals = sales_df_hist.groupby('Quarter')['GP'].sum().reset_index()
                 q_totals['Consultant'] = '📌 TOTAL'
@@ -495,33 +587,32 @@ def main():
             else: st.info("No data.")
 
     with tab_details:
-        st.markdown("### 🔍 Drill Down Details (Q4 Only)")
-        for conf in TEAM_CONFIG:
+        st.markdown("### 🔍 Drill Down Details")
+        for conf in dynamic_team_config:
             c_name = conf['name']
             fin_row = df_fin[df_fin['Consultant'] == c_name].iloc[0]
-            header = f"👤 {c_name} | Paid GP: ${fin_row['Paid GP']:,.0f} (Current Lvl {fin_row['Level']})"
+            header = f"👤 {c_name} ({fin_row['Role']}) | Status: {fin_row['Status']}"
             with st.expander(header):
-                st.markdown("#### 💸 Personal Commission Breakdown")
-                if not final_sales_df.empty:
-                    c_view = final_sales_df[final_sales_df['Consultant'] == c_name].copy()
-                    if not c_view.empty:
-                        c_view['Pct Display'] = c_view['Percentage'].apply(lambda x: f"{x*100:.0f}%")
-                        st.dataframe(c_view[['Onboard Date Str', 'Payment Date', 'Commission Day', 'Candidate Salary', 'Pct Display', 'GP', 'Status', 'Applied Level', 'Final Comm']], use_container_width=True, hide_index=True, column_config={"Commission Day": st.column_config.TextColumn("Comm. Date"), "Final Comm": st.column_config.NumberColumn("Comm ($)", format="$%.2f")})
-                    else: st.info("No deals.")
+                if fin_row['Role'] != "Intern":
+                    st.markdown("#### 💸 Commission Breakdown")
+                    if not final_sales_df.empty:
+                        c_view = final_sales_df[final_sales_df['Consultant'] == c_name].copy()
+                        if not c_view.empty:
+                            c_view['Pct Display'] = c_view['Percentage'].apply(lambda x: f"{x*100:.0f}%")
+                            st.dataframe(c_view[['Onboard Date Str', 'Payment Date', 'Commission Day', 'Candidate Salary', 'Pct Display', 'GP', 'Status', 'Applied Level', 'Final Comm']], use_container_width=True, hide_index=True, column_config={"Commission Day": st.column_config.TextColumn("Comm. Date"), "Final Comm": st.column_config.NumberColumn("Comm ($)", format="$%.2f")})
+                        else: st.info("No deals.")
                 
-                if conf.get('role') == 'Team Lead':
+                if fin_row['Role'] == 'Team Lead':
                     st.divider(); st.markdown("#### 👥 Team Overrides")
                     if not override_df.empty:
                         my_ov = override_df[override_df['Leader'] == c_name]
                         if not my_ov.empty: st.dataframe(my_ov, use_container_width=True, hide_index=True)
                         else: st.info("None.")
-                    else: st.info("None.")
                 
                 st.divider(); st.markdown("#### 📝 Recruitment Logs")
                 if not rec_details_df.empty:
                     c_logs = rec_details_df[rec_details_df['Consultant'] == c_name]
                     if not c_logs.empty: st.dataframe(c_logs.groupby(['Month', 'Company', 'Position', 'Status'])['Count'].sum().reset_index().sort_values('Month', ascending=False), use_container_width=True, hide_index=True)
-                    else: st.info("No logs.")
 
 if __name__ == "__main__":
     main()
