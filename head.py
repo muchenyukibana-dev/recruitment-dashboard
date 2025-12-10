@@ -414,7 +414,7 @@ def main():
             cols = ['Consultant', 'Role', 'CV Target', 'Sent', 'Activity %', 'Int', 'Off', 'Int Rate']
             rec_summary = rec_summary[cols]
 
-st.dataframe(
+        st.dataframe(
                 rec_summary,
                 use_container_width=True,
                 hide_index=True,
