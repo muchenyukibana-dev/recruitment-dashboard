@@ -74,7 +74,7 @@ st.markdown("""
         display: flex;
         justify-content: center;
         width: 100%;
-        margin-left: 180px; 
+        margin-left: 260px; #改按钮位置
     }
     .stButton>button {
         background-color: #FF4757;
@@ -241,7 +241,7 @@ st.markdown("""
     .sub-label {
         font-family: 'Fredoka One', sans-serif;
         font-size: 0.8em;
-        color: #636e72;
+        color: #ffeaa7;
         margin-bottom: 5px;
         text-transform: uppercase;
         letter-spacing: 1px;
