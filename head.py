@@ -12,9 +12,8 @@ import unicodedata
 # ==========================================
 SALES_SHEET_ID = '1jniQ-GpeMINjQMebniJ_J1eLVLQIR1NGbSjTtOFP9Q8'
 SALES_TAB_NAME = 'Positions'
-CREDENTIALS_TAB_NAME = 'Credentials'  # 🔑 新增：读取 Title 的表页名称
 
-# 基础配置 (ID和关键词仍保留在代码中，但角色将由 Excel 决定)
+# 基础配置
 TEAM_CONFIG_TEMPLATE = [
     {
         "name": "Raul Solis",
@@ -47,25 +46,30 @@ MONTHLY_GOAL = 114
 QUARTERLY_GOAL = 342
 # ==========================================
 
-st.set_page_config(page_title="Fill The Pit", page_icon="🐱", layout="wide")
+st.set_page_config(page_title="Fill The Pit", page_icon="🎮", layout="wide")
 
-# --- 🎨 CSS STYLING ---
+# --- 🎨 PLAYFUL CSS STYLING ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap'); /* Adding a rounder font for non-headers */
 
-    html, body, [class*="css"] {
+    /* Global Background: Fun Arcade Purple/Blue Gradient */
+    .stApp {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         font-family: 'Press Start 2P', monospace;
-        background-color: #FFA500;
-        color: #FFFFFF;
     }
+
     h1 {
-        text-shadow: 4px 4px #000000;
+        text-shadow: 4px 4px 0px #000000;
         color: #FFD700 !important;
         text-align: center;
-        font-size: 3em !important;
+        font-size: 3.5em !important;
         margin-bottom: 20px;
+        -webkit-text-stroke: 2px #000;
     }
+
+    /* CENTERED START BUTTON - BOUNCY & JUICY */
     .stButton {
         display: flex;
         justify-content: center;
@@ -73,118 +77,245 @@ st.markdown("""
         margin-left: 180px; 
     }
     .stButton>button {
-        background-color: #FF0055;
+        background-color: #FF4757;
         color: white;
-        border: 4px solid #FFFFFF;
+        border: 4px solid #000;
+        border-radius: 15px;
         font-family: 'Press Start 2P', monospace;
-        font-size: 28px !important; 
-        padding: 25px 50px !important; 
-        box-shadow: 8px 8px 0px #000000;
-        transition: transform 0.1s;
+        font-size: 24px !important; 
+        padding: 20px 40px !important; 
+        box-shadow: 0px 8px 0px #a71c2a;
+        transition: all 0.1s;
         width: 100%;
     }
     .stButton>button:hover {
-        background-color: #FF5599;
-        transform: scale(1.02);
-        color: yellow;
-        border-color: yellow;
+        transform: translateY(4px);
+        box-shadow: 0px 4px 0px #a71c2a;
+        background-color: #ff6b81;
+        color: #FFF;
+        border-color: #000;
     }
+    .stButton>button:active {
+        transform: translateY(8px);
+        box-shadow: 0px 0px 0px #a71c2a;
+    }
+
+    /* --- PROGRESS BARS --- */
+    
+    /* Container for bars */
     .pit-container {
-        background-color: #222;
-        border: 2px solid #fff;
-        height: 30px; 
+        background-color: #eee;
+        border: 3px solid #000;
+        border-radius: 12px;
         width: 100%;
         position: relative;
-        margin-bottom: 10px;
-        box-shadow: 3px 3px 0px #000000;
+        margin-bottom: 12px;
+        box-shadow: 4px 4px 0px rgba(0,0,0,0.2);
+        overflow: hidden;
     }
-    .pit-fill-month { background-color: #8B4513; height: 100%; display: flex; align-items: center; justify-content: flex-end; }
-    .pit-fill-season { background-color: #0000FF; height: 100%; display: flex; align-items: center; justify-content: flex-end; }
-    .money-fill { background-color: #28a745; height: 100%; display: flex; align-items: center; justify-content: flex-end; }
+    
+    /* Standard Bar Height */
+    .pit-height-std { height: 25px; }
+    
+    /* 🔥 BOSS BAR: THICKER Monthly Bar */
+    .pit-height-boss { height: 60px; border-width: 4px; }
+
+    /* Bar Fills with Striped Animations */
+    @keyframes barberpole {
+        from { background-position: 0 0; }
+        to { background-position: 50px 50px; }
+    }
+    
+    @keyframes rainbow-move {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+
+    .pit-fill-month { 
+        background-image: linear-gradient(45deg, #ffa502 25%, #eccc68 25%, #eccc68 50%, #ffa502 50%, #ffa502 75%, #eccc68 75%, #eccc68 100%);
+        background-size: 50px 50px;
+        animation: barberpole 2s linear infinite;
+        height: 100%; 
+        display: flex; 
+        align-items: center; 
+        justify-content: flex-end; 
+    }
+
+    /* The Rainbow Boss Fill for Team Monthly */
+    .pit-fill-boss {
+        background: linear-gradient(270deg, #ff6b6b, #feca57, #48dbfb, #ff9ff3, #54a0ff);
+        background-size: 400% 400%;
+        animation: rainbow-move 6s ease infinite;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+    }
+
+    .pit-fill-season { 
+        background-image: linear-gradient(45deg, #3742fa 25%, #5352ed 25%, #5352ed 50%, #3742fa 50%, #3742fa 75%, #5352ed 75%, #5352ed 100%);
+        background-size: 50px 50px;
+        animation: barberpole 3s linear infinite;
+        height: 100%; 
+        display: flex; 
+        align-items: center; 
+        justify-content: flex-end; 
+    }
+    
+    .money-fill { 
+        background-image: linear-gradient(45deg, #2ed573 25%, #7bed9f 25%, #7bed9f 50%, #2ed573 50%, #2ed573 75%, #7bed9f 75%, #7bed9f 100%);
+        background-size: 50px 50px;
+        animation: barberpole 4s linear infinite;
+        height: 100%; 
+        display: flex; 
+        align-items: center; 
+        justify-content: flex-end; 
+    }
+
     .cat-squad {
-        position: absolute;
-        right: -20px; 
-        top: -15px;
-        font-size: 20px;
-        z-index: 10;
-        white-space: nowrap;
+        margin-right: 10px;
+        font-size: 24px;
+        filter: drop-shadow(2px 2px 0px rgba(0,0,0,0.5));
     }
+
+    /* --- CARDS --- */
+    
     .player-card {
-        background-color: #333;
-        border: 4px solid #FFF;
+        background-color: #FFFFFF;
+        border: 4px solid #000;
+        border-radius: 15px;
         padding: 20px;
         margin-bottom: 30px;
-        box-shadow: 8px 8px 0px #000;
+        color: #333;
+        box-shadow: 8px 8px 0px rgba(0,0,0,0.2);
+        transition: transform 0.2s;
     }
+    .player-card:hover {
+        transform: translateY(-2px);
+    }
+    
+    /* Colored borders for fun */
+    .card-border-1 { border-bottom: 6px solid #ff6b6b; }
+    .card-border-2 { border-bottom: 6px solid #feca57; }
+    .card-border-3 { border-bottom: 6px solid #48dbfb; }
+    .card-border-4 { border-bottom: 6px solid #ff9ff3; }
+
     .player-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        border-bottom: 2px solid #555;
-        padding-bottom: 10px;
         margin-bottom: 15px;
+        border-bottom: 2px dashed #ddd;
+        padding-bottom: 10px;
     }
     .player-name {
-        font-size: 1.2em;
-        color: #FFD700;
+        font-size: 1.1em;
+        font-weight: bold;
+        color: #2d3436;
     }
+    
+    /* Friendly Badges */
     .status-badge-pass {
-        background-color: #28a745;
+        background-color: #2ed573;
         color: white;
-        padding: 5px 10px;
-        border: 2px solid #fff;
-        font-size: 0.7em;
-        box-shadow: 3px 3px 0px #000;
-    }
-    .status-badge-fail {
-        background-color: #dc3545;
-        color: white;
-        padding: 5px 10px;
-        border: 2px solid #fff;
-        font-size: 0.7em;
-        box-shadow: 3px 3px 0px #000;
-    }
-    .sub-label {
+        padding: 8px 12px;
+        border-radius: 20px;
+        border: 2px solid #000;
         font-size: 0.6em;
-        color: #AAA;
+        box-shadow: 2px 2px 0px #000;
+        animation: bounce 1s infinite alternate;
+    }
+    @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-2px); } }
+
+    .status-badge-loading {
+        background-color: #feca57;
+        color: #000;
+        padding: 8px 12px;
+        border-radius: 20px;
+        border: 2px solid #000;
+        font-size: 0.6em;
+        box-shadow: 2px 2px 0px #000;
+    }
+
+    .sub-label {
+        font-family: 'Fredoka One', sans-serif;
+        font-size: 0.8em;
+        color: #636e72;
         margin-bottom: 5px;
         text-transform: uppercase;
+        letter-spacing: 1px;
     }
+
+    /* TREASURE CHEST COMMISSION */
     .comm-unlocked {
-        background-color: #000;
-        border: 2px dashed #FFD700;
-        color: #FFD700;
+        background-color: #fff4e6;
+        border: 2px solid #ff9f43;
+        border-radius: 10px;
+        color: #e67e22;
         text-align: center;
-        padding: 15px;
+        padding: 10px;
         margin-top: 15px;
-        font-size: 1.0em;
-        box-shadow: inset 0 0 10px #FFD700;
+        font-weight: bold;
+        font-size: 0.9em;
+        box-shadow: inset 0 0 10px #ffeaa7;
     }
-    .mvp-card {
-        background-color: #333; 
-        padding: 15px; 
-        border: 4px solid #FFD700;
-        box-shadow: 8px 8px 0px rgba(255, 15, 0, 0.3);
+    .comm-locked {
+        background-color: #f1f2f6;
+        border: 2px solid #ced6e0;
+        border-radius: 10px;
+        color: #a4b0be;
         text-align: center;
-        margin-top: 20px;
+        padding: 10px;
+        margin-top: 15px;
+        font-size: 0.8em;
     }
+
+    /* HEADER BOXES */
     .header-bordered {
-        border: 4px solid #FFFFFF;
+        background-color: #FFFFFF;
+        border: 4px solid #000;
+        border-radius: 15px;
         box-shadow: 6px 6px 0px #000000;
-        padding: 15px;
+        padding: 20px;
         text-align: center;
-        margin-bottom: 20px;
-        background-color: #222;
-        color: #FFD700;
-        font-size: 1.5em;
+        margin-bottom: 25px;
+        color: #2d3436;
+        font-size: 1.2em;
     }
-    .dataframe { font-family: 'Press Start 2P', monospace !important; font-size: 0.8em !important; color: white !important; }
+    
+    /* Stats Card for Animation */
+    .stat-card {
+        background-color: #fff;
+        border: 3px solid #000;
+        border-radius: 10px;
+        padding: 10px;
+        text-align: center;
+        box-shadow: 4px 4px 0px rgba(0,0,0,0.1);
+    }
+    .stat-val { color: #000; font-size: 1.2em; font-weight: bold; }
+    .stat-name { color: #555; font-size: 0.8em; }
+
+    /* MVP Card */
+    .mvp-card {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        border: 4px solid #fff;
+        border-radius: 20px;
+        padding: 20px; 
+        box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        text-align: center;
+        color: white;
+        margin-top: 20px;
+        transform: rotate(-2deg);
+    }
+
+    .dataframe { font-family: 'Press Start 2P', monospace !important; font-size: 0.8em !important; }
     </style>
     """, unsafe_allow_html=True)
 
 
 # ==========================================
-# 🧮 辅助函数 & 核心计算
+# 🧮 逻辑函数 (保持不变)
 # ==========================================
 
 def normalize_text(text):
@@ -200,7 +331,6 @@ def get_payout_date_from_month_key(month_key):
         return None
 
 def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
-    # Team Lead 门槛更低 (4.5倍底薪起) vs Consultant (9倍底薪起)
     if is_team_lead:
         t1, t2, t3 = 4.5, 6.75, 11.25
     else:
@@ -229,8 +359,6 @@ def calculate_single_deal_commission(candidate_salary, multiplier):
     return base_comm * multiplier
 
 def calculate_consultant_performance(all_sales_df, consultant_name, base_salary, is_team_lead=False):
-    """核心业绩计算 (含Team Lead逻辑)"""
-    # 设定 Target
     target_multiplier = 4.5 if is_team_lead else 9.0
     target = base_salary * target_multiplier
     
@@ -250,7 +378,6 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
     total_comm = 0
     current_level = 0
     
-    # 1. 个人业绩佣金计算 (Threshold Catch-up)
     paid_sales = c_sales[c_sales['Status'] == 'Paid'].copy()
 
     if not paid_sales.empty:
@@ -291,9 +418,7 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
             if pd.notnull(comm_date) and comm_date <= limit_date:
                 total_comm += row['Final Comm']
 
-    # 2. Team Lead Override 计算 (如果身份是 Team Lead)
     if is_team_lead and not all_sales_df.empty:
-        # 排除自己和 Estela
         mask = (all_sales_df['Status'] == 'Paid') & \
                (all_sales_df['Consultant'] != consultant_name) & \
                (all_sales_df['Consultant'] != "Estela Peng")
@@ -307,7 +432,6 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
             pay_date = row['Payment Date Obj']
             if pd.isna(pay_date): continue
             
-            # 发放日 = 回款日期的次月15号
             comm_pay_obj = datetime(
                 pay_date.year + (pay_date.month // 12), 
                 (pay_date.month % 12) + 1, 
@@ -315,7 +439,7 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
             )
             
             if comm_pay_obj <= (datetime.now() + timedelta(days=20)):
-                total_comm += 1000 # Override Bonus
+                total_comm += 1000 
 
     summary = {
         "Consultant": consultant_name,
@@ -328,7 +452,7 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
     return summary
 
 
-# --- 🔗 连接与数据获取 ---
+# --- 🔗 数据获取 ---
 
 def connect_to_google():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -351,65 +475,30 @@ def get_quarter_info():
     tabs = [f"{year}{m:02d}" for m in range(start_month, start_month + 3)]
     return tabs, quarter, start_month, end_month, year
 
-# 🌟 NEW: 从 Credentials 页读取 Title 🌟
-def fetch_credentials_map(client):
-    """
-    读取 Credentials 表页，构建 {Name: {'role': '...', 'is_team_lead': bool}} 字典
-    """
+def fetch_role_from_personal_sheet(client, sheet_id):
     try:
-        sheet = client.open_by_key(SALES_SHEET_ID)
+        sheet = client.open_by_key(sheet_id)
         try:
-            ws = sheet.worksheet(CREDENTIALS_TAB_NAME)
+            ws = sheet.worksheet('Credentials')
         except:
-            # 如果没找到 Credentials 页，返回空，使用默认配置
-            return {}
-
-        rows = ws.get_all_values()
-        # 假设第一列是 Name, 第二列是 Title
-        # 简单的查找表头逻辑
-        header_map = {}
-        data_start_idx = 0
+            ws = sheet.get_worksheet(0)
+            
+        header_vals = ws.range('A1:B1')
+        a1_val = header_vals[0].value.strip().lower()
+        b1_val = header_vals[1].value.strip()
         
-        if rows:
-            headers = [str(x).strip().lower() for x in rows[0]]
-            for idx, h in enumerate(headers):
-                if 'name' in h: header_map['name'] = idx
-                if 'title' in h: header_map['title'] = idx
+        title_text = "Consultant"
+        if "title" in a1_val:
+            title_text = b1_val
             
-            if 'name' in header_map and 'title' in header_map:
-                data_start_idx = 1
-            else:
-                # 没找到表头，假设 A=Name, B=Title
-                header_map = {'name': 0, 'title': 1}
+        is_intern = "intern" in title_text.lower()
+        is_lead = "team lead" in title_text.lower() or "manager" in title_text.lower()
         
-        creds_map = {}
-        for row in rows[data_start_idx:]:
-            if len(row) <= max(header_map.values()): continue
-            
-            name = row[header_map['name']].strip()
-            title = row[header_map['title']].strip().lower()
-            
-            if not name: continue
-            
-            # 逻辑判定
-            is_intern = "intern" in title
-            is_lead = "team lead" in title or "manager" in title or "leader" in title
-            
-            role = "Intern" if is_intern else "Full-Time"
-            
-            # 标准化名字匹配 key
-            key = normalize_text(name)
-            creds_map[key] = {
-                "role": role,
-                "is_team_lead": is_lead,
-                "raw_title": title.title() # 用于显示
-            }
-            
-        return creds_map
+        role = "Intern" if is_intern else "Full-Time"
+        return role, is_lead, title_text.title()
 
     except Exception as e:
-        print(f"Credentials Error: {e}")
-        return {}
+        return "Full-Time", False, "Consultant"
 
 def fetch_consultant_data(client, consultant_config, target_tab):
     sheet_id = consultant_config['id']
@@ -506,24 +595,34 @@ def fetch_financial_df(client, start_m, end_m, year):
 
 # --- RENDER UI COMPONENTS ---
 
-def render_bar(current_total, goal, color_class, label_text):
+def render_bar(current_total, goal, color_class, label_text, is_monthly_boss=False):
     percent = (current_total / goal) * 100 if goal > 0 else 0
     display_pct = min(percent, 100)
-    cats = "🔥" if percent > 100 else ""
+    
+    # Boss Bar Settings
+    container_cls = "pit-container"
+    height_cls = "pit-height-std"
+    
+    if is_monthly_boss:
+        height_cls = "pit-height-boss"
+    
+    cats = ""
+    if percent >= 100: cats = "🎉"
+
     st.markdown(f"""
     <div style="margin-bottom: 5px;">
         <div class="sub-label">{label_text} ({int(current_total)}/{int(goal)} - {percent:.1f}%)</div>
-        <div class="pit-container">
+        <div class="{container_cls} {height_cls}">
             <div class="{color_class}" style="width: {display_pct}%;">
-                <div class="cat-squad" style="font-size: 14px; top: 5px;">{cats}</div>
+                <div class="cat-squad" style="top: { '15px' if is_monthly_boss else '5px' }">{cats}</div>
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-def render_player_card(conf, rec_count, fin_summary):
+def render_player_card(conf, rec_count, fin_summary, card_index):
     name = conf['name']
-    role = conf.get('role', 'Full-Time') # Dynamically set
+    role = conf.get('role', 'Full-Time') 
     is_team_lead = conf.get('is_team_lead', False)
     is_intern = (role == 'Intern')
     
@@ -535,43 +634,49 @@ def render_player_card(conf, rec_count, fin_summary):
     # 🎯 达标逻辑
     goal_passed = False
     if is_intern:
-        # 实习生：只看简历量
         if rec_pct >= 100: goal_passed = True
     else:
-        # 正式员工：简历量 OR 财务达标
         if rec_pct >= 100 or fin_achieved_pct >= 100: goal_passed = True
 
     crown = "👑" if is_team_lead else ""
     role_tag = "🎓 INTERN" if is_intern else "💼 FULL-TIME"
-    title_display = conf.get('title_display', role_tag) # Optional: Show raw title
+    title_display = conf.get('title_display', role_tag) 
 
-    status_html = '<span class="status-badge-pass">SEASON STATUS: PASS ✅</span>' if goal_passed else '<span class="status-badge-fail">SEASON STATUS: FAIL ❌</span>'
+    # Less stressful status badges
+    status_html = ""
+    if goal_passed:
+        status_html = '<span class="status-badge-pass">LEVEL UP! 🌟</span>'
+    else:
+        status_html = '<span class="status-badge-loading">LOADING... 🚀</span>'
+
+    # Rotate through border colors
+    border_class = f"card-border-{(card_index % 4) + 1}"
 
     st.markdown(f"""
-    <div class="player-card">
+    <div class="player-card {border_class}">
         <div class="player-header">
             <div>
                 <span class="player-name">{name} {crown}</span><br>
-                <span style="font-size: 0.6em; color: #888;">{title_display}</span>
+                <span style="font-size: 0.7em; color: #999;">{title_display}</span>
             </div>
             {status_html}
         </div>
     """, unsafe_allow_html=True)
 
-    # 1. Recruitment Bar
+    # 1. Recruitment Bar (Thinner, standard)
     render_bar(rec_count, QUARTERLY_GOAL, "pit-fill-season", "CVs SENT (Q4)")
 
     # 2. Financial Bar
     if not is_intern:
-        render_bar(fin_achieved_pct, 100, "money-fill", "GP TARGET PROGRESS")
+        render_bar(fin_achieved_pct, 100, "money-fill", "GP TARGET")
     else:
         st.markdown(f'<div class="sub-label">GP TARGET: N/A (INTERN)</div>', unsafe_allow_html=True)
 
     # 3. Commission Box
     if est_comm > 0:
-        st.markdown(f"""<div class="comm-unlocked">💰 COMMISSION UNLOCKED: ${est_comm:,.0f}</div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="comm-unlocked">💰 UNLOCKED: ${est_comm:,.0f}</div>""", unsafe_allow_html=True)
     else:
-        st.markdown(f"""<div class="comm-unlocked" style="border-color: #555; color: #555; box-shadow: none;">🔒 COMMISSION LOCKED</div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="comm-locked">🔒 LOCKED</div>""", unsafe_allow_html=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -581,52 +686,40 @@ def main():
     quarter_tabs, quarter_num, start_m, end_m, year = get_quarter_info()
     current_month_tab = datetime.now().strftime("%Y%m")
 
-    st.title("🔥 FILL THE PIT 🔥")
+    st.title("👾 FILL THE PIT 👾")
     col1, col2, col3 = st.columns([1, 3, 1])
     with col2:
-        start_btn = st.button(f"🚩 START THE GAME")
+        start_btn = st.button(f"🚩 PRESS START")
 
     if start_btn:
         client = connect_to_google()
         if not client: st.error("CONNECTION ERROR"); return
 
-        # ==========================================
-        # 0. 动态配置: 读取 Credentials 页
-        # ==========================================
-        creds_map = fetch_credentials_map(client)
-        
-        # 将读取到的 Role/Lead 信息合并到 TEAM_CONFIG
-        # 我们使用一个新的列表 active_team_config，以免污染全局模板
+        # Read Credentials
         active_team_config = []
+        config_status = st.empty()
+        config_status.info("🔐 CONNECTING TO PLAYER PROFILES...")
+        
         for conf in TEAM_CONFIG_TEMPLATE:
             new_conf = conf.copy()
-            c_key = normalize_text(conf['name'])
-            
-            if c_key in creds_map:
-                # 覆盖配置
-                info = creds_map[c_key]
-                new_conf['role'] = info['role']
-                new_conf['is_team_lead'] = info['is_team_lead']
-                new_conf['title_display'] = info['raw_title'] # 用于显示真实 Title
-            else:
-                # 默认值
-                new_conf['role'] = 'Full-Time'
-                new_conf['is_team_lead'] = False
-                new_conf['title_display'] = 'Consultant'
-                
+            role, is_lead, raw_title = fetch_role_from_personal_sheet(client, conf['id'])
+            new_conf['role'] = role
+            new_conf['is_team_lead'] = is_lead
+            new_conf['title_display'] = raw_title
             active_team_config.append(new_conf)
+            
+        config_status.empty()
 
         monthly_results = []
         quarterly_results = []
         all_month_details = [] 
         financial_summaries = {}
 
-        with st.spinner(f"🛰️ SCANNING DATA (Q{quarter_num})..."):
+        with st.spinner(f"🛰️ SCANNING SECTOR Q{quarter_num}..."):
             
-            # 1. Fetch Sales
+            # Fetch Data
             sales_df = fetch_financial_df(client, start_m, end_m, year)
             
-            # 2. Calculate Financials
             for conf in active_team_config:
                 summary = calculate_consultant_performance(
                     sales_df, 
@@ -636,7 +729,6 @@ def main():
                 )
                 financial_summaries[conf['name']] = summary
 
-            # 3. Recruitment Data
             for consultant in active_team_config:
                 m_count, m_details = fetch_consultant_data(client, consultant, current_month_tab)
                 all_month_details.extend(m_details)
@@ -653,8 +745,8 @@ def main():
 
         time.sleep(0.5)
 
-        # --- MONTHLY AGGREGATE ---
-        st.markdown(f'<div class="header-bordered">MONTHLY GOAL ({current_month_tab})</div>', unsafe_allow_html=True)
+        # --- BOSS BAR: MONTHLY AGGREGATE ---
+        st.markdown(f'<div class="header-bordered" style="border-color: #feca57; background: #fff;">🏆 TEAM MONTHLY GOAL ({current_month_tab})</div>', unsafe_allow_html=True)
         pit_month_ph = st.empty()
         stats_month_ph = st.empty()
         
@@ -662,56 +754,9 @@ def main():
         steps = 15
         for step in range(steps + 1):
             curr_m = (monthly_total / steps) * step
-            pct_m = (curr_m / MONTHLY_GOAL) * 100
-            if pct_m > 100: pct_m = 100
-            pit_month_ph.markdown(f"""
-            <div class="section-label">TEAM MONTHLY: {int(curr_m)} / {MONTHLY_GOAL}</div>
-            <div class="pit-container"><div class="pit-fill-month" style="width: {pct_m}%;"></div></div>
-            """, unsafe_allow_html=True)
             
-            if step == steps:
-                cols_m = stats_month_ph.columns(len(monthly_results))
-                for idx, res in enumerate(monthly_results):
-                    with cols_m[idx]: st.markdown(f"""<div class="stat-card"><div class="stat-name">{res['name']}</div><div class="stat-val">{res['count']}</div></div>""", unsafe_allow_html=True)
-            time.sleep(0.02)
-
-        # --- QUARTERLY PLAYER HUB ---
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown(f'<div class="header-bordered" style="border-color: #00FFFF; color: #00FFFF;">❄️ SEASON CAMPAIGN (Q{quarter_num}) HUB</div>', unsafe_allow_html=True)
-        
-        row1 = st.columns(2)
-        row2 = st.columns(2)
-        all_cols = row1 + row2
-        
-        for idx, conf in enumerate(active_team_config):
-            c_name = conf['name']
-            q_rec_count = next((item['count'] for item in quarterly_results if item['name'] == c_name), 0)
-            fin_sum = financial_summaries.get(c_name, {})
-            
-            with all_cols[idx]:
-                render_player_card(conf, q_rec_count, fin_sum)
-
-        # --- LOGS ---
-        if all_month_details:
-            st.markdown("---")
-            with st.expander(f"📜 MISSION LOGS ({current_month_tab}) - CLICK TO OPEN", expanded=False):
-                df_all = pd.DataFrame(all_month_details)
-                tab_names = [c['name'] for c in active_team_config]
-                tabs = st.tabs(tab_names)
-                for idx, tab in enumerate(tabs):
-                    with tab:
-                        current_consultant = tab_names[idx]
-                        df_c = df_all[df_all['Consultant'] == current_consultant]
-                        if not df_c.empty:
-                            df_agg = df_c.groupby(['Company', 'Position'])['Count'].sum().reset_index()
-                            df_agg = df_agg.sort_values(by='Count', ascending=False)
-                            df_agg['Count'] = df_agg['Count'].astype(str)
-                            st.dataframe(df_agg, use_container_width=True, hide_index=True, column_config={"Company": st.column_config.TextColumn("TARGET COMPANY"), "Position": st.column_config.TextColumn("TARGET ROLE"), "Count": st.column_config.TextColumn("CVs")})
-                        else: st.info(f"NO DATA FOR {current_consultant}")
-
-        elif monthly_total == 0:
-            st.markdown("---")
-            st.info("NO DATA FOUND FOR THIS MONTH YET.")
-
-if __name__ == "__main__":
-    main()
+            # 🚀 RENDER THE BIG BOSS BAR
+            render_pit_html = f"""
+            <div class="sub-label" style="font-size: 1.2em; text-align:center;">{int(curr_m)} / {MONTHLY_GOAL} CVs</div>
+            <div class="pit-container pit-height-boss">
+                <div class="pit-fill-boss" style="width: {min((cur
