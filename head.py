@@ -420,8 +420,14 @@ def main():
                 column_config={
                     "CV Target": st.column_config.NumberColumn("Target (Q)", format="%d"),
                     "Sent": st.column_config.NumberColumn("Sent", format="%d"),
-                    "Activity %": st.column_config.NumberColumn("Activity %", format="%.0f%%"), # 改为数字列，确保显示完全
-                    "Int Rate": st.column_config.NumberColumn("Int/Sent", format="%.1f%%") # 改为 Int/Sent，去进度条
+                    # 👇 修改这里：恢复进度条
+                    "Activity %": st.column_config.ProgressColumn(
+                        "Activity %", 
+                        format="%.0f%%", 
+                        min_value=0, 
+                        max_value=1
+                    ),
+                    "Int Rate": st.column_config.NumberColumn("Int/Sent", format="%.1f%%")
                 }
             )
         else: st.warning("No data.")
