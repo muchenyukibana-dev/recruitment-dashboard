@@ -19,25 +19,29 @@ TEAM_CONFIG = [
         "id": "1vQuN-iNBRUug5J6gBMX-52jp6oogbA77SaeAf9j_zYs",
         "keyword": "Name",
         "base_salary": 11000,
-        "is_team_lead": True  # 👑 Team Lead Logic
+        "role": "Full-Time"
     },
     {
         "name": "Estela Peng",
         "id": "1sUkffAXzWnpzhhmklqBuwtoQylpR1U18zqBQ-lsp7Z4",
         "keyword": "姓名",
-        "base_salary": 20800
+        "base_salary": 20800,
+        "role": "Full-Time"
     },
     {
         "name": "Ana Cruz",
         "id": "1VMVw5YCV12eI8I-VQSXEKg86J2IVZJEgjPJT7ggAFD0",
         "keyword": "Name",
-        "base_salary": 13000
+        "base_salary": 13000,
+        "role": "Intern" # 🎓 设定为实习生 (只考核简历量)
     },
     {
         "name": "Karina Albarran",
         "id": "1zc4ghvfjIxH0eJ2aXfopOWHqiyTDlD8yFNjBzpH07D8",
         "keyword": "Name",
-        "base_salary": 15000
+        "base_salary": 15000,
+        "role": "Full-Time",
+        "is_team_lead": True  # 👑 Karina is Team Lead
     },
 ]
 
@@ -94,51 +98,87 @@ st.markdown("""
         border-color: yellow;
     }
 
-    /* THE PITS (Recruitment Bars) */
+    /* BAR STYLES */
     .pit-container {
         background-color: #222;
-        border: 4px solid #fff;
-        height: 60px;
+        border: 2px solid #fff;
+        height: 30px; /* Thinner bars for dashboard */
         width: 100%;
         position: relative;
-        margin-top: 10px;
-        margin-bottom: 30px;
-        box-shadow: 6px 6px 0px #000000;
+        margin-bottom: 10px;
+        box-shadow: 3px 3px 0px #000000;
     }
 
     .pit-fill-month { background-color: #8B4513; height: 100%; display: flex; align-items: center; justify-content: flex-end; }
     .pit-fill-season { background-color: #0000FF; height: 100%; display: flex; align-items: center; justify-content: flex-end; }
-    
-    /* FINANCIAL BAR STYLE */
-    .money-fill {
-        background-color: #28a745; 
-        height: 100%;
-        display: flex;
-        align-items: center; 
-        justify-content: flex-end;
-    }
+    .money-fill { background-color: #28a745; height: 100%; display: flex; align-items: center; justify-content: flex-end; }
 
     .cat-squad {
         position: absolute;
-        right: -30px; 
-        top: -25px;
-        font-size: 30px;
+        right: -20px; 
+        top: -15px;
+        font-size: 20px;
         z-index: 10;
         white-space: nowrap;
     }
 
-    /* Stats Cards */
-    .stat-card {
-        background-color: #FFA500;
-        border: 4px solid #FFFFFF;
-        box-shadow: 6px 6px 0px #000000;
-        padding: 15px;
-        text-align: center;
+    /* PLAYER CARD */
+    .player-card {
+        background-color: #333;
+        border: 4px solid #FFF;
+        padding: 20px;
+        margin-bottom: 30px;
+        box-shadow: 8px 8px 0px #000;
+    }
+    .player-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 2px solid #555;
+        padding-bottom: 10px;
         margin-bottom: 15px;
     }
-    .stat-val { color: #000000; font-size: 1.5em; margin-top: 10px; }
-    .stat-name { color: #FFF; font-size: 1.2em; font-weight: bold; text-transform: uppercase; line-height: 1.5; }
+    .player-name {
+        font-size: 1.2em;
+        color: #FFD700;
+    }
+    .status-badge-pass {
+        background-color: #28a745;
+        color: white;
+        padding: 5px 10px;
+        border: 2px solid #fff;
+        font-size: 0.7em;
+        box-shadow: 3px 3px 0px #000;
+    }
+    .status-badge-fail {
+        background-color: #dc3545;
+        color: white;
+        padding: 5px 10px;
+        border: 2px solid #fff;
+        font-size: 0.7em;
+        box-shadow: 3px 3px 0px #000;
+    }
 
+    /* SUB-SECTIONS */
+    .sub-label {
+        font-size: 0.6em;
+        color: #AAA;
+        margin-bottom: 5px;
+        text-transform: uppercase;
+    }
+
+    /* COMMISSION UNLOCKED BOX */
+    .comm-unlocked {
+        background-color: #000;
+        border: 2px dashed #FFD700;
+        color: #FFD700;
+        text-align: center;
+        padding: 15px;
+        margin-top: 15px;
+        font-size: 1.0em;
+        box-shadow: inset 0 0 10px #FFD700;
+    }
+    
     /* MVP Card */
     .mvp-card {
         background-color: #333; 
@@ -149,19 +189,6 @@ st.markdown("""
         margin-top: 20px;
     }
 
-    /* Commission Box */
-    .comm-box {
-        background-color: #222;
-        border: 2px dashed #FFD700;
-        padding: 10px;
-        text-align: center;
-        margin-top: -20px;
-        margin-bottom: 20px;
-        box-shadow: 4px 4px 0px #000;
-        color: #FFD700;
-        font-size: 0.9em;
-    }
-    
     .header-bordered {
         border: 4px solid #FFFFFF;
         box-shadow: 6px 6px 0px #000000;
@@ -172,6 +199,7 @@ st.markdown("""
         color: #FFD700;
         font-size: 1.5em;
     }
+    
     .dataframe { font-family: 'Press Start 2P', monospace !important; font-size: 0.8em !important; color: white !important; }
     </style>
     """, unsafe_allow_html=True)
@@ -239,7 +267,6 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
         }
 
     # 初始化新列
-    c_sales['Applied Level'] = 0
     c_sales['Final Comm'] = 0.0
     c_sales['Commission Day Obj'] = pd.NaT
 
@@ -249,7 +276,7 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
     current_level = 0
     
     # ====================================================
-    # 核心算法: 阈值触发回溯累积 (Threshold Triggered Catch-up)
+    # 核心算法: 阈值触发回溯累积
     # ====================================================
     
     # 提取已付款的单子进行计算
@@ -286,6 +313,7 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
         paid_gp = running_paid_gp
         current_level, _ = calculate_commission_tier(running_paid_gp, base_salary, is_team_lead)
 
+        # 统计应发佣金
         limit_date = datetime.now() + timedelta(days=20)
         
         for idx, row in paid_sales.iterrows():
@@ -354,9 +382,9 @@ def connect_to_google():
             return gspread.authorize(creds)
         except Exception: return None
     else:
-        return None # Local handling omitted for brevity
+        return None 
 
-# --- FETCH RECRUITMENT DATA ---
+# --- FETCH DATA ---
 def fetch_consultant_data(client, consultant_config, target_tab):
     sheet_id = consultant_config['id']
     target_key = consultant_config.get('keyword', 'Name')
@@ -382,9 +410,7 @@ def fetch_consultant_data(client, consultant_config, target_tab):
         return count, details
     except: return 0, []
 
-# --- FETCH FINANCIAL DATA (DATAFRAME VERSION) ---
 def fetch_financial_df(client, start_m, end_m, year):
-    """返回 DataFrame 以便进行精细化计算"""
     try:
         sheet = client.open_by_key(SALES_SHEET_ID)
         try: ws = sheet.worksheet(SALES_TAB_NAME)
@@ -474,46 +500,96 @@ def fetch_financial_df(client, start_m, end_m, year):
         return pd.DataFrame()
 
 # --- RENDER RECRUITMENT PIT ---
-def render_pit(placeholder, current_total, goal, color_class, label):
+def render_bar(current_total, goal, color_class, label_text):
     percent = (current_total / goal) * 100 if goal > 0 else 0
-    if percent > 100: percent = 100
-    cats = "🐈"
-    if percent > 30: cats = "🐈🐈"
-    if percent > 60: cats = "🐈🐈🐈"
-    if percent >= 100: cats = "😻🎉"
-    html = f"""<div class="section-label">{label}: {int(current_total)} / {goal}</div>
-    <div class="pit-container"><div class="{color_class}" style="width: {percent}%;"><div class="cat-squad">{cats}</div></div></div>"""
-    placeholder.markdown(html, unsafe_allow_html=True)
-
-# --- RENDER FINANCIAL BAR & COMMISSION ---
-def render_money_bar(name, achieved_pct, comm_amount):
-    display_pct = min(achieved_pct, 100)
-    icon = "💸"
-    if display_pct >= 50: icon = "💰"
-    if display_pct >= 80: icon = "💎"
-    if display_pct >= 100: icon = "👑"
-
+    display_pct = min(percent, 100)
+    
+    cats = ""
+    if percent > 100: cats = "🔥"
+    
     st.markdown(f"""
-    <div style="margin-bottom: 20px;">
-        <div style="display: flex; justify-content: space-between; font-size: 0.8em; color: #FFD700; font-family: 'Press Start 2P', monospace;">
-            <span>{name}</span>
-            <span>{achieved_pct:.1f}% COMPLETED</span> 
-        </div>
-        <div class="pit-container" style="height: 40px; margin-top: 5px; box-shadow: 4px 4px 0px #000;">
-            <div class="money-fill" style="width: {display_pct}%;">
-                <div class="cat-squad" style="font-size: 20px; top: -10px;">{icon}</div>
+    <div style="margin-bottom: 5px;">
+        <div class="sub-label">{label_text} ({int(current_total)}/{int(goal)} - {percent:.1f}%)</div>
+        <div class="pit-container">
+            <div class="{color_class}" style="width: {display_pct}%;">
+                <div class="cat-squad" style="font-size: 14px; top: 5px;">{cats}</div>
             </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+# --- RENDER PLAYER CARD (NEW) ---
+def render_player_card(conf, rec_count, fin_summary):
+    name = conf['name']
+    role = conf.get('role', 'Full-Time')
+    is_intern = (role == 'Intern')
     
-    # 💰 Commission Display (Confidential: No base salary, no target shown)
-    if comm_amount > 0:
+    # Financial Stats
+    fin_achieved_pct = fin_summary.get("Target Achieved", 0.0)
+    est_comm = fin_summary.get("Est. Commission", 0.0)
+    
+    # Recruitment Stats
+    rec_pct = (rec_count / QUARTERLY_GOAL) * 100
+    
+    # 🎯 Goal Logic (Or Condition vs Only Recruitment)
+    goal_passed = False
+    if is_intern:
+        # Intern: Only needs Recruitment
+        if rec_pct >= 100: goal_passed = True
+    else:
+        # Full-Time: Recruitment OR Financial
+        if rec_pct >= 100 or fin_achieved_pct >= 100: goal_passed = True
+
+    # Badges
+    crown = "👑" if conf.get('is_team_lead') else ""
+    role_tag = "🎓 INTERN" if is_intern else "💼 FULL-TIME"
+    
+    status_html = ""
+    if goal_passed:
+        status_html = '<span class="status-badge-pass">SEASON STATUS: PASS ✅</span>'
+    else:
+        status_html = '<span class="status-badge-fail">SEASON STATUS: FAIL ❌</span>'
+
+    st.markdown(f"""
+    <div class="player-card">
+        <div class="player-header">
+            <div>
+                <span class="player-name">{name} {crown}</span><br>
+                <span style="font-size: 0.6em; color: #888;">{role_tag}</span>
+            </div>
+            {status_html}
+        </div>
+    """, unsafe_allow_html=True)
+
+    # 1. Recruitment Bar
+    render_bar(rec_count, QUARTERLY_GOAL, "pit-fill-season", "CVs SENT (Q4)")
+
+    # 2. Financial Bar (Only for Full-Time usually, but showing for all is okay, Interns usually have 0 target but we hide specifics)
+    # Note: If intern has no base salary configured properly, fin_achieved might be 0/0.
+    # Assuming config has base salary for everyone.
+    if not is_intern:
+        # Calculate a pseudo-goal for display (just 100%)
+        # passed current_total as pct, goal as 100 to reuse the bar logic simply
+        render_bar(fin_achieved_pct, 100, "money-fill", "GP TARGET PROGRESS")
+    else:
+        st.markdown(f'<div class="sub-label">GP TARGET: N/A (INTERN)</div>', unsafe_allow_html=True)
+
+    # 3. Commission Box (Separated)
+    if est_comm > 0:
         st.markdown(f"""
-        <div class="comm-box">
-            💰 COMMISSION UNLOCKED: ${comm_amount:,.0f}
+        <div class="comm-unlocked">
+            💰 COMMISSION UNLOCKED: ${est_comm:,.0f}
         </div>
         """, unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+        <div class="comm-unlocked" style="border-color: #555; color: #555; box-shadow: none;">
+            🔒 COMMISSION LOCKED
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True) # End Card
+
 
 # --- MAIN APP ---
 def main():
@@ -531,8 +607,7 @@ def main():
         if not client: st.error("CONNECTION ERROR"); return
 
         monthly_results = []
-        quarterly_results = []
-        quarterly_total_count = 0
+        quarterly_results = [] # Store tuple: (name, count)
         all_month_details = [] 
         
         # Store calculated financial summaries
@@ -543,7 +618,7 @@ def main():
             # 1. Fetch Sales Data Frame
             sales_df = fetch_financial_df(client, start_m, end_m, year)
             
-            # 2. Calculate Financials using new logic
+            # 2. Calculate Financials
             for conf in TEAM_CONFIG:
                 summary = calculate_consultant_performance(
                     sales_df, 
@@ -567,72 +642,56 @@ def main():
 
                 monthly_results.append({"name": consultant['name'], "count": m_count})
                 quarterly_results.append({"name": consultant['name'], "count": q_count})
-                quarterly_total_count += q_count
 
         time.sleep(0.5)
 
-        # --- ANIMATION SECTIONS ---
+        # --- ANIMATION SECTIONS (Monthly) ---
         st.markdown(f'<div class="header-bordered">MONTHLY GOAL ({current_month_tab})</div>', unsafe_allow_html=True)
         pit_month_ph = st.empty()
         stats_month_ph = st.empty()
-
-        st.markdown(f'<div class="header-bordered" style="margin-top: 30px; border-color: #FFFF00; color: #FFA500;">SEASON CAMPAIGN (Q{quarter_num})</div>', unsafe_allow_html=True)
-        pit_quarter_ph = st.empty()
-        stats_quarter_ph = st.empty()
-
-        mvp_col1, mvp_col2 = st.columns(2)
-        with mvp_col1: mvp_month_ph = st.empty()
-        with mvp_col2: mvp_season_ph = st.empty()
-
+        
         monthly_total = sum([r['count'] for r in monthly_results])
-
-        # Animation Loop
-        steps = 20
+        
+        # Simple animation for monthly
+        steps = 15
         for step in range(steps + 1):
             curr_m = (monthly_total / steps) * step
-            render_pit(pit_month_ph, curr_m, MONTHLY_GOAL, "pit-fill-month", "MONTH TOTAL")
-            curr_q = (quarterly_total_count / steps) * step
-            render_pit(pit_quarter_ph, curr_q, QUARTERLY_GOAL, "pit-fill-season", "SEASON TOTAL")
+            # Using simple bar for aggregate monthly
+            pct_m = (curr_m / MONTHLY_GOAL) * 100
+            if pct_m > 100: pct_m = 100
+            pit_month_ph.markdown(f"""
+            <div class="section-label">TEAM MONTHLY: {int(curr_m)} / {MONTHLY_GOAL}</div>
+            <div class="pit-container"><div class="pit-fill-month" style="width: {pct_m}%;"></div></div>
+            """, unsafe_allow_html=True)
             
             if step == steps:
                 cols_m = stats_month_ph.columns(len(monthly_results))
                 for idx, res in enumerate(monthly_results):
                     with cols_m[idx]: st.markdown(f"""<div class="stat-card"><div class="stat-name">{res['name']}</div><div class="stat-val">{res['count']}</div></div>""", unsafe_allow_html=True)
-                cols_q = stats_quarter_ph.columns(len(quarterly_results))
-                for idx, res in enumerate(quarterly_results):
-                    with cols_q[idx]: st.markdown(f"""<div class="stat-card" style="border-color: #FFFF00;"><div class="stat-name">{res['name']}</div><div class="stat-val" style="color: #000000;">{res['count']}</div></div>""", unsafe_allow_html=True)
             time.sleep(0.02)
 
         # ==========================================
-        # 💰 FINANCIAL QUEST
+        # 🏅 QUARTERLY PLAYER HUB (The New Layout)
         # ==========================================
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown(f'<div class="header-bordered" style="border-color: #28a745; color: #28a745;">💰 FINANCIAL QUEST (Q{quarter_num})</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="header-bordered" style="border-color: #00FFFF; color: #00FFFF;">❄️ SEASON CAMPAIGN (Q{quarter_num}) HUB</div>', unsafe_allow_html=True)
         
-        fin_cols = st.columns(2)
+        # Display 2 Players per row
+        row1 = st.columns(2)
+        row2 = st.columns(2)
+        all_cols = row1 + row2
+        
         for idx, conf in enumerate(TEAM_CONFIG):
             c_name = conf['name']
-            # Get pre-calculated summary
-            summary = financial_summaries.get(c_name, {})
-            achieved_pct = summary.get("Target Achieved", 0.0)
-            est_comm = summary.get("Est. Commission", 0.0)
             
-            with fin_cols[idx % 2]:
-                render_money_bar(c_name, achieved_pct, est_comm)
-
-        # ==========================================
-        # 🏆 MVPs
-        # ==========================================
-        df_m = pd.DataFrame(monthly_results)
-        if not df_m.empty and monthly_total > 0:
-            mvp_m = df_m.sort_values(by="count", ascending=False).iloc[0]
-            mvp_month_ph.markdown(f"""<div class="mvp-card"><h3 style="color: #FFD700; margin:0; font-size: 1em;">🏆 MONTHLY MVP</h3><h2 style="color: white; margin: 10px 0;">{mvp_m['name']}</h2><h1 style="color: #000000; margin:0;">{mvp_m['count']}</h1></div>""", unsafe_allow_html=True)
-
-        df_q = pd.DataFrame(quarterly_results)
-        if not df_q.empty and quarterly_total_count > 0:
-            mvp_q = df_q.sort_values(by="count", ascending=False).iloc[0]
-            mvp_season_ph.markdown(f"""<div class="mvp-card" style="border-color: #00FFFF; "><h3 style="color: #00FFFF; margin:0; font-size: 1em;">🌊 SEASON MVP</h3><h2 style="color: white; margin: 10px 0;">{mvp_q['name']}</h2><h1 style="color: #FFFFFF; margin:0;">{mvp_q['count']}</h1></div>""", unsafe_allow_html=True)
-            st.balloons()
+            # Find recruitment data
+            q_rec_count = next((item['count'] for item in quarterly_results if item['name'] == c_name), 0)
+            
+            # Get financial data
+            fin_sum = financial_summaries.get(c_name, {})
+            
+            with all_cols[idx]:
+                render_player_card(conf, q_rec_count, fin_sum)
 
         # ==========================================
         # 📝 LOGS
