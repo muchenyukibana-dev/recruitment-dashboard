@@ -484,7 +484,7 @@ def fetch_role_from_personal_sheet(client, sheet_id):
 def fetch_consultant_data(client, consultant_config, target_tab):
     sheet_id = consultant_config['id']
     target_key = consultant_config.get('keyword', 'Name')
-    COMPANY_KEYS = ["Company", "Client", "Cliente", "公司", "客户"]
+    COMPANY_KEYS = ["Company", "Client", "Cliente", "公司名称", "客户"]
     POSITION_KEYS = ["Position", "Role", "Posición", "职位", "岗位"]
     try:
         sheet = client.open_by_key(sheet_id)
@@ -790,7 +790,7 @@ def main():
                     # ==========================================
         # 🎉 新增代码：月度达标放气球
         # ==========================================
-            if monthly_total >= MONTHLY_GOAL:
+        if monthly_total >= MONTHLY_GOAL:
             st.balloons()
             time.sleep(1) # 可选：稍微停顿一下让气球飞一会儿再加载季度条
         # ==========================================
