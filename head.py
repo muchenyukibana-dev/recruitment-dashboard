@@ -1,5 +1,6 @@
+--- START OF FILE supervisor.py ---
+
 import streamlit as st
-import streamlit.components.v1 as components  # 新增引用，用于注入JS
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from gspread.exceptions import APIError
@@ -9,6 +10,8 @@ import time
 import random
 from datetime import datetime, timedelta
 import unicodedata
+import threading
+import requests
 
 # ==========================================
 # 🔧 配置区域
@@ -53,28 +56,6 @@ TEAM_CONFIG = [
 
 st.set_page_config(page_title="Management Dashboard", page_icon="💼", layout="wide")
 
-# --- 💓 JS Heartbeat (防止 Zzzz 断开连接) ---
-def keep_alive():
-    components.html(
-        """
-        <script>
-        var lastTouchTime = 0;
-        function preventSleep() {
-            var now = new Date().getTime();
-            if (now - lastTouchTime > 30000) {
-                console.log("Streamlit Keep-Alive Ping");
-                lastTouchTime = now;
-            }
-        }
-        setInterval(preventSleep, 30000);
-        </script>
-        """,
-        height=0,
-        width=0,
-    )
-
-keep_alive()
-
 # --- 🎨 样式 ---
 st.markdown("""
     <style>
@@ -86,6 +67,24 @@ st.markdown("""
     div[data-testid="metric-container"] { background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 15px; border-radius: 8px; color: #333; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
     </style>
     """, unsafe_allow_html=True)
+
+
+# --- 🛡️ 不睡觉的代码 (Keep Alive) ---
+def keep_alive_worker():
+    """后台线程，每隔10分钟打印一次心跳，防止某些容器休眠"""
+    while True:
+        try:
+            time.sleep(600)  # 10 minutes
+            print(f"💓 System Heartbeat: {datetime.now()}")
+            # 如果有具体的URL需要ping，可以使用: requests.get("YOUR_APP_URL")
+        except Exception:
+            pass
+
+# 启动守护线程
+if 'keep_alive_started' not in st.session_state:
+    t = threading.Thread(target=keep_alive_worker, daemon=True)
+    t.start()
+    st.session_state['keep_alive_started'] = True
 
 
 # --- 🧮 辅助函数 ---
@@ -531,48 +530,58 @@ def main():
             is_intern = (role == "Intern")
             is_team_lead = (role == "Team Lead")
 
-            # 实习生无 Financial 目标，其他人根据 Base 计算
             gp_target = 0 if is_intern else base * (4.5 if is_team_lead else 9.0)
             cv_target = CV_TARGET_QUARTERLY
 
-            # 获取个人数据
-            c_sales = sales_df_q4[sales_df_q4['Consultant'] == c_name].copy() if not sales_df_q4.empty else pd.DataFrame()
-            sent_count = rec_stats_df[rec_stats_df['Consultant'] == c_name]['Sent'].sum() if not rec_stats_df.empty else 0
+            # 获取该顾问数据
+            c_sales = sales_df_q4[
+                sales_df_q4['Consultant'] == c_name].copy() if not sales_df_q4.empty else pd.DataFrame()
+            sent_count = rec_stats_df[rec_stats_df['Consultant'] == c_name][
+                'Sent'].sum() if not rec_stats_df.empty else 0
+
+            # 财务数据基础计算
             booked_gp = c_sales['GP'].sum() if not c_sales.empty else 0
             paid_gp = 0
+            
+            # 进度百分比
+            fin_pct = (booked_gp / gp_target * 100) if gp_target > 0 else 0  # 更改为使用 Booked GP 计算百分比
+            rec_pct = (sent_count / cv_target * 100) if cv_target > 0 else 0
+
+            # 达标判断 (Target Met)
+            achieved = []
+            is_target_met = False
+
+            if is_intern:
+                # Intern 只看简历发送
+                if rec_pct >= 100:
+                    achieved.append("Activity")
+                    is_target_met = True
+            else:
+                # Consultant / Team Lead 看 GP 或 简历
+                if fin_pct >= 100:
+                    achieved.append("Financial")
+                    is_target_met = True
+                if rec_pct >= 100:
+                    achieved.append("Activity")
+                    is_target_met = True
+
+            status_text = " & ".join(achieved) if achieved else "In Progress"
+
+            # 佣金计算逻辑
             total_comm = 0
             current_level = 0
             
-            # --- 达标 (Target) 判定 ---
-            # 1. 简历量是否达标
-            achieved_activity = sent_count >= cv_target
-            # 2. 业绩量是否达标 (Booked GP)
-            achieved_financial = booked_gp >= gp_target if gp_target > 0 else False
-            
-            # 3. 综合达标判定 (Is Qualified?)
-            if is_intern:
-                # 实习生仅看简历是否达标
-                is_qualified = achieved_activity
-            else:
-                # 全职/Leader：简历达标 OR 业绩达标
-                is_qualified = achieved_activity or achieved_financial
+            # 初始化 c_sales 列
+            if not c_sales.empty:
+                c_sales['Applied Level'] = 0
+                c_sales['Final Comm'] = 0.0
+                c_sales['Commission Day Obj'] = pd.NaT
+                c_sales['Commission Day'] = ""
 
-            # --- 佣金计算逻辑 ---
-            if is_intern:
-                # 实习生：佣金永远为 0
+            # 仅当非 Intern 且 达标 (Target Met) 时才计算佣金
+            if not is_intern:
                 if not c_sales.empty:
-                    c_sales['Applied Level'] = 0
-                    c_sales['Final Comm'] = 0
-                    c_sales['Commission Day'] = ""
-                    updated_sales_records.append(c_sales)
-            else:
-                # 全职/Leader：先计算 Paid GP 对应的理论佣金
-                if not c_sales.empty:
-                    c_sales['Applied Level'] = 0
-                    c_sales['Final Comm'] = 0.0
-                    c_sales['Commission Day Obj'] = pd.NaT
-                    c_sales['Commission Day'] = ""
-                    
+                    # 即使不达标，也会显示 GP 数据，但 Final Comm 会在后面被置为 0
                     paid_sales = c_sales[c_sales['Status'] == 'Paid'].copy()
 
                     if not paid_sales.empty:
@@ -584,36 +593,38 @@ def main():
                         running_paid_gp = 0
                         pending_indices = []
 
+                        # 计算 Tiers
                         for month_key in unique_months:
                             month_deals = paid_sales[paid_sales['Pay_Month_Key'] == month_key]
                             running_paid_gp += month_deals['GP'].sum()
                             pending_indices.extend(month_deals.index.tolist())
                             
-                            # 获取理论上的提成档位
                             level, multiplier = calculate_commission_tier(running_paid_gp, base, is_team_lead)
 
                             if level > 0:
                                 payout_date = get_payout_date_from_month_key(str(month_key))
                                 for idx in pending_indices:
                                     row = paid_sales.loc[idx]
-                                    deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * row['Percentage']
+                                    deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * \
+                                                row['Percentage']
                                     paid_sales.at[idx, 'Applied Level'] = level
                                     paid_sales.at[idx, 'Commission Day Obj'] = payout_date
-                                    paid_sales.at[idx, 'Final Comm'] = deal_comm
+                                    # 如果未达标，计算出的 comm 暂时保留在 DataFrame 以便 debug，但在总数 total_comm 中不加
+                                    paid_sales.at[idx, 'Final Comm'] = deal_comm 
                                 pending_indices = []
 
                         paid_gp = running_paid_gp
                         current_level, _ = calculate_commission_tier(running_paid_gp, base, is_team_lead)
 
-                        # 如果达标了，才真正累加 Commission
-                        if is_qualified:
-                            for idx, row in paid_sales.iterrows():
-                                comm_date = row['Commission Day Obj']
+                        # 汇总可发放佣金 (需同时满足: 1. 已达标 2. 客户已付款 3. 到达发薪日)
+                        for idx, row in paid_sales.iterrows():
+                            comm_date = row['Commission Day Obj']
+                            if is_target_met: # 关键判断：是否达标
                                 if pd.notnull(comm_date) and comm_date <= datetime.now() + timedelta(days=20):
                                     total_comm += row['Final Comm']
-                        else:
-                            # 没达标，佣金锁定为 0，不累加
-                            pass
+                            else:
+                                # 未达标，佣金归零
+                                paid_sales.at[idx, 'Final Comm'] = 0
 
                         c_sales.update(paid_sales)
                         c_sales['Commission Day'] = c_sales['Commission Day Obj'].apply(
@@ -621,8 +632,8 @@ def main():
                     
                     updated_sales_records.append(c_sales)
 
-                # Team Lead Override Bonus (仅在 Lead 且达标时发放)
-                if is_team_lead and is_qualified and not sales_df_q4.empty:
+                # Team Lead Override 计算
+                if is_team_lead and is_target_met and not sales_df_q4.empty:
                     override_mask = (sales_df_q4['Status'] == 'Paid') & (sales_df_q4['Consultant'] != c_name) & (
                                 sales_df_q4['Consultant'] != "Estela Peng")
                     pot_overrides = sales_df_q4[override_mask].copy()
@@ -634,18 +645,11 @@ def main():
                             team_lead_overrides.append(
                                 {"Leader": c_name, "Source": row['Consultant'], "Salary": row['Candidate Salary'],
                                  "Date": comm_pay_obj.strftime("%Y-%m-%d"), "Bonus": bonus})
-
-            fin_pct = (paid_gp / gp_target * 100) if gp_target > 0 else 0
             
-            # --- Status 文本生成 ---
-            achieved_list = []
-            if achieved_financial: achieved_list.append("Financial")
-            if achieved_activity: achieved_list.append("Activity")
-
-            if is_qualified:
-                status_text = " & ".join(achieved_list) if achieved_list else "Qualified"
             else:
-                status_text = "Missed Target"
+                # Intern 处理
+                if not c_sales.empty:
+                    updated_sales_records.append(c_sales)
 
             financial_summary.append({
                 "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp, "Fin %": fin_pct,
@@ -666,9 +670,9 @@ def main():
                 "Role": st.column_config.TextColumn("Role", width=100),
                 "GP Target": st.column_config.NumberColumn("GP Target", format="$%d", width=100),
                 "Paid GP": st.column_config.NumberColumn("Paid GP", format="$%d", width=100),
-                "Fin %": st.column_config.ProgressColumn("Financial %", format="%.0f%%", min_value=0, max_value=100,
+                "Fin %": st.column_config.ProgressColumn("Financial % (Booked)", format="%.0f%%", min_value=0, max_value=100,
                                                          width=150),
-                "Status": st.column_config.TextColumn("Status (Target)", width=160),
+                "Status": st.column_config.TextColumn("Status", width=140),
                 "Level": st.column_config.NumberColumn("Level", width=80),
                 "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d", width=130),
             }
