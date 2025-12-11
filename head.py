@@ -787,6 +787,14 @@ def main():
                         f"""<div class="stat-card"><div class="stat-name">{res['name']}</div><div class="stat-val">{res['count']}</div></div>""",
                         unsafe_allow_html=True)
             time.sleep(0.01)
+                    # ==========================================
+        # 🎉 新增代码：月度达标放气球
+        # ==========================================
+            if monthly_total >= MONTHLY_GOAL:
+            st.balloons()
+            time.sleep(1) # 可选：稍微停顿一下让气球飞一会儿再加载季度条
+        # ==========================================
+
 
         # --- BOSS BAR 2: QUARTERLY AGGREGATE ---
         quarterly_total = sum([r['count'] for r in quarterly_results])
