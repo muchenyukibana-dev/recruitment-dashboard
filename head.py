@@ -6,6 +6,7 @@ import os
 import time
 from datetime import datetime, timedelta
 import unicodedata
+import streamlit.components.v1 as components  # 引入组件库用于显示烟花
 
 # ==========================================
 # 🔧 配置区域
@@ -42,8 +43,6 @@ TEAM_CONFIG_TEMPLATE = [
 ]
 
 # 🎯 Recruitment Goals
-# 29 per person * 4 people = 116 Monthly
-# 116 * 3 months = 348 Quarterly
 MONTHLY_GOAL = 116
 QUARTERLY_GOAL = 348
 # ==========================================
@@ -56,7 +55,6 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
     @import url('https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap');
 
-    /* Global Background: Fun Arcade Purple/Blue Gradient */
     .stApp {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         font-family: 'Press Start 2P', monospace;
@@ -71,7 +69,6 @@ st.markdown("""
         -webkit-text-stroke: 2px #000;
     }
 
-    /* CENTERED START BUTTON */
     .stButton {
         display: flex;
         justify-content: center;
@@ -138,7 +135,6 @@ st.markdown("""
         justify-content: flex-end; 
     }
 
-    /* The Rainbow Boss Fill for Team Monthly */
     .pit-fill-boss {
         background: linear-gradient(270deg, #ff6b6b, #feca57, #48dbfb, #ff9ff3, #54a0ff);
         background-size: 400% 400%;
@@ -149,7 +145,6 @@ st.markdown("""
         justify-content: flex-end;
     }
 
-    /* Blue/Purple for Team Quarterly */
     .pit-fill-season { 
         background-image: linear-gradient(45deg, #3742fa 25%, #5352ed 25%, #5352ed 50%, #3742fa 50%, #3742fa 75%, #5352ed 75%, #5352ed 100%);
         background-size: 50px 50px;
@@ -288,10 +283,183 @@ st.markdown("""
     .stat-val { color: #000; font-size: 1.2em; font-weight: bold; }
     .stat-name { color: #555; font-size: 0.8em; }
 
+    .mvp-card {
+        background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        border: 4px solid #fff;
+        border-radius: 20px;
+        padding: 20px; 
+        box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        text-align: center;
+        color: white;
+        margin-top: 20px;
+        transform: rotate(-2deg);
+    }
+
     .dataframe { font-family: 'Press Start 2P', monospace !important; font-size: 0.8em !important; }
     </style>
     """, unsafe_allow_html=True)
 
+
+# ==========================================
+# 🎆 烟花特效代码 (HTML/JS)
+# ==========================================
+def show_fireworks_celebration():
+    firework_html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body { margin: 0; overflow: hidden; background: transparent; }
+            canvas { 
+                position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; 
+                pointer-events: none; /* 让鼠标穿透，不影响Streamlit点击 */
+                z-index: 9999; 
+                transition: opacity 2s ease-out; /* 渐隐动画 */
+            }
+        </style>
+    </head>
+    <body>
+        <canvas id="canvas"></canvas>
+        <script>
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+
+            // --- 颜色配置 (Gold, Silver, Pink, Orange) ---
+            const C_GOLD = [255, 215, 0];
+            const C_SILVER = [220, 220, 255];
+            const C_PINK = [255, 182, 193];
+            const C_ORANGE = [255, 200, 120];
+            const C_BLUE = [173, 216, 230];
+
+            const COLOR_PAIRS = [
+                [C_GOLD, C_SILVER], [C_GOLD, C_PINK], [C_SILVER, C_BLUE], 
+                [C_PINK, C_ORANGE], [C_GOLD, C_ORANGE], [C_SILVER, C_PINK]
+            ];
+
+            let fireworks = [], particles = [];
+            
+            // --- 随机函数 ---
+            function random(min, max) { return Math.random() * (max - min) + min; }
+
+            class Particle {
+                constructor(x, y, color) {
+                    this.x = x; this.y = y;
+                    
+                    // 颜色扰动
+                    let varr = 25;
+                    let r = Math.max(0, Math.min(255, color[0] + random(-varr, varr)));
+                    let g = Math.max(0, Math.min(255, color[1] + random(-varr, varr)));
+                    let b = Math.max(0, Math.min(255, color[2] + random(-varr, varr)));
+                    this.color = `rgb(${r},${g},${b})`;
+                    
+                    // 物理参数 (复刻Python版)
+                    let angle = random(0, Math.PI * 2);
+                    this.speed = random(5, 15); // 大爆炸
+                    this.vx = Math.cos(angle) * this.speed;
+                    this.vy = Math.sin(angle) * this.speed;
+                    this.gravity = 0.2;
+                    this.friction = 0.96;
+                    this.life = random(60, 110);
+                    this.maxLife = this.life;
+                    this.size = random(2, 5); // 大粒子
+                }
+                update() {
+                    this.x += this.vx; this.y += this.vy;
+                    this.vy += this.gravity;
+                    this.vx *= this.friction; this.vy *= this.friction;
+                    this.life--;
+                }
+                draw() {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                    ctx.fillStyle = this.color;
+                    
+                    // 闪烁效果
+                    if (this.life < this.maxLife * 0.3 && Math.random() < 0.2) {
+                        ctx.fillStyle = "#FFFFFF";
+                    }
+                    ctx.globalAlpha = Math.max(0, this.life / this.maxLife);
+                    ctx.fill();
+                    ctx.globalAlpha = 1;
+                }
+            }
+
+            class Firework {
+                constructor() {
+                    // 目标区域：屏幕中间
+                    this.targetX = random(canvas.width * 0.2, canvas.width * 0.8);
+                    this.targetY = random(canvas.height * 0.15, canvas.height * 0.5);
+                    this.x = this.targetX + random(-20, 20);
+                    this.y = canvas.height;
+                    
+                    this.pair = COLOR_PAIRS[Math.floor(Math.random() * COLOR_PAIRS.length)];
+                    this.exploded = false;
+                    this.vy = -random(10, 15); // 升空速度
+                }
+                update() {
+                    if (!this.exploded) {
+                        this.y += this.vy;
+                        this.vy *= 0.98;
+                        if (this.y <= this.targetY || this.vy > -1) this.explode();
+                    }
+                }
+                draw() {
+                    if (!this.exploded) {
+                        ctx.beginPath();
+                        ctx.arc(this.x, this.y, 3, 0, Math.PI * 2);
+                        ctx.fillStyle = "rgb(255, 250, 200)";
+                        ctx.fill();
+                    }
+                }
+                explode() {
+                    this.exploded = true;
+                    let count = 200; // 粒子数量
+                    while(count--) {
+                        let c = (Math.random() < 0.5) ? this.pair[0] : this.pair[1];
+                        particles.push(new Particle(this.x, this.y, c));
+                    }
+                }
+            }
+
+            function loop() {
+                // 拖尾效果
+                ctx.globalCompositeOperation = 'destination-out';
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.globalCompositeOperation = 'source-over'; // 正常混合，因为背景透明
+
+                if (Math.random() < 0.08) fireworks.push(new Firework()); // 随机发射
+
+                fireworks.forEach((fw, i) => {
+                    fw.update(); fw.draw();
+                    if (fw.exploded) fireworks.splice(i, 1);
+                });
+                particles.forEach((p, i) => {
+                    p.update(); p.draw();
+                    if (p.life <= 0) particles.splice(i, 1);
+                });
+                requestAnimationFrame(loop);
+            }
+            
+            loop();
+
+            // 5秒后淡出，再过2秒销毁
+            setTimeout(() => {
+                canvas.style.opacity = 0; 
+                setTimeout(() => { 
+                    // 停止动画循环可以省资源，这里简单直接让它消失
+                    canvas.remove(); 
+                }, 2000);
+            }, 5000);
+
+        </script>
+    </body>
+    </html>
+    """
+    # 渲染 HTML，高度设为0避免占据页面空间，因为canvas是fixed定位
+    components.html(firework_html, height=0, width=0)
 
 # ==========================================
 # 🧮 逻辑函数
@@ -299,6 +467,7 @@ st.markdown("""
 
 def normalize_text(text):
     return ''.join(c for c in unicodedata.normalize('NFD', str(text)) if unicodedata.category(c) != 'Mn').lower()
+
 
 def get_payout_date_from_month_key(month_key):
     try:
@@ -308,6 +477,7 @@ def get_payout_date_from_month_key(month_key):
         return datetime(year, month, 15)
     except:
         return None
+
 
 def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
     if is_team_lead:
@@ -324,6 +494,7 @@ def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
     else:
         return 3, 3
 
+
 def calculate_single_deal_commission(candidate_salary, multiplier):
     if multiplier == 0: return 0
     base_comm = 0
@@ -336,6 +507,7 @@ def calculate_single_deal_commission(candidate_salary, multiplier):
     else:
         base_comm = candidate_salary * 2.0 * 0.05
     return base_comm * multiplier
+
 
 def calculate_consultant_performance(all_sales_df, consultant_name, base_salary, is_team_lead=False):
     target_multiplier = 4.5 if is_team_lead else 9.0
@@ -446,6 +618,7 @@ def connect_to_google():
     else:
         return None
 
+
 def get_quarter_info():
     today = datetime.now()
     year = today.year
@@ -455,6 +628,7 @@ def get_quarter_info():
     end_month = start_month + 2
     tabs = [f"{year}{m:02d}" for m in range(start_month, start_month + 3)]
     return tabs, quarter, start_month, end_month, year
+
 
 def fetch_role_from_personal_sheet(client, sheet_id):
     try:
@@ -481,10 +655,11 @@ def fetch_role_from_personal_sheet(client, sheet_id):
     except Exception as e:
         return "Full-Time", False, "Consultant"
 
+
 def fetch_consultant_data(client, consultant_config, target_tab):
     sheet_id = consultant_config['id']
     target_key = consultant_config.get('keyword', 'Name')
-    COMPANY_KEYS = ["Company", "Client", "Cliente", "公司名称", "客户"]
+    COMPANY_KEYS = ["Company", "Client", "Cliente", "公司", "客户"]
     POSITION_KEYS = ["Position", "Role", "Posición", "职位", "岗位"]
     try:
         sheet = client.open_by_key(sheet_id)
@@ -513,6 +688,7 @@ def fetch_consultant_data(client, consultant_config, target_tab):
         return count, details
     except:
         return 0, []
+
 
 def fetch_financial_df(client, start_m, end_m, year):
     try:
@@ -626,8 +802,7 @@ def render_bar(current_total, goal, color_class, label_text, is_monthly_boss=Fal
     """, unsafe_allow_html=True)
 
 
-def render_player_card(conf, fin_summary, card_index):
-    # Removed rec_count argument as it's no longer used for individual bars
+def render_player_card(conf, rec_count, fin_summary, card_index):
     name = conf['name']
     role = conf.get('role', 'Full-Time')
     is_team_lead = conf.get('is_team_lead', False)
@@ -636,18 +811,14 @@ def render_player_card(conf, fin_summary, card_index):
     fin_achieved_pct = fin_summary.get("Target Achieved", 0.0)
     est_comm = fin_summary.get("Est. Commission", 0.0)
 
+    rec_pct = (rec_count / QUARTERLY_GOAL) * 100
+
     # 🎯 达标逻辑
-    # Since we removed individual CV goals, Level Up depends on Financials for Full-time
-    # For Interns, we can just leave it as Loading or Pass if they have any placements (future logic)
     goal_passed = False
-    
-    if not is_intern:
-        if fin_achieved_pct >= 100: 
-            goal_passed = True
+    if is_intern:
+        if rec_pct >= 100: goal_passed = True
     else:
-        # Intern Logic: Pass if team goal is met? Or just default. 
-        # For now, let's keep it simple: No GP target = No 'Level Up' unless we track something else.
-        pass
+        if rec_pct >= 100 or fin_achieved_pct >= 100: goal_passed = True
 
     crown = "👑" if is_team_lead else ""
     role_tag = "🎓 INTERN" if is_intern else "💼 FULL-TIME"
@@ -674,15 +845,14 @@ def render_player_card(conf, fin_summary, card_index):
         </div>
     """, unsafe_allow_html=True)
 
-    # 1. Recruitment Bar REMOVED per user request
-    # Instead, we just show Financials
+    # 1. Recruitment Bar (Thinner, standard)
+    render_bar(rec_count, QUARTERLY_GOAL, "pit-fill-season", "CVs SENT (Q4)")
 
     # 2. Financial Bar
     if not is_intern:
         render_bar(fin_achieved_pct, 100, "money-fill", "GP TARGET")
     else:
-        st.markdown(f'<div class="sub-label" style="color:#aaa;">GP TARGET: N/A (INTERN)</div>', unsafe_allow_html=True)
-        st.markdown(f'<div style="text-align:center; padding: 20px; font-size: 0.8em; color: #aaa;">CONTRIBUTING TO TEAM GOAL...</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="sub-label">GP TARGET: N/A (INTERN)</div>', unsafe_allow_html=True)
 
     # 3. Commission Box
     if est_comm > 0:
@@ -758,7 +928,14 @@ def main():
 
         time.sleep(0.5)
 
-        # --- BOSS BAR 1: MONTHLY AGGREGATE ---
+        # --- CHECK FOR FIREWORKS TRIGGER ---
+        total_quarter_cvs = sum([r['count'] for r in quarterly_results])
+        if total_quarter_cvs >= QUARTERLY_GOAL:
+            show_fireworks_celebration()
+            st.markdown(f'<div style="text-align: center; color: gold; font-size: 1.5em; margin-bottom: 20px;">🏆 QUARTERLY TARGET SMASHED! {total_quarter_cvs}/{QUARTERLY_GOAL} 🏆</div>', unsafe_allow_html=True)
+
+
+        # --- BOSS BAR: MONTHLY AGGREGATE ---
         st.markdown(
             f'<div class="header-bordered" style="border-color: #feca57; background: #fff;">🏆 TEAM MONTHLY GOAL ({current_month_tab})</div>',
             unsafe_allow_html=True)
@@ -767,10 +944,10 @@ def main():
 
         monthly_total = sum([r['count'] for r in monthly_results])
         steps = 15
-        
-        # Monthly Animation Loop
         for step in range(steps + 1):
             curr_m = (monthly_total / steps) * step
+
+            # 🚀 RENDER THE BIG BOSS BAR
             render_pit_html = f"""
             <div class="sub-label" style="font-size: 1.2em; text-align:center;">{int(curr_m)} / {MONTHLY_GOAL} CVs</div>
             <div class="pit-container pit-height-boss">
@@ -780,44 +957,14 @@ def main():
             </div>
             """
             pit_month_ph.markdown(render_pit_html, unsafe_allow_html=True)
+
             if step == steps:
                 cols_m = stats_month_ph.columns(len(monthly_results))
                 for idx, res in enumerate(monthly_results):
                     with cols_m[idx]: st.markdown(
                         f"""<div class="stat-card"><div class="stat-name">{res['name']}</div><div class="stat-val">{res['count']}</div></div>""",
                         unsafe_allow_html=True)
-            time.sleep(0.01)
-                    # ==========================================
-        # 🎉 新增代码：月度达标放气球
-        # ==========================================
-        if monthly_total >= MONTHLY_GOAL:
-            st.balloons()
-            time.sleep(1) # 可选：稍微停顿一下让气球飞一会儿再加载季度条
-        # ==========================================
-
-
-        # --- BOSS BAR 2: QUARTERLY AGGREGATE ---
-        quarterly_total = sum([r['count'] for r in quarterly_results])
-        st.markdown(
-            f'<div class="header-bordered" style="border-color: #54a0ff; background: #fff; margin-top: 20px;">🌊 TEAM QUARTERLY GOAL (Q{quarter_num})</div>',
-            unsafe_allow_html=True)
-        pit_quarter_ph = st.empty()
-        
-        # Quarterly Animation Loop
-        for step in range(steps + 1):
-            curr_q = (quarterly_total / steps) * step
-            # Note: Using 'pit-fill-season' (blue/purple) for distinction
-            render_q_html = f"""
-            <div class="sub-label" style="font-size: 1.2em; text-align:center;">{int(curr_q)} / {QUARTERLY_GOAL} CVs</div>
-            <div class="pit-container pit-height-boss">
-                <div class="pit-fill-season" style="width: {min((curr_q / QUARTERLY_GOAL) * 100, 100)}%;">
-                    <div class="cat-squad" style="font-size: 40px; top: 5px;">🌊</div>
-                </div>
-            </div>
-            """
-            pit_quarter_ph.markdown(render_q_html, unsafe_allow_html=True)
-            time.sleep(0.01)
-
+            time.sleep(0.02)
 
         # --- PLAYER HUB ---
         st.markdown("<br>", unsafe_allow_html=True)
@@ -831,10 +978,11 @@ def main():
 
         for idx, conf in enumerate(active_team_config):
             c_name = conf['name']
+            q_rec_count = next((item['count'] for item in quarterly_results if item['name'] == c_name), 0)
             fin_sum = financial_summaries.get(c_name, {})
 
             with all_cols[idx]:
-                render_player_card(conf, fin_sum, idx)
+                render_player_card(conf, q_rec_count, fin_sum, idx)
 
         # --- LOGS ---
         if all_month_details:
