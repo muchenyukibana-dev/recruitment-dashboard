@@ -1,5 +1,5 @@
 import streamlit as st
-import streamlit.components.v1 as components  # 新增：用于防休眠
+import streamlit.components.v1 as components
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
@@ -58,7 +58,6 @@ st.set_page_config(page_title="Fill The Pit", page_icon="🎮", layout="wide")
 # 💤 ANTI-SLEEP MECHANISM (防止休眠代码)
 # ==========================================
 def keep_awake():
-    # 注入一段 JS，每隔 30 秒发送一次心跳，保持 WebSocket 连接活跃
     components.html(
         """
         <script>
@@ -80,7 +79,6 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
     @import url('https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap');
 
-    /* Global Background: Fun Arcade Purple/Blue Gradient */
     .stApp {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         font-family: 'Press Start 2P', monospace;
@@ -95,7 +93,6 @@ st.markdown("""
         -webkit-text-stroke: 2px #000;
     }
 
-    /* CENTERED START BUTTON */
     .stButton {
         display: flex;
         justify-content: center;
@@ -152,17 +149,6 @@ st.markdown("""
         100% { background-position: 0% 50%; }
     }
 
-    .pit-fill-month { 
-        background-image: linear-gradient(45deg, #ffa502 25%, #eccc68 25%, #eccc68 50%, #ffa502 50%, #ffa502 75%, #eccc68 75%, #eccc68 100%);
-        background-size: 50px 50px;
-        animation: barberpole 2s linear infinite;
-        height: 100%; 
-        display: flex; 
-        align-items: center; 
-        justify-content: flex-end; 
-    }
-
-    /* The Rainbow Boss Fill for Team Monthly */
     .pit-fill-boss {
         background: linear-gradient(270deg, #ff6b6b, #feca57, #48dbfb, #ff9ff3, #54a0ff);
         background-size: 400% 400%;
@@ -173,7 +159,6 @@ st.markdown("""
         justify-content: flex-end;
     }
 
-    /* Blue/Purple for Team Quarterly */
     .pit-fill-season { 
         background-image: linear-gradient(45deg, #3742fa 25%, #5352ed 25%, #5352ed 50%, #3742fa 50%, #3742fa 75%, #5352ed 75%, #5352ed 100%);
         background-size: 50px 50px;
@@ -334,7 +319,6 @@ st.markdown("""
 def normalize_text(text):
     return ''.join(c for c in unicodedata.normalize('NFD', str(text)) if unicodedata.category(c) != 'Mn').lower()
 
-
 def get_payout_date_from_month_key(month_key):
     try:
         dt = datetime.strptime(str(month_key), "%Y-%m")
@@ -343,7 +327,6 @@ def get_payout_date_from_month_key(month_key):
         return datetime(year, month, 15)
     except:
         return None
-
 
 def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
     if is_team_lead:
@@ -360,7 +343,6 @@ def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
     else:
         return 3, 3
 
-
 def calculate_single_deal_commission(candidate_salary, multiplier):
     if multiplier == 0: return 0
     base_comm = 0
@@ -373,7 +355,6 @@ def calculate_single_deal_commission(candidate_salary, multiplier):
     else:
         base_comm = candidate_salary * 2.0 * 0.05
     return base_comm * multiplier
-
 
 def calculate_consultant_performance(all_sales_df, consultant_name, base_salary, quarterly_cv_count, role, is_team_lead=False):
     """
@@ -564,38 +545,69 @@ def fetch_role_from_personal_sheet(client, sheet_id):
     except Exception as e:
         return "Full-Time", False, "Consultant"
 
-
 def fetch_consultant_data(client, consultant_config, target_tab):
+    """
+    更新后的数据获取逻辑：
+    - 不再强制 'Name' 必须在第一列。
+    - 在整行中查找关键字，然后统计其右侧所有非空单元格。
+    - 增加鲁棒性，去除单元格空格干扰。
+    """
     sheet_id = consultant_config['id']
-    target_key = consultant_config.get('keyword', 'Name')
+    target_key = consultant_config.get('keyword', 'Name').strip()
+    
+    # 辅助列名用于抓取 Details
     COMPANY_KEYS = ["Company", "Client", "Cliente", "公司名称", "客户"]
     POSITION_KEYS = ["Position", "Role", "Posición", "职位", "岗位"]
+    
     try:
         sheet = client.open_by_key(sheet_id)
         try:
             worksheet = sheet.worksheet(target_tab)
         except:
+            # 如果找不到 Tab，返回 0
             return 0, []
+            
         rows = worksheet.get_all_values()
-        count = 0;
+        count = 0
         details = []
-        current_company = "Unknown";
+        current_company = "Unknown"
         current_position = "Unknown"
+        
         for row in rows:
             if not row: continue
-            first_cell = row[0].strip()
-            if first_cell in COMPANY_KEYS:
-                current_company = row[1].strip() if len(row) > 1 else "Unknown"
-            elif first_cell in POSITION_KEYS:
-                current_position = row[1].strip() if len(row) > 1 else "Unknown"
-            elif first_cell == target_key:
-                candidates = [x for x in row[1:] if x.strip()]
+            
+            # 清洗当前行数据（去除两端空格）
+            cleaned_row = [str(x).strip() for x in row]
+            
+            # 尝试在行中查找关键字 (比如 "Name")
+            try:
+                # 查找关键字所在的列索引
+                key_index = cleaned_row.index(target_key)
+                
+                # 统计关键字右侧的所有非空单元格
+                candidates = [x for x in cleaned_row[key_index+1:] if x]
                 count += len(candidates)
+                
                 for _ in range(len(candidates)):
-                    details.append({"Consultant": consultant_config['name'], "Company": current_company,
-                                    "Position": current_position, "Count": 1})
+                    details.append({
+                        "Consultant": consultant_config['name'], 
+                        "Company": current_company,
+                        "Position": current_position, 
+                        "Count": 1
+                    })
+                    
+            except ValueError:
+                # 如果这一行没有关键字 "Name"，检查是否是 Company/Position 标题行
+                first_cell = cleaned_row[0] if len(cleaned_row) > 0 else ""
+                
+                if first_cell in COMPANY_KEYS:
+                    current_company = cleaned_row[1] if len(cleaned_row) > 1 else "Unknown"
+                elif first_cell in POSITION_KEYS:
+                    current_position = cleaned_row[1] if len(cleaned_row) > 1 else "Unknown"
+                
         return count, details
-    except:
+    except Exception as e:
+        print(f"Error fetching data for {consultant_config['name']}: {e}")
         return 0, []
 
 
@@ -756,14 +768,12 @@ def render_player_card(conf, fin_summary, quarter_cv_count, card_index):
         # Intern Only shows Recruitment Bar
         render_bar(quarter_cv_count, QUARTERLY_GOAL_INTERN, "cv-fill", "Q. CVs")
     else:
-        # Full-time Shows Financials mainly, but we can imply the fallback
+        # Full-time / Team Lead Shows Both
         render_bar(booked_gp, target_gp, "money-fill", "GP TARGET")
         
-        # Also show CV bar small if they are using that path? 
-        # Or just show it anyway so they know their activity status
-        if booked_gp < target_gp:
-             st.markdown(f'<div style="font-size:0.6em; color:#666; margin-top:5px;">OR REACH RECRUITMENT GOAL:</div>', unsafe_allow_html=True)
-             render_bar(quarter_cv_count, QUARTERLY_GOAL_FT, "cv-fill", "Q. CVs")
+        # Always show CV bar now (Fixed per request)
+        st.markdown(f'<div style="font-size:0.6em; color:#666; margin-top:5px;">AND/OR RECRUITMENT GOAL:</div>', unsafe_allow_html=True)
+        render_bar(quarter_cv_count, QUARTERLY_GOAL_FT, "cv-fill", "Q. CVs")
 
     # --- COMMISSION BOX ---
     
@@ -817,12 +827,11 @@ def main():
         all_month_details = []
         financial_summaries = {}
         
-        # Store individual CV counts for passing to financial calc
         consultant_cv_counts = {}
 
         with st.spinner(f"🛰️ SCANNING SECTOR Q{quarter_num}..."):
 
-            # 1. First, Fetch Recruitment Data (Needed for qualification logic)
+            # 1. First, Fetch Recruitment Data
             for consultant in active_team_config:
                 m_count, m_details = fetch_consultant_data(client, consultant, current_month_tab)
                 all_month_details.extend(m_details)
