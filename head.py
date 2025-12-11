@@ -594,4 +594,140 @@ def main():
 
                             if level > 0:
                                 payout_date = get_payout_date_from_month_key(str(month_key))
-                                f
+                                for idx in pending_indices:
+                                    row = paid_sales.loc[idx]
+                                    deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * row['Percentage']
+                                    paid_sales.at[idx, 'Applied Level'] = level
+                                    paid_sales.at[idx, 'Commission Day Obj'] = payout_date
+                                    paid_sales.at[idx, 'Final Comm'] = deal_comm
+                                pending_indices = []
+
+                        paid_gp = running_paid_gp
+                        current_level, _ = calculate_commission_tier(running_paid_gp, base, is_team_lead)
+
+                        # 如果达标了，才真正累加 Commission
+                        if is_qualified:
+                            for idx, row in paid_sales.iterrows():
+                                comm_date = row['Commission Day Obj']
+                                if pd.notnull(comm_date) and comm_date <= datetime.now() + timedelta(days=20):
+                                    total_comm += row['Final Comm']
+                        else:
+                            # 没达标，佣金锁定为 0，不累加
+                            pass
+
+                        c_sales.update(paid_sales)
+                        c_sales['Commission Day'] = c_sales['Commission Day Obj'].apply(
+                            lambda x: x.strftime("%Y-%m-%d") if pd.notnull(x) else "")
+                    
+                    updated_sales_records.append(c_sales)
+
+                # Team Lead Override Bonus (仅在 Lead 且达标时发放)
+                if is_team_lead and is_qualified and not sales_df_q4.empty:
+                    override_mask = (sales_df_q4['Status'] == 'Paid') & (sales_df_q4['Consultant'] != c_name) & (
+                                sales_df_q4['Consultant'] != "Estela Peng")
+                    pot_overrides = sales_df_q4[override_mask].copy()
+                    for _, row in pot_overrides.iterrows():
+                        comm_pay_obj = get_commission_pay_date(row['Payment Date Obj'])
+                        if pd.notnull(comm_pay_obj) and comm_pay_obj <= datetime.now() + timedelta(days=20):
+                            bonus = 1000
+                            total_comm += bonus
+                            team_lead_overrides.append(
+                                {"Leader": c_name, "Source": row['Consultant'], "Salary": row['Candidate Salary'],
+                                 "Date": comm_pay_obj.strftime("%Y-%m-%d"), "Bonus": bonus})
+
+            fin_pct = (paid_gp / gp_target * 100) if gp_target > 0 else 0
+            
+            # --- Status 文本生成 ---
+            achieved_list = []
+            if achieved_financial: achieved_list.append("Financial")
+            if achieved_activity: achieved_list.append("Activity")
+
+            if is_qualified:
+                status_text = " & ".join(achieved_list) if achieved_list else "Qualified"
+            else:
+                status_text = "Missed Target"
+
+            financial_summary.append({
+                "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp, "Fin %": fin_pct,
+                "Status": status_text, "Level": current_level, "Est. Commission": total_comm
+            })
+
+        final_sales_df = pd.concat(updated_sales_records) if updated_sales_records else pd.DataFrame()
+        override_df = pd.DataFrame(team_lead_overrides)
+
+        df_fin = pd.DataFrame(financial_summary).sort_values('Paid GP', ascending=False)
+
+        st.dataframe(
+            df_fin,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Consultant": st.column_config.TextColumn("Consultant", width=150),
+                "Role": st.column_config.TextColumn("Role", width=100),
+                "GP Target": st.column_config.NumberColumn("GP Target", format="$%d", width=100),
+                "Paid GP": st.column_config.NumberColumn("Paid GP", format="$%d", width=100),
+                "Fin %": st.column_config.ProgressColumn("Financial %", format="%.0f%%", min_value=0, max_value=100,
+                                                         width=150),
+                "Status": st.column_config.TextColumn("Status (Target)", width=160),
+                "Level": st.column_config.NumberColumn("Level", width=80),
+                "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d", width=130),
+            }
+        )
+
+        with st.expander("📜 Historical GP Summary"):
+            if not sales_df_hist.empty:
+                q_totals = sales_df_hist.groupby('Quarter')['GP'].sum().reset_index()
+                q_totals['Consultant'] = '📌 TOTAL'
+                d_rows = sales_df_hist.groupby(['Quarter', 'Consultant'])['GP'].sum().reset_index()
+                st.dataframe(
+                    pd.concat([q_totals, d_rows]).sort_values(['Quarter', 'Consultant'], ascending=[False, True]),
+                    use_container_width=True, hide_index=True,
+                    column_config={"GP": st.column_config.NumberColumn("Total GP", format="$%d")})
+            else:
+                st.info("No data.")
+
+    with tab_details:
+        st.markdown("### 🔍 Drill Down Details")
+        for conf in dynamic_team_config:
+            c_name = conf['name']
+            fin_row = df_fin[df_fin['Consultant'] == c_name].iloc[0]
+            header = f"👤 {c_name} ({fin_row['Role']}) | Status: {fin_row['Status']}"
+            with st.expander(header):
+                if fin_row['Role'] != "Intern":
+                    st.markdown("#### 💸 Commission Breakdown")
+                    if not final_sales_df.empty:
+                        c_view = final_sales_df[final_sales_df['Consultant'] == c_name].copy()
+                        if not c_view.empty:
+                            c_view['Pct Display'] = c_view['Percentage'].apply(lambda x: f"{x * 100:.0f}%")
+                            st.dataframe(c_view[
+                                             ['Onboard Date Str', 'Payment Date', 'Commission Day', 'Candidate Salary',
+                                              'Pct Display', 'GP', 'Status', 'Applied Level', 'Final Comm']],
+                                         use_container_width=True, hide_index=True,
+                                         column_config={"Commission Day": st.column_config.TextColumn("Comm. Date"),
+                                                        "Final Comm": st.column_config.NumberColumn("Comm ($)",
+                                                                                                    format="$%.2f")})
+                        else:
+                            st.info("No deals.")
+
+                if fin_row['Role'] == 'Team Lead':
+                    st.divider();
+                    st.markdown("#### 👥 Team Overrides")
+                    if not override_df.empty:
+                        my_ov = override_df[override_df['Leader'] == c_name]
+                        if not my_ov.empty:
+                            st.dataframe(my_ov, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("None.")
+
+                st.divider();
+                st.markdown("#### 📝 Recruitment Logs")
+                if not rec_details_df.empty:
+                    c_logs = rec_details_df[rec_details_df['Consultant'] == c_name]
+                    if not c_logs.empty: st.dataframe(c_logs.groupby(['Month', 'Company', 'Position', 'Status'])[
+                                                          'Count'].sum().reset_index().sort_values('Month',
+                                                                                                   ascending=False),
+                                                      use_container_width=True, hide_index=True)
+
+
+if __name__ == "__main__":
+    main()
