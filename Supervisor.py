@@ -67,23 +67,39 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 
-# --- 🛡️ 不睡觉的代码 (Keep Alive) ---
+# --- 🛡️ 不睡觉的代码 (Keep Alive & UptimeRobot) ---
 def keep_alive_worker():
-    """后台线程，每隔10分钟打印一次心跳，防止某些容器休眠"""
+    """
+    后台线程：
+    1. 打印心跳日志 (防止容器因无日志输出而休眠)
+    2. Self-Ping (配合 UptimeRobot，自我访问以保持活跃)
+    """
+    # 尝试从 secrets 获取 URL，如果没有则跳过 Self-Ping
+    # 在 .streamlit/secrets.toml 中添加: public_url = "https://your-app.streamlit.app"
+    app_url = st.secrets.get("public_url", None)
+    
     while True:
         try:
-            time.sleep(600)  # 10 minutes
-            print(f"💓 System Heartbeat: {datetime.now()}")
-            # 如果有具体的URL需要ping，可以使用: requests.get("YOUR_APP_URL")
-        except Exception:
-            pass
+            # 间隔时间：建议 5-10 分钟 (300-600秒)
+            time.sleep(300) 
+            
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            print(f"💓 [KeepAlive] System Heartbeat: {current_time}")
+            
+            if app_url:
+                response = requests.get(app_url, timeout=30)
+                print(f"✅ [KeepAlive] Self-Ping to {app_url}: Status {response.status_code}")
+            
+        except Exception as e:
+            print(f"⚠️ [KeepAlive] Error: {e}")
+            # 出错后短暂休眠再重试，防止死循环
+            time.sleep(60)
 
-# 启动守护线程
+# 启动守护线程 (确保只运行一个实例)
 if 'keep_alive_started' not in st.session_state:
     t = threading.Thread(target=keep_alive_worker, daemon=True)
     t.start()
     st.session_state['keep_alive_started'] = True
-
 
 # --- 🧮 辅助函数 ---
 def get_quarter_str(date_obj):
@@ -733,3 +749,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
