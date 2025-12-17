@@ -705,7 +705,7 @@ def render_bar(current_total, goal, color_class, label_text, is_monthly_boss=Fal
 
     st.markdown(f"""
     <div style="margin-bottom: 5px;">
-        <div class="sub-label">{label_text} ({int(current_total)}/{int(goal)} - {percent:.1f}%)</div>
+        <div class="sub-label">{label_text}  {percent:.1f}%)</div>
         <div class="{container_cls} {height_cls}">
             <div class="{color_class}" style="width: {display_pct}%;">
                 <div class="cat-squad" style="top: {'15px' if is_monthly_boss else '5px'}">{cats}</div>
@@ -958,3 +958,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
