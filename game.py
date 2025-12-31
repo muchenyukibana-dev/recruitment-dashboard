@@ -57,25 +57,6 @@ QUARTERLY_TEAM_GOAL = 348
 
 st.set_page_config(page_title="Fill The Pit", page_icon="🎮", layout="wide")
 
-# ==========================================
-# 💤 ANTI-SLEEP MECHANISM (防止休眠代码)
-# ==========================================
-def keep_awake():
-    components.html(
-        """
-        <script>
-        function keepAlive() {
-            console.log("Keep-alive ping: " + new Date());
-        }
-        setInterval(keepAlive, 30000);
-        </script>
-        """,
-        height=0,
-        width=0
-    )
-
-keep_awake()
-
 # --- 🎨 PLAYFUL CSS STYLING ---
 st.markdown("""
     <style>
@@ -181,7 +162,7 @@ st.markdown("""
         align-items: center; 
         justify-content: flex-end; 
     }
-    
+
     .cv-fill {
         background-image: linear-gradient(45deg, #ff9ff3 25%, #f368e0 25%, #f368e0 50%, #ff9ff3 50%, #ff9ff3 75%, #f368e0 75%, #f368e0 100%);
         background-size: 50px 50px;
@@ -322,6 +303,7 @@ st.markdown("""
 def normalize_text(text):
     return ''.join(c for c in unicodedata.normalize('NFD', str(text)) if unicodedata.category(c) != 'Mn').lower()
 
+
 def get_payout_date_from_month_key(month_key):
     try:
         dt = datetime.strptime(str(month_key), "%Y-%m")
@@ -330,6 +312,7 @@ def get_payout_date_from_month_key(month_key):
         return datetime(year, month, 15)
     except:
         return None
+
 
 def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
     if is_team_lead:
@@ -346,6 +329,7 @@ def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
     else:
         return 3, 3
 
+
 def calculate_single_deal_commission(candidate_salary, multiplier):
     if multiplier == 0: return 0
     base_comm = 0
@@ -359,26 +343,28 @@ def calculate_single_deal_commission(candidate_salary, multiplier):
         base_comm = candidate_salary * 2.0 * 0.05
     return base_comm * multiplier
 
-def calculate_consultant_performance(all_sales_df, consultant_name, base_salary, quarterly_cv_count, role, is_team_lead=False):
+
+def calculate_consultant_performance(all_sales_df, consultant_name, base_salary, quarterly_cv_count, role,
+                                     is_team_lead=False):
     """
     修改后的计算逻辑：
     1. 判断是否达标 (Is Qualified / Level Up)：
        - Intern: CVs >= 87
        - Full-time/Lead: Booked GP >= Target OR CVs >= 87 (Individual Goal)
     """
-    
+
     # --- 1. 达标判断逻辑 (Target Achieved?) ---
     is_intern = (role == "Intern")
     target_multiplier = 4.5 if is_team_lead else 9.0
     financial_target = base_salary * target_multiplier
-    
+
     # 获取 Booked GP (所有 Deal)
     c_sales = all_sales_df[all_sales_df['Consultant'] == consultant_name].copy()
     booked_gp = c_sales['GP'].sum() if not c_sales.empty else 0
-    
+
     is_qualified = False
     target_achieved_pct = 0.0
-    
+
     if is_intern:
         # Intern 达标只看简历 (87)
         if quarterly_cv_count >= QUARTERLY_GOAL_INTERN:
@@ -390,7 +376,7 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
         # Full-Time/Lead 达标看：Financial OR Recruitment (Individual Goal 87)
         financial_pct = (booked_gp / financial_target * 100) if financial_target > 0 else 0
         recruitment_pct = (quarterly_cv_count / QUARTERLY_INDIVIDUAL_GOAL * 100)
-        
+
         # 只要满足其中一个
         if financial_pct >= 100 or recruitment_pct >= 100:
             is_qualified = True
@@ -399,11 +385,11 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
             target_achieved_pct = max(financial_pct, recruitment_pct)
 
     # --- 2. 佣金计算逻辑 (Commission Logic) ---
-    
+
     paid_gp = 0
     total_comm = 0
     current_level = 0
-    
+
     if is_intern:
         # Intern 没有佣金
         total_comm = 0
@@ -439,7 +425,8 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
                         payout_date = get_payout_date_from_month_key(str(month_key))
                         for idx in pending_indices:
                             row = paid_sales.loc[idx]
-                            deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * row['Percentage']
+                            deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * row[
+                                'Percentage']
                             paid_sales.at[idx, 'Final Comm'] = deal_comm
                             paid_sales.at[idx, 'Commission Day Obj'] = payout_date
                         pending_indices = []
@@ -474,7 +461,7 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
                     )
                     if comm_pay_obj <= (datetime.now() + timedelta(days=20)):
                         total_comm += 1000
-    
+
     # --- 3. 最终判定 (Gate Check) ---
     # 佣金发放条件：达到标准 (Qualified) 并且 客户已付款
     if not is_qualified:
@@ -485,8 +472,8 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
         "Booked GP": booked_gp,
         "Paid GP": paid_gp,
         "Level": current_level,
-        "Target Achieved": target_achieved_pct, # 这里是用于显示进度条百分比
-        "Is Qualified": is_qualified,           # 真正的达标状态
+        "Target Achieved": target_achieved_pct,  # 这里是用于显示进度条百分比
+        "Is Qualified": is_qualified,  # 真正的达标状态
         "Est. Commission": total_comm
     }
     return summary
@@ -543,59 +530,60 @@ def fetch_role_from_personal_sheet(client, sheet_id):
     except Exception as e:
         return "Full-Time", False, "Consultant"
 
+
 def fetch_consultant_data(client, consultant_config, target_tab):
     sheet_id = consultant_config['id']
     target_key = consultant_config.get('keyword', 'Name').strip()
-    
+
     # 辅助列名用于抓取 Details
     COMPANY_KEYS = ["Company", "Client", "Cliente", "公司名称", "客户"]
     POSITION_KEYS = ["Position", "Role", "Posición", "职位", "岗位"]
-    
+
     try:
         sheet = client.open_by_key(sheet_id)
         try:
             worksheet = sheet.worksheet(target_tab)
         except:
             return 0, []
-            
+
         rows = worksheet.get_all_values()
         count = 0
         details = []
         current_company = "Unknown"
         current_position = "Unknown"
-        
+
         for row in rows:
             if not row: continue
-            
+
             # 清洗当前行数据（去除两端空格）
             cleaned_row = [str(x).strip() for x in row]
-            
+
             # 尝试在行中查找关键字 (比如 "Name")
             try:
                 # 查找关键字所在的列索引
                 key_index = cleaned_row.index(target_key)
-                
+
                 # 统计关键字右侧的所有非空单元格
-                candidates = [x for x in cleaned_row[key_index+1:] if x]
+                candidates = [x for x in cleaned_row[key_index + 1:] if x]
                 count += len(candidates)
-                
+
                 for _ in range(len(candidates)):
                     details.append({
-                        "Consultant": consultant_config['name'], 
+                        "Consultant": consultant_config['name'],
                         "Company": current_company,
-                        "Position": current_position, 
+                        "Position": current_position,
                         "Count": 1
                     })
-                    
+
             except ValueError:
                 # 如果这一行没有关键字 "Name"，检查是否是 Company/Position 标题行
                 first_cell = cleaned_row[0] if len(cleaned_row) > 0 else ""
-                
+
                 if first_cell in COMPANY_KEYS:
                     current_company = cleaned_row[1] if len(cleaned_row) > 1 else "Unknown"
                 elif first_cell in POSITION_KEYS:
                     current_position = cleaned_row[1] if len(cleaned_row) > 1 else "Unknown"
-                
+
         return count, details
     except Exception as e:
         print(f"Error fetching data for {consultant_config['name']}: {e}")
@@ -723,7 +711,7 @@ def render_player_card(conf, fin_summary, quarter_cv_count, card_index):
 
     is_qualified = fin_summary.get("Is Qualified", False)
     est_comm = fin_summary.get("Est. Commission", 0.0)
-    
+
     # Financial Targets
     booked_gp = fin_summary.get("Booked GP", 0)
     target_gp = conf['base_salary'] * (4.5 if is_team_lead else 9.0)
@@ -754,22 +742,24 @@ def render_player_card(conf, fin_summary, quarter_cv_count, card_index):
     """, unsafe_allow_html=True)
 
     # --- PROGRESS BARS ---
-    
+
     if is_intern:
         # Intern Only shows Recruitment Bar (Target 87)
         render_bar(quarter_cv_count, QUARTERLY_GOAL_INTERN, "cv-fill", "Q. CVs")
     else:
         # Full-time / Team Lead Shows Both
         render_bar(booked_gp, target_gp, "money-fill", "GP TARGET")
-        
+
         # Always show CV bar (Target 87)
-        st.markdown(f'<div style="font-size:0.6em; color:#666; margin-top:5px;">AND/OR RECRUITMENT GOAL:</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="font-size:0.6em; color:#666; margin-top:5px;">AND/OR RECRUITMENT GOAL:</div>',
+                    unsafe_allow_html=True)
         render_bar(quarter_cv_count, QUARTERLY_INDIVIDUAL_GOAL, "cv-fill", "Q. CVs")
 
     # --- COMMISSION BOX ---
-    
+
     if is_intern:
-         st.markdown(f"""<div class="comm-locked" style="background:#eee; color:#aaa;">INTERNSHIP TRACK</div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="comm-locked" style="background:#eee; color:#aaa;">INTERNSHIP TRACK</div>""",
+                    unsafe_allow_html=True)
     else:
         if est_comm > 0:
             st.markdown(f"""<div class="comm-unlocked">💰 UNLOCKED: ${est_comm:,.0f}</div>""", unsafe_allow_html=True)
@@ -817,7 +807,7 @@ def main():
         quarterly_results = []
         all_month_details = []
         financial_summaries = {}
-        
+
         consultant_cv_counts = {}
 
         with st.spinner(f"🛰️ SCANNING SECTOR Q{quarter_num}..."):
@@ -958,5 +948,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
