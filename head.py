@@ -446,11 +446,56 @@ def main():
                 render_fin_table_styled(d['sales'], d['rec'], q, d['team'])
 
     with t_det:
-        for yr in ["2026", "2025"]:
-            st.markdown(f"#### Sales Year: {yr}")
-            df_yr = d['sales'][d['sales']['Year'] == yr]
-            if not df_yr.empty: st.dataframe(df_yr[['Quarter', 'Consultant', 'GP', 'Status']], use_container_width=True,
-                                             hide_index=True)
+        st.markdown("### 🔍 Drill Down Details")
+        # 遍历团队成员配置
+        for conf in d['team']:
+            c_name = conf['name']
+            # 从之前算好的当前季度汇总表中获取该顾问的行（用于显示角色和状态）
+            fin_row = fin_sum_curr[fin_sum_curr['Consultant'] == c_name].iloc[0]
+            header = f"👤 {c_name} ({fin_row['Role']}) | Status: {fin_row['Status']}"
+            
+            # 创建下拉折叠框
+            with st.expander(header):
+                # 1. 提成明细表 (Commission Breakdown) - Intern不显示
+                if fin_row['Role'] != "Intern":
+                    st.markdown("#### 💸 Commission Breakdown")
+                    c_view = details_curr.get(c_name, pd.DataFrame())
+                    if not c_view.empty:
+                        # 格式化百分比显示
+                        c_view['Pct Display'] = c_view['Percentage'].apply(lambda x: f"{int(x * 100)}%")
+                        # 确保列顺序和图片一致
+                        display_cols = ['Onboard Date Str', 'Payment Date', 'Comm. Date', 'Candidate Salary', 'Pct Display', 'GP', 'Status', 'Applied Level', 'Comm ($)']
+                        st.dataframe(
+                            c_view[display_cols], 
+                            use_container_width=True, 
+                            hide_index=True, 
+                            column_config={
+                                "Comm ($)": st.column_config.NumberColumn(format="$%.2f"),
+                                "GP": st.column_config.NumberColumn(format="$%d"),
+                                "Candidate Salary": st.column_config.NumberColumn(format="$%d")
+                            }
+                        )
+                    else:
+                        st.info("No deals for current quarter.")
+
+                # 2. 团队提成 (Team Overrides) - 仅Team Lead显示
+                if fin_row['Role'] == 'Team Lead':
+                    st.divider()
+                    st.markdown("#### 👥 Team Overrides")
+                    ov_view = overrides_curr.get(c_name, pd.DataFrame())
+                    if not ov_view.empty:
+                        # 列顺序：Leader, Source, Salary, Date, Bonus
+                        st.dataframe(
+                            ov_view, 
+                            use_container_width=True, 
+                            hide_index=True, 
+                            column_config={
+                                "Bonus": st.column_config.NumberColumn(format="$%d"),
+                                "Salary": st.column_config.NumberColumn(format="$%d")
+                            }
+                        )
+                    else:
+                        st.info("No team overrides yet.")
 
     with t_logs:
         for yr in ["2026", "2025"]:
