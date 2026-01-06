@@ -12,21 +12,19 @@ import threading
 import requests
 
 # ==========================================
-# 🔧 1. REAL-TIME DATE CONFIGURATION
+# 🔧 1. AUTOMATIC REAL-TIME CONFIGURATION
 # ==========================================
+# This section ensures the app always uses the current date
 now = datetime.now()
 CURRENT_YEAR = now.year
 CURRENT_QUARTER = (now.month - 1) // 3 + 1
 CURRENT_Q_STR = f"{CURRENT_YEAR} Q{CURRENT_QUARTER}"
 
-# Automatically calculate months for the current quarter
-# Q1: 1-3, Q2: 4-6, Q3: 7-9, Q4: 10-12
-q_start_month = (CURRENT_QUARTER - 1) * 3 + 1
-CURRENT_QUARTER_MONTHS = [f"{CURRENT_YEAR}{m:02d}" for m in range(q_start_month, q_start_month + 3)]
+# Automatically set months for the current quarter
+start_m = (CURRENT_QUARTER - 1) * 3 + 1
+CURRENT_QUARTER_MONTHS = [f"{CURRENT_YEAR}{m:02d}" for m in range(start_m, start_m + 3)]
 
-# ==========================================
-# ⚙️ 2. DASHBOARD SETTINGS
-# ==========================================
+# Dashboard Settings
 SALES_SHEET_ID = '1jniQ-GpeMINjQMebniJ_J1eLVLQIR1NGbSjTtOFP9Q8'
 SALES_TAB_NAME = 'Positions'
 CV_TARGET_QUARTERLY = 87
@@ -40,18 +38,18 @@ TEAM_CONFIG = [
 
 st.set_page_config(page_title="Management Dashboard", page_icon="💼", layout="wide")
 
-# --- 🎨 Styles ---
+# --- 🎨 STYLES ---
 st.markdown("""
     <style>
     .stApp { background-color: #FFFFFF; color: #000000; }
     h1, h2, h3, h4 { color: #333333 !important; font-family: 'Arial', sans-serif; }
     .stButton>button { background-color: #0056b3; color: white; border: none; border-radius: 4px; padding: 10px 24px; font-weight: bold; }
-    .dataframe { font-size: 13px !important; }
-    div[data-testid="metric-container"] { background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 15px; border-radius: 8px; }
+    .dataframe { font-size: 13px !important; border: 1px solid #ddd !important; }
+    div[data-testid="metric-container"] { background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 15px; border-radius: 8px; color: #333; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 🛡️ Keep Alive Logic ---
+# --- 🛡️ KEEP ALIVE WORKER ---
 def keep_alive_worker():
     while True:
         try:
@@ -65,7 +63,7 @@ if 'keep_alive_started' not in st.session_state:
     st.session_state['keep_alive_started'] = True
 
 # ==========================================
-# 🧮 3. HELPER FUNCTIONS
+# 🧮 2. CORE HELPER FUNCTIONS (FULL LOGIC)
 # ==========================================
 def get_quarter_str(date_obj):
     if pd.isna(date_obj): return "Unknown"
@@ -122,7 +120,7 @@ def connect_to_google():
     return None
 
 # ==========================================
-# 📥 4. DATA FETCHING (RESTORED ORIGINAL LOGIC)
+# 📥 3. DATA FETCHING (RESTORED ORIGINAL COMPLEXITY)
 # ==========================================
 def fetch_role_from_personal_sheet(client, sheet_id):
     try:
@@ -156,7 +154,8 @@ def internal_fetch_sheet_data(client, conf, tab):
                 if is_off: co += 1
                 if is_int: ci += 1
                 cs += 1
-                res.append({"Consultant": conf['name'], "Month": tab, "Status": "Offered" if is_off else ("Interviewed" if is_int else "Sent"), "Count": 1})
+                stat = "Offered" if is_off else ("Interviewed" if is_int else "Sent")
+                res.append({"Consultant": conf['name'], "Month": tab, "Company": b['c'], "Position": b['p'], "Status": stat, "Count": 1})
             return res
 
         for r in rows:
@@ -238,23 +237,27 @@ def fetch_all_sales_data(client):
                 sales_records.append({
                     "Consultant": matched, "GP": calc_gp, "Candidate Salary": salary, "Percentage": pct_val,
                     "Onboard Date": onboard_date, "Onboard Date Str": onboard_date.strftime("%Y-%m-%d"),
+                    "Payment Date": row[col_pay].strip() if col_pay != -1 and len(row) > col_pay else "",
                     "Payment Date Obj": pay_date_obj, "Status": status, "Quarter": get_quarter_str(onboard_date)
                 })
         return pd.DataFrame(sales_records)
-    except: return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Sales Data Error: {str(e)}")
+        return pd.DataFrame()
 
 # ==========================================
-# 📊 5. MAIN LOGIC & UI RENDER
+# 🚀 4. MAIN PROGRAM LOGIC
 # ==========================================
 def main():
     st.title("💼 Management Dashboard")
-    st.caption(f"📅 System Time: {now.strftime('%Y-%m-%d')} | Active: **{CURRENT_Q_STR}**")
+    st.caption(f"📅 System Time: {now.strftime('%Y-%m-%d')} | Active Quarter: **{CURRENT_Q_STR}**")
 
     client = connect_to_google()
-    if not client: st.error("❌ Google Sheets API Connection Failed."); return
+    if not client: st.error("❌ Google API Error"); return
 
     if st.button("🔄 REFRESH ALL DATA", type="primary"):
-        with st.spinner("⏳ Fetching live data from all sources..."):
+        with st.spinner("⏳ Syncing with Google Sheets..."):
+            # 1. Fetch Roles
             team_data = []
             for conf in TEAM_CONFIG:
                 member = conf.copy()
@@ -262,85 +265,89 @@ def main():
                 team_data.append(member)
                 time.sleep(0.3)
 
-            # Fetch Recruitment
-            rec_stats_df, rec_details_df = [], []
-            for month in CURRENT_QUARTER_MONTHS:
+            # 2. Fetch Recruitment Stats (Current Q)
+            rec_curr_stats, rec_details = [], []
+            for m in CURRENT_QUARTER_MONTHS:
                 for consultant in TEAM_CONFIG:
-                    s, i, o, d = internal_fetch_sheet_data(client, consultant, month)
-                    rec_stats_df.append({"Consultant": consultant['name'], "Month": month, "Sent": s, "Int": i, "Off": o, "Quarter": CURRENT_Q_STR})
-                    rec_details_df.extend(d)
+                    s, i, o, d = internal_fetch_sheet_data(client, consultant, m)
+                    rec_curr_stats.append({"Consultant": consultant['name'], "Month": m, "Sent": s, "Int": i, "Off": o, "Quarter": CURRENT_Q_STR})
+                    rec_details.extend(d)
             
-            # Fetch History
-            rec_hist_df = []
+            # 3. Fetch Historical Recruitment
+            rec_hist_stats = []
             try:
                 sheet = client.open_by_key(TEAM_CONFIG[0]['id'])
-                hist_months = [ws.title.strip() for ws in sheet.worksheets() if ws.title.strip().isdigit() and ws.title.strip() not in CURRENT_QUARTER_MONTHS]
+                all_ws = [ws.title.strip() for ws in sheet.worksheets() if ws.title.strip().isdigit()]
+                hist_months = [m for m in all_ws if m not in CURRENT_QUARTER_MONTHS]
                 for m in hist_months:
-                    for conf in TEAM_CONFIG:
-                        s, i, o, _ = internal_fetch_sheet_data(client, conf, m)
-                        if s+i+o > 0: rec_hist_df.append({"Consultant": conf['name'], "Month": m, "Sent": s, "Int": i, "Off": o, "Quarter": f"{m[:4]} Q{(int(m[4:])-1)//3+1}"})
+                    q_label = f"{m[:4]} Q{(int(m[4:])-1)//3+1}"
+                    for consultant in TEAM_CONFIG:
+                        s, i, o, _ = internal_fetch_sheet_data(client, consultant, m)
+                        if s+i+o > 0: rec_hist_stats.append({"Consultant": consultant['name'], "Month": m, "Sent": s, "Int": i, "Off": o, "Quarter": q_label})
             except: pass
 
+            # 4. Fetch Sales Data
             sales_all = fetch_all_sales_data(client)
-            
-            st.session_state['data'] = {
-                "team": team_data, "rec_curr": pd.DataFrame(rec_stats_df), "rec_hist": pd.DataFrame(rec_hist_df),
-                "rec_details": pd.DataFrame(rec_details_df), "sales_all": sales_all, "ts": datetime.now().strftime("%H:%M:%S")
+
+            st.session_state['cache'] = {
+                "team": team_data, "rec_curr": pd.DataFrame(rec_curr_stats), "rec_hist": pd.DataFrame(rec_hist_stats),
+                "rec_details": pd.DataFrame(rec_details), "sales_all": sales_all, "updated": datetime.now().strftime("%H:%M:%S")
             }
             st.rerun()
 
-    if 'data' not in st.session_state:
-        st.info("👋 Click Refresh to load the dashboard."); st.stop()
+    if 'cache' not in st.session_state:
+        st.info("👋 Click 'REFRESH ALL DATA' to load dashboard."); st.stop()
 
-    data = st.session_state['data']
+    db = st.session_state['cache']
     tab_rec, tab_fin = st.tabs(["📊 RECRUITMENT STATS", "💰 FINANCIAL PERFORMANCE"])
 
     # ---------------------------------------------------------
-    # TAB 1: RECRUITMENT (TOP: CURRENT, BOTTOM: HISTORY)
+    # TAB 1: RECRUITMENT (Current on Top, Historical on Bottom)
     # ---------------------------------------------------------
     with tab_rec:
-        def render_rec_block(df, title):
+        def render_rec_summary(df, title):
             st.markdown(f"### {title}")
-            if df.empty: st.info("No data available."); return
+            if df.empty: st.info("No data found."); return
             summary = df.groupby(['Quarter', 'Consultant'])[['Sent', 'Int', 'Off']].sum().reset_index()
             summary['Target'] = CV_TARGET_QUARTERLY
             summary['Activity %'] = (summary['Sent'] / summary['Target'] * 100).clip(0, 100)
             summary['Int Rate'] = (summary['Int'] / summary['Sent'] * 100).fillna(0)
-            st.dataframe(summary, use_container_width=True, hide_index=True, column_config={
+            st.dataframe(summary.sort_values(['Quarter', 'Sent'], ascending=[False, False]), use_container_width=True, hide_index=True, column_config={
                 "Activity %": st.column_config.ProgressColumn(format="%.0f%%", min_value=0, max_value=100),
-                "Int Rate": st.column_config.NumberColumn(format="%.1f%%")
+                "Int Rate": st.column_config.NumberColumn("Int/Sent", format="%.1f%%")
             })
 
-        render_rec_block(data['rec_curr'], f"Current Quarter Stats ({CURRENT_Q_STR})")
+        render_rec_summary(db['rec_curr'], f"Current Quarter Recruitment ({CURRENT_Q_STR})")
         st.divider()
-        render_rec_block(data['rec_hist'], "Historical Recruitment Stats")
+        render_rec_summary(db['rec_hist'], "Historical Recruitment Summary")
 
     # ---------------------------------------------------------
-    # TAB 2: FINANCIAL (TOP: CURRENT, BOTTOM: HISTORY)
+    # TAB 2: FINANCIAL (Full Commission Logic Included)
     # ---------------------------------------------------------
     with tab_fin:
-        st.markdown(f"### Current Financial Performance ({CURRENT_Q_STR})")
-        sales_df = data['sales_all']
+        st.markdown(f"### Current Financial Stats ({CURRENT_Q_STR})")
+        sales_df = db['sales_all']
         sales_curr = sales_df[sales_df['Quarter'] == CURRENT_Q_STR] if not sales_df.empty else pd.DataFrame()
         
-        fin_summary = []
-        for conf in data['team']:
+        fin_summary, team_lead_overrides = [], []
+        
+        for conf in db['team']:
             c_name, base, role = conf['name'], conf['base_salary'], conf['role']
-            is_tl = (role == "Team Lead")
-            is_int = (role == "Intern")
-            target_gp = 0 if is_int else base * (4.5 if is_tl else 9.0)
+            is_tl, is_int = (role == "Team Lead"), (role == "Intern")
+            gp_target = 0 if is_int else base * (4.5 if is_tl else 9.0)
             
             c_sales = sales_curr[sales_curr['Consultant'] == c_name].copy() if not sales_curr.empty else pd.DataFrame()
-            sent_count = data['rec_curr'][data['rec_curr']['Consultant'] == c_name]['Sent'].sum() if not data['rec_curr'].empty else 0
+            sent_count = db['rec_curr'][db['rec_curr']['Consultant'] == c_name]['Sent'].sum() if not db['rec_curr'].empty else 0
             
             booked_gp = c_sales['GP'].sum()
-            fin_pct = (booked_gp / target_gp * 100) if target_gp > 0 else 0
+            fin_pct = (booked_gp / gp_target * 100) if gp_target > 0 else 0
             rec_pct = (sent_count / CV_TARGET_QUARTERLY * 100)
             
-            # Commission Logic
+            # Target Met logic
             is_target_met = (fin_pct >= 100 or rec_pct >= 100)
-            paid_gp, total_comm = 0, 0
+            paid_gp, total_comm, current_level = 0, 0, 0
             
+            # Commission Calculation (Restored Complex Logic)
             if not is_int and not c_sales.empty:
                 paid_sales = c_sales[c_sales['Status'] == 'Paid'].copy()
                 if not paid_sales.empty:
@@ -351,26 +358,35 @@ def main():
                     for m_key in sorted(paid_sales['MonthKey'].unique()):
                         m_deals = paid_sales[paid_sales['MonthKey'] == m_key]
                         running_gp += m_deals['GP'].sum()
-                        _, mult = calculate_commission_tier(running_gp, base, is_tl)
+                        level, mult = calculate_commission_tier(running_gp, base, is_tl)
+                        current_level = level
                         if is_target_met:
                             for _, row in m_deals.iterrows():
                                 total_comm += calculate_single_deal_commission(row['Candidate Salary'], mult) * row['Percentage']
                     paid_gp = running_gp
 
+            # Team Lead Overrides
+            if is_tl and is_target_met and not sales_curr.empty:
+                others_paid = sales_curr[(sales_curr['Status'] == 'Paid') & (sales_curr['Consultant'] != c_name) & (sales_curr['Consultant'] != "Estela Peng")]
+                for _, row in others_paid.iterrows():
+                    comm_date = get_commission_pay_date(row['Payment Date Obj'])
+                    if comm_date and comm_date <= datetime.now() + timedelta(days=20):
+                        total_comm += 1000
+            
             fin_summary.append({
-                "Consultant": c_name, "Role": role, "GP Target": target_gp, "Paid GP": paid_gp, 
-                "Fin % (Booked)": fin_pct, "Payable Comm.": total_comm, "Status": "Target Met" if is_target_met else "In Progress"
+                "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp, 
+                "Fin % (Booked)": fin_pct, "Level": current_level, "Payable Comm.": total_comm, "Status": "Target Met" if is_target_met else "In Progress"
             })
 
-        st.dataframe(pd.DataFrame(fin_summary), use_container_width=True, hide_index=True, column_config={
+        st.dataframe(pd.DataFrame(fin_summary).sort_values('Paid GP', ascending=False), use_container_width=True, hide_index=True, column_config={
             "Fin % (Booked)": st.column_config.ProgressColumn(format="%.0f%%", min_value=0, max_value=100),
             "GP Target": st.column_config.NumberColumn(format="$%d"),
             "Paid GP": st.column_config.NumberColumn(format="$%d"),
             "Payable Comm.": st.column_config.NumberColumn(format="$%d")
         })
-        
+
         st.divider()
-        st.markdown("### Historical Financial Summary (Total GP)")
+        st.markdown("### Historical Financial Performance (Quarterly GP)")
         if not sales_df.empty:
             sales_hist = sales_df[sales_df['Quarter'] != CURRENT_Q_STR]
             if not sales_hist.empty:
