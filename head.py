@@ -477,7 +477,8 @@ def main():
             st.write(f"DEBUG: 总共读到 {total_rows} 行销售数据，其中 {CURRENT_YEAR} 年的数据有 {this_year_rows} 行。")
         else:
             st.write("DEBUG: 主销售表完全没读到数据。")
-            
+        st.write(f"DEBUG: 当前设定筛选月份范围是: {start_m}月 到 {end_m}月")
+        
         # 1. Recruitment Stats
         st.markdown(f"### 🎯 Recruitment Stats (Q{CURRENT_QUARTER})")
         if not rec_stats_df.empty:
