@@ -17,8 +17,6 @@ import requests
 SALES_SHEET_ID = '1jniQ-GpeMINjQMebniJ_J1eLVLQIR1NGbSjTtOFP9Q8'
 SALES_TAB_NAME = 'Positions'
 
-# 定义当前季度
-CURRENT_Q_STR = f"{CURRENT_YEAR} Q{CURRENT_QUARTER}"
 
 # 🎯 简历目标设置 (季度)
 CV_TARGET_QUARTERLY = 87
