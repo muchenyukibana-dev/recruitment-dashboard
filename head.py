@@ -247,9 +247,16 @@ def calculate_financial_summary(sales_df, rec_df, q_str, team_data):
         target_gp = 0 if is_int else base * (4.5 if is_tl else 9.0)
         
         c_sales = q_sales[q_sales['Consultant'] == c_name].copy() if not q_sales.empty else pd.DataFrame()
-        sent_count = q_rec[q_rec['Consultant'] == c_name]['Sent'].sum() if not q_rec.empty else 0
         
-        booked_gp = c_sales['GP'].sum()
+        # --- 【关键修复：初始化所有可能缺失的列】 ---
+        for col in ['Comm ($)', 'Applied Level', 'Comm. Date']:
+            if col not in c_sales.columns:
+                if col == 'Comm ($)': c_sales[col] = 0.0
+                elif col == 'Applied Level': c_sales[col] = 0
+                else: c_sales[col] = ""
+
+        sent_count = q_rec[q_rec['Consultant'] == c_name]['Sent'].sum() if not q_rec.empty else 0
+        booked_gp = c_sales['GP'].sum() if not c_sales.empty else 0
         fin_pct = (booked_gp / target_gp * 100) if target_gp > 0 else 0
         rec_pct = (sent_count / CV_TARGET_QUARTERLY * 100)
         is_target_met = (fin_pct >= 100 or rec_pct >= 100)
@@ -268,11 +275,12 @@ def calculate_financial_summary(sales_df, rec_df, q_str, team_data):
                     lvl, mult = calculate_commission_tier(running_gp, base, is_tl)
                     level = lvl
                     for idx, row in m_deals.iterrows():
-                        comm = calculate_single_deal_commission(row['Candidate Salary'], mult) * row['Percentage']
+                        comm_val = calculate_single_deal_commission(row['Candidate Salary'], mult) * row['Percentage']
                         if is_target_met: 
-                            total_comm += comm
-                            paid_sales.at[idx, 'Comm ($)'] = comm
-                        else: paid_sales.at[idx, 'Comm ($)'] = 0
+                            total_comm += comm_val
+                            paid_sales.at[idx, 'Comm ($)'] = comm_val
+                        else: 
+                            paid_sales.at[idx, 'Comm ($)'] = 0.0
                         paid_sales.at[idx, 'Applied Level'] = lvl
                         pmt_date = row['Payment Date Obj']
                         paid_sales.at[idx, 'Comm. Date'] = (datetime(pmt_date.year + (pmt_date.month // 12), (pmt_date.month % 12) + 1, 15)).strftime("%Y-%m-%d")
@@ -284,9 +292,9 @@ def calculate_financial_summary(sales_df, rec_df, q_str, team_data):
             others_paid = q_sales[(q_sales['Status'] == 'Paid') & (q_sales['Consultant'] != c_name) & (q_sales['Consultant'] != "Estela Peng")]
             for _, row in others_paid.iterrows():
                 total_comm += 1000
-                pmt_date = row['Payment Date Obj']
-                comm_date = (datetime(pmt_date.year + (pmt_date.month // 12), (pmt_date.month % 12) + 1, 15)).strftime("%Y-%m-%d")
-                tl_overrides.append({"Leader": c_name, "Source": row['Consultant'], "Salary": row['Candidate Salary'], "Date": comm_date, "Bonus": 1000})
+                pmt_date = pd.to_datetime(row['Payment Date Obj'])
+                comm_date_str = (datetime(pmt_date.year + (pmt_date.month // 12), (pmt_date.month % 12) + 1, 15)).strftime("%Y-%m-%d")
+                tl_overrides.append({"Leader": c_name, "Source": row['Consultant'], "Salary": row['Candidate Salary'], "Date": comm_date_str, "Bonus": 1000})
 
         status = "Financial" if fin_pct >= 100 else ("Activity" if rec_pct >= 100 else "In Progress")
         summary.append({
@@ -297,7 +305,7 @@ def calculate_financial_summary(sales_df, rec_df, q_str, team_data):
         overrides_map[c_name] = pd.DataFrame(tl_overrides)
 
     return pd.DataFrame(summary).sort_values('Financial % (Booked)', ascending=False), details_map, overrides_map
-
+    
 def render_rec_table(df, title, roles_map):
     st.markdown(f"### 🎯 Recruitment Stats ({title})")
     if df.empty: st.info("No data available."); return
