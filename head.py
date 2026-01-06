@@ -267,7 +267,7 @@ def render_rec_table_styled(df, title, roles_map):
         column_config={
             "Target (Q)": st.column_config.NumberColumn("Target (Q)", format="%d"),
             "Sent": st.column_config.NumberColumn("Sent", format="%d"),
-            "Activity %": st.column_config.ProgressColumn("Activity %", format="%.0f%%", min_value=0, max_value=200),
+            "Activity %": st.column_config.ProgressColumn("Activity %", format="%.0f%%", min_value=0, max_value=100),
             "Int": st.column_config.NumberColumn("Int", format="%d"),
             "Off": st.column_config.NumberColumn("Off", format="%d"),
             "Int/Sent": st.column_config.NumberColumn("Int/Sent", format="%.2f%%")
@@ -334,7 +334,7 @@ def render_fin_table_styled(sales_df, rec_stats_df, quarter_str, team_data):
         column_config={
             "GP Target": st.column_config.NumberColumn("GP Target", format="$%d"),
             "Paid GP": st.column_config.NumberColumn("Paid GP", format="$%d"),
-            "Financial % (Booked)": st.column_config.ProgressColumn("Financial % (Booked)", format="%.0f%%", min_value=0, max_value=300),
+            "Financial % (Booked)": st.column_config.ProgressColumn("Financial % (Booked)", format="%.0f%%", min_value=0, max_value=100),
             "Payable Comm.": st.column_config.NumberColumn("Payable Comm.", format="$%d")
         }
     )
