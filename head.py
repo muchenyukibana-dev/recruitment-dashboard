@@ -389,7 +389,7 @@ def render_fin_table_styled(sales_df, rec_stats_df, quarter_str, team_data):
 
 
 # ==========================================
-# 🚀 5. MAIN LOGIC
+# 🚀 5. MAIN LOGIC (Fixed Version)
 # ==========================================
 def main():
     st.title("💼 Management Dashboard")
@@ -405,28 +405,35 @@ def main():
 
             rec_all, rec_logs = [], []
             ref_sheet = client.open_by_key(TEAM_CONFIG[0]['id'])
+            # 自动获取所有符合日期格式的页签
             all_m = [ws.title for ws in ref_sheet.worksheets() if ws.title.isdigit() and len(ws.title) == 6]
 
             for m in all_m:
                 for c in TEAM_CONFIG:
-                    s, i, o, d = internal_fetch_sheet_data(client, c, m)
+                    s, i, o, d_logs = internal_fetch_sheet_data(client, c, m)
                     q = f"{m[:4]} Q{(int(m[4:]) - 1) // 3 + 1}"
-                    rec_all.append(
-                        {"Consultant": c['name'], "Sent": s, "Int": i, "Off": o, "Quarter": q, "Year": m[:4]})
-                    rec_logs.extend(d)
+                    rec_all.append({"Consultant": c['name'], "Sent": s, "Int": i, "Off": o, "Quarter": q, "Year": m[:4]})
+                    rec_logs.extend(d_logs)
 
             st.session_state['data'] = {
-                "team": team_data, "rec": pd.DataFrame(rec_all), "logs": pd.DataFrame(rec_logs),
-                "sales": fetch_all_sales(client), "ts": datetime.now().strftime("%H:%M:%S")
+                "team": team_data, 
+                "rec": pd.DataFrame(rec_all), 
+                "logs": pd.DataFrame(rec_logs),
+                "sales": fetch_all_sales(client), 
+                "ts": datetime.now().strftime("%H:%M:%S")
             }
             st.rerun()
 
     if 'data' not in st.session_state:
-        st.info("👋 Welcome! Click 'REFRESH' to load dashboard.");
+        st.info("👋 Welcome! Click 'REFRESH ALL DATA' to load dashboard.")
         st.stop()
 
     d = st.session_state['data']
     role_map = {m['name']: m['role'] for m in d['team']}
+
+    # 【关键修复】：在进入 Tab 之前，必须先运行一次计算逻辑，得到详情页需要的变量
+    # 这里调用之前定义的 calculate_financial_summary 函数（确保你代码里有这个函数）
+    df_fin, details_curr, overrides_curr = calculate_financial_summary(d['sales'], d['rec'], CURRENT_Q_STR, d['team'])
 
     t_dash, t_det, t_logs = st.tabs(["📊 DASHBOARD", "📝 FINANCIAL DETAILS", "📜 RECRUITMENT LOGS"])
 
@@ -434,7 +441,9 @@ def main():
         # 1. Recruitment Stats
         render_rec_table_styled(d['rec'][d['rec']['Quarter'] == CURRENT_Q_STR], CURRENT_Q_STR, role_map)
         with st.expander("📜 Historical Recruitment Stats"):
-            for q in sorted([q for q in d['rec']['Quarter'].unique() if q != CURRENT_Q_STR], reverse=True):
+            # 排除当前季度，按时间倒序排列
+            hist_qs = sorted([q for q in d['rec']['Quarter'].unique() if q != CURRENT_Q_STR], reverse=True)
+            for q in hist_qs:
                 render_rec_table_styled(d['rec'][d['rec']['Quarter'] == q], q, role_map)
 
         st.divider()
@@ -442,70 +451,69 @@ def main():
         # 2. Financial Performance
         render_fin_table_styled(d['sales'], d['rec'], CURRENT_Q_STR, d['team'])
         with st.expander("📜 Historical Financial Target Achievement"):
-            for q in sorted([q for q in d['rec']['Quarter'].unique() if q != CURRENT_Q_STR], reverse=True):
+            for q in hist_qs:
                 render_fin_table_styled(d['sales'], d['rec'], q, d['team'])
 
     with t_det:
         st.markdown("### 🔍 Drill Down Details")
-        # 遍历团队成员配置
+        # 使用 d['team'] 替代不存在的 dynamic_team_config
         for conf in d['team']:
             c_name = conf['name']
-            # 从之前算好的当前季度汇总表中获取该顾问的行（用于显示角色和状态）
-            fin_row = fin_sum_curr[fin_sum_curr['Consultant'] == c_name].iloc[0]
+            # 使用上面计算出的 df_fin
+            try:
+                fin_row = df_fin[df_fin['Consultant'] == c_name].iloc[0]
+            except: continue
+            
             header = f"👤 {c_name} ({fin_row['Role']}) | Status: {fin_row['Status']}"
             
-            # 创建下拉折叠框
             with st.expander(header):
-                # 1. 提成明细表 (Commission Breakdown) - Intern不显示
+                # 1. Commission Breakdown
                 if fin_row['Role'] != "Intern":
                     st.markdown("#### 💸 Commission Breakdown")
+                    # 从计算结果 details_curr 中获取该顾问的明细
                     c_view = details_curr.get(c_name, pd.DataFrame())
                     if not c_view.empty:
-                        # 格式化百分比显示
-                        c_view['Pct Display'] = c_view['Percentage'].apply(lambda x: f"{int(x * 100)}%")
-                        # 确保列顺序和图片一致
+                        c_view['Pct Display'] = c_view['Percentage'].apply(lambda x: f"{x * 100:.0f}%")
+                        # 对齐你要求的列名顺序
                         display_cols = ['Onboard Date Str', 'Payment Date', 'Comm. Date', 'Candidate Salary', 'Pct Display', 'GP', 'Status', 'Applied Level', 'Comm ($)']
-                        st.dataframe(
-                            c_view[display_cols], 
-                            use_container_width=True, 
-                            hide_index=True, 
-                            column_config={
-                                "Comm ($)": st.column_config.NumberColumn(format="$%.2f"),
-                                "GP": st.column_config.NumberColumn(format="$%d"),
-                                "Candidate Salary": st.column_config.NumberColumn(format="$%d")
-                            }
-                        )
+                        st.dataframe(c_view[display_cols], 
+                                     use_container_width=True, 
+                                     hide_index=True,
+                                     column_config={
+                                         "Comm ($)": st.column_config.NumberColumn(format="$%.2f"),
+                                         "GP": st.column_config.NumberColumn(format="$%d"),
+                                         "Candidate Salary": st.column_config.NumberColumn(format="$%d")
+                                     })
                     else:
-                        st.info("No deals for current quarter.")
+                        st.info("No deals for this quarter.")
 
-                # 2. 团队提成 (Team Overrides) - 仅Team Lead显示
+                # 2. Team Overrides
                 if fin_row['Role'] == 'Team Lead':
                     st.divider()
                     st.markdown("#### 👥 Team Overrides")
                     ov_view = overrides_curr.get(c_name, pd.DataFrame())
                     if not ov_view.empty:
-                        # 列顺序：Leader, Source, Salary, Date, Bonus
-                        st.dataframe(
-                            ov_view, 
-                            use_container_width=True, 
-                            hide_index=True, 
-                            column_config={
-                                "Bonus": st.column_config.NumberColumn(format="$%d"),
-                                "Salary": st.column_config.NumberColumn(format="$%d")
-                            }
-                        )
+                        st.dataframe(ov_view, 
+                                     use_container_width=True, 
+                                     hide_index=True,
+                                     column_config={
+                                         "Bonus": st.column_config.NumberColumn(format="$%d"),
+                                         "Salary": st.column_config.NumberColumn(format="$%d")
+                                     })
                     else:
                         st.info("No team overrides yet.")
 
     with t_logs:
-        for yr in ["2026", "2025"]:
-            with st.expander(f"📅 Recruitment Logs {yr}"):
+        st.markdown("### 📝 Recruitment Logs")
+        # 分年度展示日志
+        years = sorted(d['logs']['Year'].unique(), reverse=True)
+        for yr in years:
+            with st.expander(f"📅 Recruitment Logs for Year {yr}"):
                 df_yr_logs = d['logs'][d['logs']['Year'] == yr]
                 if not df_yr_logs.empty:
-                    st.dataframe(
-                        df_yr_logs.groupby(['Month', 'Company', 'Position', 'Status'])['Count'].sum().reset_index(),
-                        use_container_width=True, hide_index=True)
-
+                    # 分组汇总展示
+                    log_summary = df_yr_logs.groupby(['Month','Company','Position','Status'])['Count'].sum().reset_index()
+                    st.dataframe(log_summary.sort_values('Month', ascending=False), use_container_width=True, hide_index=True)
 
 if __name__ == "__main__":
     main()
