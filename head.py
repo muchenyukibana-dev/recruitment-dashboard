@@ -24,6 +24,13 @@ CURRENT_YEAR = now.year
 CURRENT_QUARTER = (now.month - 1) // 3 + 1
 CURRENT_Q_STR = f"{CURRENT_YEAR} Q{CURRENT_QUARTER}"
 
+# 自动计算当前季度的起始和结束月份
+start_m = (CURRENT_QUARTER - 1) * 3 + 1
+end_m = start_m + 2
+
+# 自动生成抓取个人表所需的月份字符串，例如 ['202601', '202602', '202603']
+quarter_months_str = [f"{CURRENT_YEAR}{m:02d}" for m in range(start_m, end_m + 1)]
+
 # 🎯 简历目标设置 (季度)
 CV_TARGET_QUARTERLY = 87
 
@@ -438,7 +445,7 @@ def main():
                     st.error(str(e))
 
     if 'data_cache' not in st.session_state:
-        st.info("👋 Welcome! Click 'REFRESH DATA' to load the Q4 report.");
+        st.info("👋 Welcome! Click 'REFRESH DATA' to load report.");
         st.stop()
 
     cache = st.session_state['data_cache']
@@ -448,12 +455,17 @@ def main():
     st.caption(f"📅 Snapshot: {cache['last_updated']}")
 
     if not all_sales_df.empty:
-        q4_mask = (all_sales_df['Onboard Date'].dt.year == CURRENT_YEAR) & (
+        # 这里的 CURRENT_YEAR, start_m, end_m 现在都是上面自动算出来的 2026, 1, 3
+        current_q_mask = (all_sales_df['Onboard Date'].dt.year == CURRENT_YEAR) & (
                 all_sales_df['Onboard Date'].dt.month >= start_m) & (all_sales_df['Onboard Date'].dt.month <= end_m)
-        sales_df_q4 = all_sales_df[q4_mask].copy()
-        sales_df_hist = all_sales_df[~q4_mask].copy()
+
+        # 提取今年本季度的数据（如 2026 Q1）
+        sales_df_current = all_sales_df[current_q_mask].copy()
+
+        # 提取除此之外的所有历史数据
+        sales_df_hist = all_sales_df[~current_q_mask].copy()
     else:
-        sales_df_q4, sales_df_hist = pd.DataFrame(), pd.DataFrame()
+        sales_df_current, sales_df_hist = pd.DataFrame(), pd.DataFrame()
 
     tab_dash, tab_details = st.tabs(["📊 DASHBOARD", "📝 DETAILS"])
 
@@ -555,8 +567,8 @@ def main():
             cv_target = CV_TARGET_QUARTERLY
 
             # 获取该顾问数据
-            c_sales = sales_df_q4[
-                sales_df_q4['Consultant'] == c_name].copy() if not sales_df_q4.empty else pd.DataFrame()
+            c_sales = sales_df_current[
+                sales_df_current['Consultant'] == c_name].copy() if not sales_df_current.empty else pd.DataFrame()
             sent_count = rec_stats_df[rec_stats_df['Consultant'] == c_name][
                 'Sent'].sum() if not rec_stats_df.empty else 0
 
@@ -654,10 +666,10 @@ def main():
                     updated_sales_records.append(c_sales)
 
                 # Team Lead Override 计算
-                if is_team_lead and is_target_met and not sales_df_q4.empty:
-                    override_mask = (sales_df_q4['Status'] == 'Paid') & (sales_df_q4['Consultant'] != c_name) & (
-                            sales_df_q4['Consultant'] != "Estela Peng")
-                    pot_overrides = sales_df_q4[override_mask].copy()
+                if is_team_lead and is_target_met and not sales_df_current.empty:
+                    override_mask = (sales_df_current['Status'] == 'Paid') & (sales_df_current['Consultant'] != c_name) & (
+                            sales_df_current['Consultant'] != "Estela Peng")
+                    pot_overrides = sales_df_current[override_mask].copy()
                     for _, row in pot_overrides.iterrows():
                         comm_pay_obj = get_commission_pay_date(row['Payment Date Obj'])
                         if pd.notnull(comm_pay_obj) and comm_pay_obj <= datetime.now() + timedelta(days=20):
