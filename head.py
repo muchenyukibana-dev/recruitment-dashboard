@@ -19,6 +19,7 @@ CURRENT_YEAR = now.year
 CURRENT_QUARTER = (now.month - 1) // 3 + 1
 CURRENT_Q_STR = f"{CURRENT_YEAR} Q{CURRENT_QUARTER}"
 
+# Calculate months for the current quarter for data fetching
 start_m = (CURRENT_QUARTER - 1) * 3 + 1
 CURRENT_QUARTER_MONTHS = [f"{CURRENT_YEAR}{m:02d}" for m in range(start_m, start_m + 3)]
 
@@ -35,14 +36,12 @@ TEAM_CONFIG = [
 
 st.set_page_config(page_title="Management Dashboard", page_icon="💼", layout="wide")
 
-# --- 🎨 STYLES (MATCHING IMAGES) ---
+# --- 🎨 STYLES ---
 st.markdown("""
     <style>
     .stApp { background-color: #FFFFFF; color: #000000; }
     h3 { color: #333333 !important; font-family: 'Arial', sans-serif; font-weight: bold; margin-bottom: 20px; }
     .stButton>button { background-color: #0056b3; color: white; border-radius: 4px; font-weight: bold; }
-    /* Headers Bold */
-    [data-testid="stHeader"] { font-weight: bold; }
     .dataframe { font-size: 14px !important; }
     </style>
     """, unsafe_allow_html=True)
@@ -61,13 +60,8 @@ if 'keep_alive_started' not in st.session_state:
     st.session_state['keep_alive_started'] = True
 
 # ==========================================
-# 🧮 2. CORE HELPERS
+# 🧮 2. CORE HELPERS (COMPLEX LOGIC)
 # ==========================================
-def get_quarter_str(date_obj):
-    if pd.isna(date_obj): return "Unknown"
-    q = (date_obj.month - 1) // 3 + 1
-    return f"{date_obj.year} Q{q}"
-
 def calculate_commission_tier(total_gp, base_salary, is_tl=False):
     t1, t2, t3 = (4.5, 6.75, 11.25) if is_tl else (9.0, 13.5, 22.5)
     if total_gp < t1 * base_salary: return 0, 0
@@ -82,13 +76,6 @@ def calculate_single_deal_commission(sal, mult):
     elif sal < 50000: base = sal * 1.5 * 0.05
     else: base = sal * 2.0 * 0.05
     return base * mult
-
-def get_commission_pay_date(pmt_date):
-    if pd.isna(pmt_date) or not pmt_date: return None
-    try:
-        y, m = pmt_date.year + (pmt_date.month // 12), (pmt_date.month % 12) + 1
-        return datetime(y, m, 15)
-    except: return None
 
 def normalize_text(text):
     return ''.join(c for c in unicodedata.normalize('NFD', str(text)) if unicodedata.category(c) != 'Mn').lower()
@@ -222,82 +209,41 @@ def fetch_all_sales(client):
                             except: pass
                 sales_records.append({
                     "Consultant": matched, "GP": gp, "Candidate Salary": sal, "Percentage": pct,
-                    "Onboard Date": on_date, "Year": str(on_date.year), "Status": status, "Payment Date Obj": pay_obj,
-                    "Quarter": get_quarter_str(on_date)
+                    "Onboard Date": on_date, "Onboard Date Str": on_date.strftime("%Y-%m-%d"), 
+                    "Payment Date": row[col_pay].strip() if col_pay != -1 and len(row) > col_pay else "",
+                    "Year": str(on_date.year), "Status": status, "Payment Date Obj": pay_obj,
+                    "Quarter": f"{on_date.year} Q{(on_date.month - 1) // 3 + 1}"
                 })
         return pd.DataFrame(sales_records)
     except: return pd.DataFrame()
 
 # ==========================================
-# 📊 4. UI RENDER FUNCTIONS (MATCHING IMAGES)
+# 📊 4. DASHBOARD CALCULATION
 # ==========================================
-
-def render_rec_table_styled(df, title, roles_map):
-    st.markdown(f"### 🎯 {title}")
-    if df.empty: st.info("No data available."); return
-    
-    # Process grouping
-    summary = df.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
-    summary['Role'] = summary['Consultant'].map(roles_map)
-    summary['Target (Q)'] = CV_TARGET_QUARTERLY
-    summary['Activity %'] = (summary['Sent'] / summary['Target (Q)'] * 100).clip(0, 500)
-    summary['Int/Sent'] = (summary['Int'] / summary['Sent'] * 100).fillna(0)
-    
-    # Calculate Total Row
-    total_row = pd.DataFrame([{
-        'Consultant': 'TOTAL',
-        'Role': '-',
-        'Target (Q)': summary['Target (Q)'].sum(),
-        'Sent': summary['Sent'].sum(),
-        'Activity %': (summary['Sent'].sum() / summary['Target (Q)'].sum() * 100),
-        'Int': summary['Int'].sum(),
-        'Off': summary['Off'].sum(),
-        'Int/Sent': (summary['Int'].sum() / summary['Sent'].sum() * 100 if summary['Sent'].sum() > 0 else 0)
-    }])
-    
-    final_df = pd.concat([summary, total_row], ignore_index=True)
-    
-    # Column selection & order as per image
-    cols = ['Consultant', 'Role', 'Target (Q)', 'Sent', 'Activity %', 'Int', 'Off', 'Int/Sent']
-    
-    st.dataframe(
-        final_df[cols],
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Target (Q)": st.column_config.NumberColumn("Target (Q)", format="%d"),
-            "Sent": st.column_config.NumberColumn("Sent", format="%d"),
-            "Activity %": st.column_config.ProgressColumn("Activity %", format="%.0f%%", min_value=0, max_value=100),
-            "Int": st.column_config.NumberColumn("Int", format="%d"),
-            "Off": st.column_config.NumberColumn("Off", format="%d"),
-            "Int/Sent": st.column_config.NumberColumn("Int/Sent", format="%.2f%%")
-        }
-    )
-
-def render_fin_table_styled(sales_df, rec_stats_df, quarter_str, team_data):
-    st.markdown(f"### 💰 Financial Performance ({quarter_str})")
-    
+def calculate_financial_summary(sales_df, rec_df, q_str, team_config):
     summary_list = []
-    q_sales = sales_df[sales_df['Quarter'] == quarter_str].copy() if not sales_df.empty else pd.DataFrame()
-    q_rec = rec_stats_df[rec_stats_df['Quarter'] == quarter_str] if not rec_stats_df.empty else pd.DataFrame()
+    details_map = {}
+    overrides_map = {}
 
-    for conf in team_data:
+    q_sales = sales_df[sales_df['Quarter'] == q_str].copy() if not sales_df.empty else pd.DataFrame()
+    q_rec = rec_df[rec_df['Quarter'] == q_str] if not rec_df.empty else pd.DataFrame()
+
+    for conf in team_config:
         c_name, base, role = conf['name'], conf['base_salary'], conf.get('role', 'Consultant')
         is_tl, is_int = (role == "Team Lead"), (role == "Intern")
         target_gp = 0 if is_int else base * (4.5 if is_tl else 9.0)
         
-        c_sales = q_sales[q_sales['Consultant'] == c_name].copy() if not q_sales.empty else pd.DataFrame()
+        c_deals = q_sales[q_sales['Consultant'] == c_name].copy() if not q_sales.empty else pd.DataFrame()
         sent_count = q_rec[q_rec['Consultant'] == c_name]['Sent'].sum() if not q_rec.empty else 0
         
-        booked_gp = c_sales['GP'].sum()
-        paid_gp, total_comm, level = 0, 0, 0
-        
+        booked_gp = c_deals['GP'].sum()
         fin_pct = (booked_gp / target_gp * 100) if target_gp > 0 else 0
         rec_pct = (sent_count / CV_TARGET_QUARTERLY * 100)
         is_target_met = (fin_pct >= 100 or rec_pct >= 100)
 
-        if not is_int and not c_sales.empty:
-            paid_sales = c_sales[c_sales['Status'] == 'Paid'].copy()
+        paid_gp, total_comm, level = 0, 0, 0
+        if not is_int and not c_deals.empty:
+            paid_sales = c_deals[c_deals['Status'] == 'Paid'].copy()
             if not paid_sales.empty:
                 paid_sales['Payment Date Obj'] = pd.to_datetime(paid_sales['Payment Date Obj'])
                 paid_sales = paid_sales.sort_values(by='Payment Date Obj')
@@ -308,36 +254,40 @@ def render_fin_table_styled(sales_df, rec_stats_df, quarter_str, team_data):
                     running_gp += m_deals['GP'].sum()
                     lvl, mult = calculate_commission_tier(running_gp, base, is_tl)
                     level = lvl
-                    if is_target_met:
-                        for _, row in m_deals.iterrows():
-                            total_comm += calculate_single_deal_commission(row['Candidate Salary'], mult) * row['Percentage']
+                    for idx, row in m_deals.iterrows():
+                        comm = calculate_single_deal_commission(row['Candidate Salary'], mult) * row['Percentage']
+                        if is_target_met: 
+                            total_comm += comm
+                            paid_sales.at[idx, 'Comm ($)'] = comm
+                        else:
+                            paid_sales.at[idx, 'Comm ($)'] = 0
+                        paid_sales.at[idx, 'Applied Level'] = lvl
+                        # Comm Day logic
+                        pmt_date = row['Payment Date Obj']
+                        paid_sales.at[idx, 'Comm. Date'] = (datetime(pmt_date.year + (pmt_date.month // 12), (pmt_date.month % 12) + 1, 15)).strftime("%Y-%m-%d")
+                
                 paid_gp = running_gp
+                c_deals.update(paid_sales)
 
         # TL Bonus
+        tl_overrides = []
         if is_tl and is_target_met and not q_sales.empty:
             others_paid = q_sales[(q_sales['Status'] == 'Paid') & (q_sales['Consultant'] != c_name) & (q_sales['Consultant'] != "Estela Peng")]
-            total_comm += len(others_paid) * 1000
+            for _, row in others_paid.iterrows():
+                total_comm += 1000
+                pmt_date = row['Payment Date Obj']
+                comm_date = (datetime(pmt_date.year + (pmt_date.month // 12), (pmt_date.month % 12) + 1, 15)).strftime("%Y-%m-%d")
+                tl_overrides.append({"Leader": c_name, "Source": row['Consultant'], "Salary": row['Candidate Salary'], "Date": comm_date, "Bonus": 1000})
 
         status = "Financial" if fin_pct >= 100 else ("Activity" if rec_pct >= 100 else "In Progress")
-
         summary_list.append({
             "Consultant": c_name, "Role": role, "GP Target": target_gp, "Paid GP": paid_gp, 
             "Financial % (Booked)": fin_pct, "Status": status, "Level": level, "Payable Comm.": total_comm
         })
-    
-    final_df = pd.DataFrame(summary_list).sort_values('Financial % (Booked)', ascending=False)
-    
-    st.dataframe(
-        final_df,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "GP Target": st.column_config.NumberColumn("GP Target", format="$%d"),
-            "Paid GP": st.column_config.NumberColumn("Paid GP", format="$%d"),
-            "Financial % (Booked)": st.column_config.ProgressColumn("Financial % (Booked)", format="%.0f%%", min_value=0, max_value=100),
-            "Payable Comm.": st.column_config.NumberColumn("Payable Comm.", format="$%d")
-        }
-    )
+        details_map[c_name] = c_deals
+        overrides_map[c_name] = pd.DataFrame(tl_overrides)
+
+    return pd.DataFrame(summary_list).sort_values('Financial % (Booked)', ascending=False), details_map, overrides_map
 
 # ==========================================
 # 🚀 5. MAIN LOGIC
@@ -351,8 +301,7 @@ def main():
     if st.button("🔄 REFRESH ALL DATA", type="primary"):
         with st.spinner("⏳ Fetching data..."):
             team_data = []
-            for c in TEAM_CONFIG:
-                team_data.append({**c, "role": fetch_role(client, c['id'])})
+            for c in TEAM_CONFIG: team_data.append({**c, "role": fetch_role(client, c['id'])})
             
             rec_all, rec_logs = [], []
             ref_sheet = client.open_by_key(TEAM_CONFIG[0]['id'])
@@ -377,35 +326,73 @@ def main():
     d = st.session_state['data']
     role_map = {m['name']: m['role'] for m in d['team']}
     
+    # Run Calculations for Current Q
+    fin_sum_curr, details_curr, overrides_curr = calculate_financial_summary(d['sales'], d['rec'], CURRENT_Q_STR, d['team'])
+    
     t_dash, t_det, t_logs = st.tabs(["📊 DASHBOARD", "📝 FINANCIAL DETAILS", "📜 RECRUITMENT LOGS"])
 
     with t_dash:
-        # 1. Recruitment Stats
+        # --- Recruitment Section ---
+        from head import render_rec_table_styled # Import the styled function
         render_rec_table_styled(d['rec'][d['rec']['Quarter'] == CURRENT_Q_STR], CURRENT_Q_STR, role_map)
         with st.expander("📜 Historical Recruitment Stats"):
-            for q in sorted([q for q in d['rec']['Quarter'].unique() if q != CURRENT_Q_STR], reverse=True):
-                render_rec_table_styled(d['rec'][d['rec']['Quarter'] == q], q, role_map)
+            q_list = sorted([q for q in d['rec']['Quarter'].unique() if q != CURRENT_Q_STR], reverse=True)
+            for q in q_list: render_rec_table_styled(d['rec'][d['rec']['Quarter'] == q], q, role_map)
 
         st.divider()
 
-        # 2. Financial Performance
-        render_fin_table_styled(d['sales'], d['rec'], CURRENT_Q_STR, d['team'])
-        with st.expander("📜 Historical Financial Target Achievement"):
-            for q in sorted([q for q in d['rec']['Quarter'].unique() if q != CURRENT_Q_STR], reverse=True):
-                render_fin_table_styled(d['sales'], d['rec'], q, d['team'])
+        # --- Financial Section ---
+        st.markdown(f"### 💰 Financial Performance ({CURRENT_Q_STR})")
+        st.dataframe(fin_sum_curr, use_container_width=True, hide_index=True, column_config={
+            "GP Target": st.column_config.NumberColumn(format="$%d"),
+            "Paid GP": st.column_config.NumberColumn(format="$%d"),
+            "Financial % (Booked)": st.column_config.ProgressColumn(format="%.0f%%", min_value=0, max_value=100),
+            "Payable Comm.": st.column_config.NumberColumn(format="$%d")
+        })
+        with st.expander("📜 Historical Financial Performance"):
+            q_list = sorted([q for q in d['rec']['Quarter'].unique() if q != CURRENT_Q_STR], reverse=True)
+            for q in q_list:
+                f_sum, _, _ = calculate_financial_summary(d['sales'], d['rec'], q, d['team'])
+                st.markdown(f"#### {q}")
+                st.dataframe(f_sum, use_container_width=True, hide_index=True, column_config={
+                    "Financial % (Booked)": st.column_config.ProgressColumn(format="%.0f%%", min_value=0, max_value=100),
+                    "Payable Comm.": st.column_config.NumberColumn(format="$%d")
+                })
 
     with t_det:
-        for yr in ["2026", "2025"]:
-            st.markdown(f"#### Sales Year: {yr}")
-            df_yr = d['sales'][d['sales']['Year'] == yr]
-            if not df_yr.empty: st.dataframe(df_yr[['Quarter','Consultant','GP','Status']], use_container_width=True, hide_index=True)
+        st.markdown("### 🔍 Drill Down Details")
+        for conf in d['team']:
+            c_name = conf['name']
+            fin_row = fin_sum_curr[fin_sum_curr['Consultant'] == c_name].iloc[0]
+            header = f"👤 {c_name} ({fin_row['Role']}) | Status: {fin_row['Status']}"
+            
+            with st.expander(header):
+                if fin_row['Role'] != "Intern":
+                    st.markdown("#### 💸 Commission Breakdown")
+                    c_view = details_curr.get(c_name, pd.DataFrame())
+                    if not c_view.empty:
+                        c_view['Pct Display'] = c_view['Percentage'].apply(lambda x: f"{int(x * 100)}%")
+                        display_cols = ['Onboard Date Str', 'Payment Date', 'Comm. Date', 'Candidate Salary', 'Pct Display', 'GP', 'Status', 'Applied Level', 'Comm ($)']
+                        st.dataframe(c_view[display_cols], use_container_width=True, hide_index=True, column_config={
+                            "Comm ($)": st.column_config.NumberColumn(format="$%.2f"),
+                            "GP": st.column_config.NumberColumn(format="$%d")
+                        })
+                    else: st.info("No deals for current quarter.")
+
+                if fin_row['Role'] == 'Team Lead':
+                    st.divider()
+                    st.markdown("#### 👥 Team Overrides")
+                    ov_view = overrides_curr.get(c_name, pd.DataFrame())
+                    if not ov_view.empty:
+                        st.dataframe(ov_view, use_container_width=True, hide_index=True, column_config={"Bonus": st.column_config.NumberColumn(format="$%d")})
+                    else: st.info("No team overrides yet.")
 
     with t_logs:
         for yr in ["2026", "2025"]:
             with st.expander(f"📅 Recruitment Logs {yr}"):
                 df_yr_logs = d['logs'][d['logs']['Year'] == yr]
                 if not df_yr_logs.empty:
-                    st.dataframe(df_yr_logs.groupby(['Month','Company','Position','Status'])['Count'].sum().reset_index(), use_container_width=True, hide_index=True)
+                    st.dataframe(df_yr_logs.groupby(['Month','Company','Position','Status'])['Count'].sum().reset_index().sort_values('Month', ascending=False), use_container_width=True, hide_index=True)
 
 if __name__ == "__main__":
     main()
