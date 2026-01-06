@@ -18,9 +18,16 @@ SALES_SHEET_ID = '1jniQ-GpeMINjQMebniJ_J1eLVLQIR1NGbSjTtOFP9Q8'
 SALES_TAB_NAME = 'Positions'
 
 # 定义当前季度
-CURRENT_YEAR = 2025
-CURRENT_QUARTER = 4
-CURRENT_Q_STR = f"{CURRENT_YEAR} Q{CURRENT_QUARTER}"
+from datetime import datetime
+# 获取当前日期
+now = datetime.now()
+# 自动获取当前年份
+CURRENT_YEAR = now.year
+# 自动计算当前季度：(月份-1) // 3 + 1
+# 1-3月 -> Q1, 4-6月 -> Q2, 7-9月 -> Q3, 10-12月 -> Q4
+CURRENT_Q_STR = (now.month - 1) // 3 + 1
+
+
 
 # 🎯 简历目标设置 (季度)
 CV_TARGET_QUARTERLY = 87
