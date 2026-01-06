@@ -428,9 +428,6 @@ def main():
     client = connect_to_google()
     if not client: st.error("❌ API Error"); return
 
-    start_m, end_m = 10, 12
-    quarter_months_str = [f"{CURRENT_YEAR}{m:02d}" for m in range(start_m, end_m + 1)]
-
     col1, col2 = st.columns([1, 5])
     with col1:
         if st.button("🔄 REFRESH DATA", type="primary"):
