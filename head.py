@@ -471,7 +471,7 @@ def main():
 
     with tab_dash:
     # --- 🔍 诊断工具：如果数据是0，请看这里的提示 ---
-    if not all_sales_df.empty:
+        if not all_sales_df.empty:
         total_rows = len(all_sales_df)
         this_year_rows = len(all_sales_df[all_sales_df['Onboard Date'].dt.year == CURRENT_YEAR])
         st.write(f"DEBUG: 总共读到 {total_rows} 行销售数据，其中 {CURRENT_YEAR} 年的数据有 {this_year_rows} 行。")
