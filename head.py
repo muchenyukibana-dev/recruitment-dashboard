@@ -229,7 +229,8 @@ def fetch_all_sales(client):
                 on_date = None
                 for fmt in date_formats:
                     try:
-                        on_date = datetime.strptime(row[col_onboard].strip(), fmt); break
+                        on_date = datetime.strptime(row[col_onboard].strip(), fmt);
+                        break
                     except:
                         pass
                 if not on_date: continue
@@ -259,7 +260,8 @@ def fetch_all_sales(client):
                         status = "Paid"
                         for fmt in date_formats:
                             try:
-                                pay_obj = datetime.strptime(pay_str, fmt); break
+                                pay_obj = datetime.strptime(pay_str, fmt);
+                                break
                             except:
                                 pass
                 sales_records.append({
@@ -362,7 +364,7 @@ def render_fin_table_styled(sales_df, rec_stats_df, quarter_str, team_data):
         # TL Bonus
         if is_tl and is_target_met and not q_sales.empty:
             others_paid = q_sales[(q_sales['Status'] == 'Paid') & (q_sales['Consultant'] != c_name) & (
-                        q_sales['Consultant'] != "Estela Peng")]
+                    q_sales['Consultant'] != "Estela Peng")]
             total_comm += len(others_paid) * 1000
 
         status = "Financial" if fin_pct >= 100 else ("Activity" if rec_pct >= 100 else "In Progress")
@@ -389,9 +391,9 @@ def render_fin_table_styled(sales_df, rec_stats_df, quarter_str, team_data):
 
 
 # ==========================================
-# 🚀 5. MAIN LOGIC (Fixed Version)
+# 🚀 5. MAIN LOGIC
 # ==========================================
-def main():
+def main(tab_details=None, dynamic_team_config=None, df_fin=None, final_sales_df=None, override_df=None):
     st.title("💼 Management Dashboard")
 
     client = connect_to_google()
@@ -405,35 +407,28 @@ def main():
 
             rec_all, rec_logs = [], []
             ref_sheet = client.open_by_key(TEAM_CONFIG[0]['id'])
-            # 自动获取所有符合日期格式的页签
             all_m = [ws.title for ws in ref_sheet.worksheets() if ws.title.isdigit() and len(ws.title) == 6]
 
             for m in all_m:
                 for c in TEAM_CONFIG:
-                    s, i, o, d_logs = internal_fetch_sheet_data(client, c, m)
+                    s, i, o, d = internal_fetch_sheet_data(client, c, m)
                     q = f"{m[:4]} Q{(int(m[4:]) - 1) // 3 + 1}"
-                    rec_all.append({"Consultant": c['name'], "Sent": s, "Int": i, "Off": o, "Quarter": q, "Year": m[:4]})
-                    rec_logs.extend(d_logs)
+                    rec_all.append(
+                        {"Consultant": c['name'], "Sent": s, "Int": i, "Off": o, "Quarter": q, "Year": m[:4]})
+                    rec_logs.extend(d)
 
             st.session_state['data'] = {
-                "team": team_data, 
-                "rec": pd.DataFrame(rec_all), 
-                "logs": pd.DataFrame(rec_logs),
-                "sales": fetch_all_sales(client), 
-                "ts": datetime.now().strftime("%H:%M:%S")
+                "team": team_data, "rec": pd.DataFrame(rec_all), "logs": pd.DataFrame(rec_logs),
+                "sales": fetch_all_sales(client), "ts": datetime.now().strftime("%H:%M:%S")
             }
             st.rerun()
 
     if 'data' not in st.session_state:
-        st.info("👋 Welcome! Click 'REFRESH ALL DATA' to load dashboard.")
+        st.info("👋 Welcome! Click 'REFRESH' to load dashboard.");
         st.stop()
 
     d = st.session_state['data']
     role_map = {m['name']: m['role'] for m in d['team']}
-
-    # 【关键修复】：在进入 Tab 之前，必须先运行一次计算逻辑，得到详情页需要的变量
-    # 这里调用之前定义的 calculate_financial_summary 函数（确保你代码里有这个函数）
-    df_fin, details_curr, overrides_curr = calculate_financial_summary(d['sales'], d['rec'], CURRENT_Q_STR, d['team'])
 
     t_dash, t_det, t_logs = st.tabs(["📊 DASHBOARD", "📝 FINANCIAL DETAILS", "📜 RECRUITMENT LOGS"])
 
@@ -441,9 +436,7 @@ def main():
         # 1. Recruitment Stats
         render_rec_table_styled(d['rec'][d['rec']['Quarter'] == CURRENT_Q_STR], CURRENT_Q_STR, role_map)
         with st.expander("📜 Historical Recruitment Stats"):
-            # 排除当前季度，按时间倒序排列
-            hist_qs = sorted([q for q in d['rec']['Quarter'].unique() if q != CURRENT_Q_STR], reverse=True)
-            for q in hist_qs:
+            for q in sorted([q for q in d['rec']['Quarter'].unique() if q != CURRENT_Q_STR], reverse=True):
                 render_rec_table_styled(d['rec'][d['rec']['Quarter'] == q], q, role_map)
 
         st.divider()
@@ -451,69 +444,63 @@ def main():
         # 2. Financial Performance
         render_fin_table_styled(d['sales'], d['rec'], CURRENT_Q_STR, d['team'])
         with st.expander("📜 Historical Financial Target Achievement"):
-            for q in hist_qs:
+            for q in sorted([q for q in d['rec']['Quarter'].unique() if q != CURRENT_Q_STR], reverse=True):
                 render_fin_table_styled(d['sales'], d['rec'], q, d['team'])
 
-    with t_det:
+    with tab_details:
         st.markdown("### 🔍 Drill Down Details")
-        # 使用 d['team'] 替代不存在的 dynamic_team_config
-        for conf in d['team']:
+        # 使用你原来的变量名 dynamic_team_config
+        for conf in dynamic_team_config:
             c_name = conf['name']
-            # 使用上面计算出的 df_fin
-            try:
-                fin_row = df_fin[df_fin['Consultant'] == c_name].iloc[0]
-            except: continue
-            
+            # 使用你原来的变量名 df_fin
+            fin_row = df_fin[df_fin['Consultant'] == c_name].iloc[0]
             header = f"👤 {c_name} ({fin_row['Role']}) | Status: {fin_row['Status']}"
-            
-            with st.expander(header):
-                # 1. Commission Breakdown
-                if fin_row['Role'] != "Intern":
-                    st.markdown("#### 💸 Commission Breakdown")
-                    # 从计算结果 details_curr 中获取该顾问的明细
-                    c_view = details_curr.get(c_name, pd.DataFrame())
-                    if not c_view.empty:
-                        c_view['Pct Display'] = c_view['Percentage'].apply(lambda x: f"{x * 100:.0f}%")
-                        # 对齐你要求的列名顺序
-                        display_cols = ['Onboard Date Str', 'Payment Date', 'Comm. Date', 'Candidate Salary', 'Pct Display', 'GP', 'Status', 'Applied Level', 'Comm ($)']
-                        st.dataframe(c_view[display_cols], 
-                                     use_container_width=True, 
-                                     hide_index=True,
-                                     column_config={
-                                         "Comm ($)": st.column_config.NumberColumn(format="$%.2f"),
-                                         "GP": st.column_config.NumberColumn(format="$%d"),
-                                         "Candidate Salary": st.column_config.NumberColumn(format="$%d")
-                                     })
-                    else:
-                        st.info("No deals for this quarter.")
 
-                # 2. Team Overrides
-                if fin_row['Role'] == 'Team Lead':
-                    st.divider()
-                    st.markdown("#### 👥 Team Overrides")
-                    ov_view = overrides_curr.get(c_name, pd.DataFrame())
-                    if not ov_view.empty:
-                        st.dataframe(ov_view, 
-                                     use_container_width=True, 
-                                     hide_index=True,
-                                     column_config={
-                                         "Bonus": st.column_config.NumberColumn(format="$%d"),
-                                         "Salary": st.column_config.NumberColumn(format="$%d")
-                                     })
-                    else:
-                        st.info("No team overrides yet.")
+        # 这里就是你要的下拉折叠框
+    with st.expander(header):
+        # 1. 提成明细 (只有非实习生显示)
+        if fin_row['Role'] != "Intern":
+            st.markdown("#### 💸 Commission Breakdown")
+            if not final_sales_df.empty:
+                c_view = final_sales_df[final_sales_df['Consultant'] == c_name].copy()
+                if not c_view.empty:
+                    # 转换百分比显示
+                    c_view['Pct Display'] = c_view['Percentage'].apply(lambda x: f"{x * 100:.0f}%")
 
-    with t_logs:
-        st.markdown("### 📝 Recruitment Logs")
-        # 分年度展示日志
-        years = sorted(d['logs']['Year'].unique(), reverse=True)
-        for yr in years:
-            with st.expander(f"📅 Recruitment Logs for Year {yr}"):
-                df_yr_logs = d['logs'][d['logs']['Year'] == yr]
-                if not df_yr_logs.empty:
-                    # 分组汇总展示
-                    log_summary = df_yr_logs.groupby(['Month','Company','Position','Status'])['Count'].sum().reset_index()
-                    st.dataframe(log_summary.sort_values('Month', ascending=False), use_container_width=True, hide_index=True)
+                    # 这里的列名完全对齐你要求的截图顺序
+                    # 如果你的原始列名是 'Commission Day'，我们通过 column_config 把它显示为 'Comm. Date'
+                    display_cols = ['Onboard Date Str', 'Payment Date', 'Commission Day', 'Candidate Salary',
+                                    'Pct Display', 'GP', 'Status', 'Applied Level', 'Final Comm']
+
+                    st.dataframe(c_view[display_cols],
+                                 use_container_width=True,
+                                 hide_index=True,
+                                 column_config={
+                                     "Commission Day": st.column_config.TextColumn("Comm. Date"),
+                                     "Final Comm": st.column_config.NumberColumn("Comm ($)", format="$%.2f"),
+                                     "GP": st.column_config.NumberColumn(format="$%d"),
+                                     "Candidate Salary": st.column_config.NumberColumn(format="$%d")
+                                 })
+                else:
+                    st.info("No deals.")
+
+        # 2. 团队提成 (只有 Team Lead 显示)
+        if fin_row['Role'] == 'Team Lead':
+            st.divider()
+            st.markdown("#### 👥 Team Overrides")
+            if not override_df.empty:
+                my_ov = override_df[override_df['Leader'] == c_name]
+                if not my_ov.empty:
+                    st.dataframe(my_ov,
+                                 use_container_width=True,
+                                 hide_index=True,
+                                 column_config={
+                                     "Bonus": st.column_config.NumberColumn(format="$%d"),
+                                     "Salary": st.column_config.NumberColumn(format="$%d")
+                                 })
+                else:
+                    st.info("No team overrides.")
+
 
 if __name__ == "__main__":
     main()
