@@ -110,30 +110,35 @@ def render_recruitment_table(df, team_data):
 def render_financial_performance(sales_df, rec_stats_df, team_data):
     financial_summary, updated_sales, tl_overrides = [], [], []
     
-    # --- 🛡️ 新增：空值保护逻辑 ---
-    # 如果传入的 sales_df 是空的，我们要确保它至少有这些列名，否则后面会报错
+    # --- 🛡️ 保护逻辑：如果 sales_df 为空，给它预设列名，防止 KeyError ---
     if sales_df.empty:
+        # 创建一个带有必要列名的空 DataFrame
         sales_df = pd.DataFrame(columns=['Consultant', 'GP', 'Status', 'Candidate Salary', 'Percentage', 'Payment Date Obj'])
-    # -----------------------
+    # -------------------------------------------------------------
 
     for conf in team_data:
         c_name, base, role = conf['name'], conf['base_salary'], conf.get('role', 'Consultant')
         is_tl, is_in = (role == "Team Lead"), (role == "Intern")
         gp_target = 0 if is_in else base * (4.5 if is_tl else 9.0)
         
-        # 现在这里不会报错了，因为 sales_df 至少有列名
+        # 即使 sales_df 没数据，现在 c_sales 也会包含正确的列名，不会报错
         c_sales = sales_df[sales_df['Consultant'] == c_name].copy()
         
         sent = rec_stats_df[rec_stats_df['Consultant'] == c_name]['Sent'].sum() if not rec_stats_df.empty else 0
         
-        # 使用 .get() 或者先判断是否为空来计算总和
+        # 这里是之前报错的地方，现在加了判断
         booked_gp = c_sales['GP'].sum() if 'GP' in c_sales.columns else 0
-        fin_pct = (booked_gp/gp_target*100) if gp_target > 0 else 0
+        fin_pct = (booked_gp / gp_target * 100) if gp_target > 0 else 0
+        rec_pct = (sent / CV_TARGET_QUARTERLY * 100)
+        met = (rec_pct >= 100) if is_in else (fin_pct >= 100 or rec_pct >= 100)
         
-        # Comm Calculation
+        # --- # Comm Calculation --- (这里是之后的提成计算)
         comm, paid_gp, level = 0, 0, 0
         if not is_in and not c_sales.empty:
-            c_sales[['Applied Level','Final Comm','Commission Day']] = [0, 0.0, ""]
+            # 确保列名存在
+            for col in ['Applied Level', 'Final Comm', 'Commission Day']:
+                if col not in c_sales.columns: c_sales[col] = 0
+            
             paid = c_sales[c_sales['Status'] == 'Paid'].copy()
             if not paid.empty:
                 paid['Payment Date Obj'] = pd.to_datetime(paid['Payment Date Obj'])
@@ -147,21 +152,30 @@ def render_financial_performance(sales_df, rec_stats_df, team_data):
                     if lvl > 0:
                         p_date = get_payout_date_from_month_key(str(m_key))
                         for idx in pending_idx:
-                            deal_comm = calculate_single_deal_commission(paid.loc[idx, 'Candidate Salary'], mult) * paid.loc[idx, 'Percentage']
-                            paid.at[idx, 'Applied Level'], paid.at[idx, 'Commission Day Obj'] = lvl, p_date
+                            row = paid.loc[idx]
+                            deal_comm = calculate_single_deal_commission(row['Candidate Salary'], mult) * row['Percentage']
+                            paid.at[idx, 'Applied Level'] = lvl
+                            paid.at[idx, 'Commission Day Obj'] = p_date
                             paid.at[idx, 'Final Comm'] = deal_comm if met else 0
                         pending_idx = []
                 paid_gp, (level, _) = run_gp, calculate_commission_tier(run_gp, base, is_tl)
                 for _, row in paid.iterrows():
-                    if met and pd.notnull(row['Commission Day Obj']) and row['Commission Day Obj'] <= datetime.now() + timedelta(days=20):
+                    # 只有达标且到了发放日期的才汇总
+                    if met and pd.notnull(row.get('Commission Day Obj')) and row['Commission Day Obj'] <= datetime.now() + timedelta(days=20):
                         comm += row['Final Comm']
                 c_sales.update(paid)
             updated_sales.append(c_sales)
-        financial_summary.append({"Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp, "Fin %": fin_pct, "Status": "Met" if met else "In Progress", "Level": level, "Est. Commission": comm})
+            
+        financial_summary.append({
+            "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp, 
+            "Fin %": fin_pct, "Status": "Met" if met else "In Progress", "Level": level, "Est. Commission": comm
+        })
 
-    df_fin = pd.DataFrame(financial_summary).sort_values('Paid GP', ascending=False)
+# 渲染汇总表
+df_fin = pd.DataFrame(financial_summary).sort_values('Paid GP', ascending=False)
     st.dataframe(df_fin, use_container_width=True, hide_index=True, column_config={
-        "GP Target": st.column_config.NumberColumn(format="$%d"), "Paid GP": st.column_config.NumberColumn(format="$%d"),
+        "GP Target": st.column_config.NumberColumn(format="$%d"),
+        "Paid GP": st.column_config.NumberColumn(format="$%d"),
         "Fin %": st.column_config.ProgressColumn("Fin % (Booked)", format="%.0f%%", min_value=0, max_value=100),
         "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d")
     })
