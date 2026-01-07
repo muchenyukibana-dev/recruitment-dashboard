@@ -173,7 +173,7 @@ def render_financial_performance(sales_df, rec_stats_df, team_data):
 
 # 渲染汇总表
 df_fin = pd.DataFrame(financial_summary).sort_values('Paid GP', ascending=False)
-    st.dataframe(df_fin, use_container_width=True, hide_index=True, column_config={
+        st.dataframe(df_fin, use_container_width=True, hide_index=True, column_config={
         "GP Target": st.column_config.NumberColumn(format="$%d"),
         "Paid GP": st.column_config.NumberColumn(format="$%d"),
         "Fin %": st.column_config.ProgressColumn("Fin % (Booked)", format="%.0f%%", min_value=0, max_value=100),
