@@ -109,14 +109,26 @@ def render_recruitment_table(df, team_data):
 
 def render_financial_performance(sales_df, rec_stats_df, team_data):
     financial_summary, updated_sales, tl_overrides = [], [], []
+    
+    # --- 🛡️ 新增：空值保护逻辑 ---
+    # 如果传入的 sales_df 是空的，我们要确保它至少有这些列名，否则后面会报错
+    if sales_df.empty:
+        sales_df = pd.DataFrame(columns=['Consultant', 'GP', 'Status', 'Candidate Salary', 'Percentage', 'Payment Date Obj'])
+    # -----------------------
+
     for conf in team_data:
         c_name, base, role = conf['name'], conf['base_salary'], conf.get('role', 'Consultant')
         is_tl, is_in = (role == "Team Lead"), (role == "Intern")
         gp_target = 0 if is_in else base * (4.5 if is_tl else 9.0)
-        c_sales = sales_df[sales_df['Consultant'] == c_name].copy() if not sales_df.empty else pd.DataFrame()
+        
+        # 现在这里不会报错了，因为 sales_df 至少有列名
+        c_sales = sales_df[sales_df['Consultant'] == c_name].copy()
+        
         sent = rec_stats_df[rec_stats_df['Consultant'] == c_name]['Sent'].sum() if not rec_stats_df.empty else 0
-        booked_gp = c_sales['GP'].sum(); fin_pct = (booked_gp/gp_target*100) if gp_target>0 else 0
-        rec_pct = (sent/CV_TARGET_QUARTERLY*100); met = (rec_pct>=100) if is_in else (fin_pct>=100 or rec_pct>=100)
+        
+        # 使用 .get() 或者先判断是否为空来计算总和
+        booked_gp = c_sales['GP'].sum() if 'GP' in c_sales.columns else 0
+        fin_pct = (booked_gp/gp_target*100) if gp_target > 0 else 0
         
         # Comm Calculation
         comm, paid_gp, level = 0, 0, 0
