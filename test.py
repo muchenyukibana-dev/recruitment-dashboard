@@ -313,7 +313,7 @@ def fetch_all_sales_data(client):
                                 pass
                 sales_records.append({
                     "Consultant": matched, "GP": calc_gp, "Candidate Salary": salary, "Percentage": pct,
-                    "Onboard Date": onboard_date, "Onboard Date Str": onboard_date.strftime("%Y-%m-%d"),
+                    "Onboard Date": onboard_date, "Onboarding Date": onboard_date.strftime("%Y-%m-%d"),
                     "Payment Date": row[col_pay] if col_pay != -1 else "",
                     "Payment Date Obj": pay_date_obj, "Status": status, "Quarter": get_quarter_str(onboard_date)
                 })
@@ -498,7 +498,7 @@ def main():
                     if not final_sales_df.empty:
                         c_view = final_sales_df[final_sales_df['Consultant'] == c_name].copy()
                         if not c_view.empty:
-                            cols_to_show = ['Onboard Date Str', 'Status', 'Candidate Salary', 'Percentage', 'GP',
+                            cols_to_show = ['Onboarding Date', 'Status', 'Candidate Salary', 'Percentage', 'GP',
                                             'Commission Day', 'Final Comm']
                             for col in cols_to_show:
                                 if col not in c_view.columns: c_view[col] = ""
