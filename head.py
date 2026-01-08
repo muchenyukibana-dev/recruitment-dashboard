@@ -31,13 +31,13 @@ else:
     prev_q_year = CURRENT_YEAR
     prev_q_start_m = (CURRENT_QUARTER - 2) * 3 + 1
 
-# 计算这 6 个月的字符串 (用于抓取数据)
+# 计算 (用于抓取数据)
 prev_q_months = [f"{prev_q_year}{m:02d}" for m in range(prev_q_start_m, prev_q_start_m + 3)]
 start_m = (CURRENT_QUARTER - 1) * 3 + 1
 curr_q_months = [f"{CURRENT_YEAR}{m:02d}" for m in range(start_m, start_m + 3)]
 
 # 这是给 fetch_recruitment_stats 调用的全局变量
-quarter_months_str = prev_q_months + curr_q_months
+quarter_months_str = curr_q_months
 
 # 🎯 简历目标设置 (季度)
 CV_TARGET_QUARTERLY = 87
@@ -467,31 +467,32 @@ def main():
         'rec_hist'], cache['sales_all']
     st.caption(f"📅 Snapshot: {cache['last_updated']}")
 
-    if not all_sales_df.empty:
-        # 1. 这个专门用于第二页 DETAILS 的“显示”，包含两个季度
-        target_quarters = [CURRENT_Q_STR, PREV_Q_STR]
-        sales_df_for_details = all_sales_df[all_sales_df['Quarter'].isin(target_quarters)].copy()
-
-        # 2. 这个专门用于第一页 DASHBOARD 的“计算”，只包含当前季度
-        sales_df_q4 = all_sales_df[all_sales_df['Quarter'] == CURRENT_Q_STR].copy()
-
-        # 其余的是历史
-        sales_df_hist = all_sales_df[~all_sales_df['Quarter'].isin(target_quarters)].copy()
-
     # if not all_sales_df.empty:
+    #     # 1. 这个专门用于第二页 DETAILS 的“显示”，包含两个季度
     #     target_quarters = [CURRENT_Q_STR, PREV_Q_STR]
-    #     sales_df_q4 = all_sales_df[all_sales_df['Quarter'].isin(target_quarters)].copy()
-    #     # 历史数据定义为除了这两个季度以外的数据
+    #     sales_df_for_details = all_sales_df[all_sales_df['Quarter'].isin(target_quarters)].copy()
+    #
+    #     # 2. 这个专门用于第一页 DASHBOARD 的“计算”，只包含当前季度
+    #     sales_df_current = all_sales_df[all_sales_df['Quarter'] == CURRENT_Q_STR].copy()
+    #
+    #     # 其余的是历史
     #     sales_df_hist = all_sales_df[~all_sales_df['Quarter'].isin(target_quarters)].copy()
-    # else:
-    #     sales_df_q4, sales_df_hist = pd.DataFrame(), pd.DataFrame()
+
+    if not all_sales_df.empty:
+        # 定义本季度,上季度，两个季度
+        sales_df_current = all_sales_df[all_sales_df['Quarter'] == CURRENT_Q_STR].copy()
+        sales_df_hist = all_sales_df[all_sales_df['Quarter'] == PREV_Q_STR].copy()
+        # 这行怎么了？
+        sales_df_2q = all_sales_df[all_sales_df['Quarter'].isin([CURRENT_Q_STR, PREV_Q_STR])].copy()
+    else:
+        sales_df_current, sales_df_hist, sales_df_2q = pd.DataFrame(), pd.DataFrame(), pd.DataFrame(),
 
     #     q4_mask = (all_sales_df['Onboard Date'].dt.year == CURRENT_YEAR) & (
     #             all_sales_df['Onboard Date'].dt.month >= start_m) & (all_sales_df['Onboard Date'].dt.month <= end_m)
-    #     sales_df_q4 = all_sales_df[q4_mask].copy()
+    #     sales_df_current = all_sales_df[q4_mask].copy()
     #     sales_df_hist = all_sales_df[~q4_mask].copy()
     # else:
-    #     sales_df_q4, sales_df_hist = pd.DataFrame(), pd.DataFrame()
+    #     sales_df_current, sales_df_hist = pd.DataFrame(), pd.DataFrame()
 
     tab_dash, tab_details = st.tabs(["📊 DASHBOARD", "📝 DETAILS"])
 
@@ -593,8 +594,8 @@ def main():
             cv_target = CV_TARGET_QUARTERLY
 
             # 获取该顾问数据
-            c_sales = sales_df_q4[
-                sales_df_q4['Consultant'] == c_name].copy() if not sales_df_q4.empty else pd.DataFrame()
+            c_sales = sales_df_current[
+                sales_df_current['Consultant'] == c_name].copy() if not sales_df_current.empty else pd.DataFrame()
             # sent_count = rec_stats_df[rec_stats_df['Consultant'] == c_name]['Sent'].sum()
 
             # 改成只算当前季度的 3 个月 (curr_q_months 我们之前在顶部定义过)
@@ -700,10 +701,10 @@ def main():
                     updated_sales_records.append(c_sales)
 
                 # Team Lead Override 计算
-                if is_team_lead and is_target_met and not sales_df_q4.empty:
-                    override_mask = (sales_df_q4['Status'] == 'Paid') & (sales_df_q4['Consultant'] != c_name) & (
-                            sales_df_q4['Consultant'] != "Estela Peng")
-                    pot_overrides = sales_df_q4[override_mask].copy()
+                if is_team_lead and is_target_met and not sales_df_current.empty:
+                    override_mask = (sales_df_current['Status'] == 'Paid') & (sales_df_current['Consultant'] != c_name) & (
+                            sales_df_current['Consultant'] != "Estela Peng")
+                    pot_overrides = sales_df_current[override_mask].copy()
                     for _, row in pot_overrides.iterrows():
                         comm_pay_obj = get_commission_pay_date(row['Payment Date Obj'])
                         if pd.notnull(comm_pay_obj) and comm_pay_obj <= datetime.now() + timedelta(days=20):
@@ -747,16 +748,21 @@ def main():
         )
 
         with st.expander("📜 Historical GP Summary"):
-            if not sales_df_hist.empty:
-                q_totals = sales_df_hist.groupby('Quarter')['GP'].sum().reset_index()
-                q_totals['Consultant'] = '📌 TOTAL'
-                d_rows = sales_df_hist.groupby(['Quarter', 'Consultant'])['GP'].sum().reset_index()
-                st.dataframe(
-                    pd.concat([q_totals, d_rows]).sort_values(['Quarter', 'Consultant'], ascending=[False, True]),
-                    use_container_width=True, hide_index=True,
-                    column_config={"GP": st.column_config.NumberColumn("Total GP", format="$%d")})
-            else:
-                st.info("No data.")
+            # 从 all_sales_df 里只选上季度的
+            prev_data = all_sales_df[all_sales_df['Quarter'] == PREV_Q_STR]
+            if not prev_data.empty:
+                st.dataframe(prev_data.groupby('Consultant')['GP'].sum().reset_index())
+
+            # if not sales_df_hist.empty:
+            #     q_totals = sales_df_hist.groupby('Quarter')['GP'].sum().reset_index()
+            #     q_totals['Consultant'] = '📌 TOTAL'
+            #     d_rows = sales_df_hist.groupby(['Quarter', 'Consultant'])['GP'].sum().reset_index()
+            #     st.dataframe(
+            #         pd.concat([q_totals, d_rows]).sort_values(['Quarter', 'Consultant'], ascending=[False, True]),
+            #         use_container_width=True, hide_index=True,
+            #         column_config={"GP": st.column_config.NumberColumn("Total GP", format="$%d")})
+            # else:
+            #     st.info("No data.")
 
     with tab_details:
         st.markdown("### 🔍 Drill Down Details")
