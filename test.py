@@ -14,22 +14,39 @@ import requests
 # ==========================================
 # 🔧 配置区域
 # ==========================================
-SALES_SHEET_ID = '1jniQ-GpeMINjQMebniJ_J1eLVLQIR1NGbSjTtOFP9Q8'
-SALES_TAB_NAME = 'Positions'
+from datetime import datetime
 
-# 定义当前季度
 now = datetime.now()
 CURRENT_YEAR = now.year
 CURRENT_QUARTER = (now.month - 1) // 3 + 1
 CURRENT_Q_STR = f"{CURRENT_YEAR} Q{CURRENT_QUARTER}"
 
-start_m = (CURRENT_QUARTER - 1) * 3 + 1
-end_m = start_m + 2
-quarter_months_str = [f"{CURRENT_YEAR}{m:02d}" for m in range(start_m, end_m + 1)]
+# 计算上个季度
+if CURRENT_QUARTER == 1:
+    PREV_Q_STR = f"{CURRENT_YEAR - 1} Q4"
+    prev_q_year = CURRENT_YEAR - 1
+    prev_q_start_m = 10
+else:
+    PREV_Q_STR = f"{CURRENT_YEAR} Q{CURRENT_QUARTER - 1}"
+    prev_q_year = CURRENT_YEAR
+    prev_q_start_m = (CURRENT_QUARTER - 2) * 3 + 1
+
+    # 计算这 6 个月的字符串 (用于抓取数据)
+    prev_q_months = [f"{prev_q_year}{m:02d}" for m in range(prev_q_start_m, prev_q_start_m + 3)]
+    start_m = (CURRENT_QUARTER - 1) * 3 + 1
+    curr_q_months = [f"{CURRENT_YEAR}{m:02d}" for m in range(start_m, start_m + 3)]
+
+# 3. 合并成一个列表（共6个月），交给抓取函数
+quarter_months_str = prev_q_months + curr_q_months
 
 # 🎯 简历目标设置 (季度)
 CV_TARGET_QUARTERLY = 87
 
+# 财务数据来源
+SALES_SHEET_ID = '1jniQ-GpeMINjQMebniJ_J1eLVLQIR1NGbSjTtOFP9Q8'
+SALES_TAB_NAME = 'Positions'
+
+# 简历统计数据来源
 TEAM_CONFIG = [
     {
         "name": "Raul Solis",
@@ -451,12 +468,19 @@ def main():
     st.caption(f"📅 Snapshot: {cache['last_updated']}")
 
     if not all_sales_df.empty:
-        q4_mask = (all_sales_df['Onboard Date'].dt.year == CURRENT_YEAR) & (
-                all_sales_df['Onboard Date'].dt.month >= start_m) & (all_sales_df['Onboard Date'].dt.month <= end_m)
-        sales_df_q4 = all_sales_df[q4_mask].copy()
-        sales_df_hist = all_sales_df[~q4_mask].copy()
+        target_quarters = [CURRENT_Q_STR, PREV_Q_STR]
+        sales_df_q4 = all_sales_df[all_sales_df['Quarter'].isin(target_quarters)].copy()
+        # 历史数据定义为除了这两个季度以外的数据
+        sales_df_hist = all_sales_df[~all_sales_df['Quarter'].isin(target_quarters)].copy()
     else:
         sales_df_q4, sales_df_hist = pd.DataFrame(), pd.DataFrame()
+
+    #     q4_mask = (all_sales_df['Onboard Date'].dt.year == CURRENT_YEAR) & (
+    #             all_sales_df['Onboard Date'].dt.month >= start_m) & (all_sales_df['Onboard Date'].dt.month <= end_m)
+    #     sales_df_q4 = all_sales_df[q4_mask].copy()
+    #     sales_df_hist = all_sales_df[~q4_mask].copy()
+    # else:
+    #     sales_df_q4, sales_df_hist = pd.DataFrame(), pd.DataFrame()
 
     tab_dash, tab_details = st.tabs(["📊 DASHBOARD", "📝 DETAILS"])
 
@@ -726,17 +750,39 @@ def main():
                     st.markdown("#### 💸 Commission Breakdown")
                     if not final_sales_df.empty:
                         c_view = final_sales_df[final_sales_df['Consultant'] == c_name].copy()
-                        if not c_view.empty:
-                            c_view['Pct Display'] = c_view['Percentage'].apply(lambda x: f"{x * 100:.0f}%")
-                            st.dataframe(c_view[
-                                             ['Onboard Date Str', 'Payment Date', 'Commission Day', 'Candidate Salary',
-                                              'Pct Display', 'GP', 'Status', 'Applied Level', 'Final Comm']],
-                                         use_container_width=True, hide_index=True,
-                                         column_config={"Commission Day": st.column_config.TextColumn("Comm. Date"),
-                                                        "Final Comm": st.column_config.NumberColumn("Comm ($)",
-                                                                                                    format="$%.2f")})
-                        else:
-                            st.info("No deals.")
+                        # --- 修改这里：按季度循环显示 ---
+                        for q_name in [CURRENT_Q_STR, PREV_Q_STR]:
+                            q_data = c_view[c_view['Quarter'] == q_name]
+
+                            if not q_data.empty:
+                                st.markdown(f"**📅 {q_name}**")  # 季度小标题
+                                q_data['Pct Display'] = q_data['Percentage'].apply(lambda x: f"{x * 100:.0f}%")
+
+                                st.dataframe(q_data[
+                                                 ['Onboard Date Str', 'Payment Date', 'Commission Day',
+                                                  'Candidate Salary',
+                                                  'Pct Display', 'GP', 'Status', 'Applied Level', 'Final Comm']],
+                                             use_container_width=True, hide_index=True,
+                                             column_config={"Commission Day": st.column_config.TextColumn("Comm. Date"),
+                                                            "Final Comm": st.column_config.NumberColumn("Comm ($)",
+                                                                                                        format="$%.2f")})
+                                st.divider()  # 分界线
+                            else:
+                                st.caption(f"No data for {q_name}")
+                    else:
+                        st.info("No deals.")
+
+                        # if not c_view.empty:
+                        #     c_view['Pct Display'] = c_view['Percentage'].apply(lambda x: f"{x * 100:.0f}%")
+                        #     st.dataframe(c_view[
+                        #                      ['Onboard Date Str', 'Payment Date', 'Commission Day', 'Candidate Salary',
+                        #                       'Pct Display', 'GP', 'Status', 'Applied Level', 'Final Comm']],
+                        #                  use_container_width=True, hide_index=True,
+                        #                  column_config={"Commission Day": st.column_config.TextColumn("Comm. Date"),
+                        #                                 "Final Comm": st.column_config.NumberColumn("Comm ($)",
+                        #                                                                             format="$%.2f")})
+                        # else:
+                        #     st.info("No deals.")
 
                 if fin_row['Role'] == 'Team Lead':
                     st.divider();
