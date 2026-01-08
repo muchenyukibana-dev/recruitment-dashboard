@@ -14,7 +14,7 @@ import requests
 # ==========================================
 # 🔧 配置区域
 # ==========================================
-from datetime import datetime
+from datetime import datetime  # 确保你有这一行
 
 now = datetime.now()
 CURRENT_YEAR = now.year
@@ -31,12 +31,12 @@ else:
     prev_q_year = CURRENT_YEAR
     prev_q_start_m = (CURRENT_QUARTER - 2) * 3 + 1
 
-    # 计算这 6 个月的字符串 (用于抓取数据)
-    prev_q_months = [f"{prev_q_year}{m:02d}" for m in range(prev_q_start_m, prev_q_start_m + 3)]
-    start_m = (CURRENT_QUARTER - 1) * 3 + 1
-    curr_q_months = [f"{CURRENT_YEAR}{m:02d}" for m in range(start_m, start_m + 3)]
+# 计算这 6 个月的字符串 (用于抓取数据)
+prev_q_months = [f"{prev_q_year}{m:02d}" for m in range(prev_q_start_m, prev_q_start_m + 3)]
+start_m = (CURRENT_QUARTER - 1) * 3 + 1
+curr_q_months = [f"{CURRENT_YEAR}{m:02d}" for m in range(start_m, start_m + 3)]
 
-# 3. 合并成一个列表（共6个月），交给抓取函数
+# 这是给 fetch_recruitment_stats 调用的全局变量
 quarter_months_str = prev_q_months + curr_q_months
 
 # 🎯 简历目标设置 (季度)
