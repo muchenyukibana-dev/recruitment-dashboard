@@ -77,29 +77,31 @@ def keep_alive_worker():
     # 尝试从 secrets 获取 URL，如果没有则跳过 Self-Ping
     # 在 .streamlit/secrets.toml 中添加: public_url = "https://your-app.streamlit.app"
     app_url = st.secrets.get("public_url", None)
-    
+
     while True:
         try:
             # 间隔时间：建议 5-10 分钟 (300-600秒)
-            time.sleep(300) 
-            
+            time.sleep(300)
+
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             print(f"💓 [KeepAlive] System Heartbeat: {current_time}")
-            
+
             if app_url:
                 response = requests.get(app_url, timeout=30)
                 print(f"✅ [KeepAlive] Self-Ping to {app_url}: Status {response.status_code}")
-            
+
         except Exception as e:
             print(f"⚠️ [KeepAlive] Error: {e}")
             # 出错后短暂休眠再重试，防止死循环
             time.sleep(60)
+
 
 # 启动守护线程 (确保只运行一个实例)
 if 'keep_alive_started' not in st.session_state:
     t = threading.Thread(target=keep_alive_worker, daemon=True)
     t.start()
     st.session_state['keep_alive_started'] = True
+
 
 # --- 🧮 辅助函数 ---
 def get_quarter_str(date_obj):
@@ -336,7 +338,8 @@ def fetch_all_sales_data(client):
                 onboard_date = None
                 for fmt in date_formats:
                     try:
-                        onboard_date = datetime.strptime(row[col_onboard].strip(), fmt); break
+                        onboard_date = datetime.strptime(row[col_onboard].strip(), fmt);
+                        break
                     except:
                         pass
                 if not onboard_date: continue
@@ -367,7 +370,8 @@ def fetch_all_sales_data(client):
                         status = "Paid"
                         for fmt in date_formats:
                             try:
-                                pay_date_obj = datetime.strptime(pay_str, fmt); break
+                                pay_date_obj = datetime.strptime(pay_str, fmt);
+                                break
                             except:
                                 pass
                 sales_records.append({
@@ -378,7 +382,8 @@ def fetch_all_sales_data(client):
                 })
         return pd.DataFrame(sales_records)
     except Exception as e:
-        st.error(str(e)); return pd.DataFrame()
+        st.error(str(e));
+        return pd.DataFrame()
 
 
 # --- 📦 数据加载封装 ---
@@ -442,7 +447,7 @@ def main():
 
     if not all_sales_df.empty:
         q4_mask = (all_sales_df['Onboard Date'].dt.year == CURRENT_YEAR) & (
-                    all_sales_df['Onboard Date'].dt.month >= start_m) & (all_sales_df['Onboard Date'].dt.month <= end_m)
+                all_sales_df['Onboard Date'].dt.month >= start_m) & (all_sales_df['Onboard Date'].dt.month <= end_m)
         sales_df_q4 = all_sales_df[q4_mask].copy()
         sales_df_hist = all_sales_df[~q4_mask].copy()
     else:
@@ -556,7 +561,7 @@ def main():
             # 财务数据基础计算
             booked_gp = c_sales['GP'].sum() if not c_sales.empty else 0
             paid_gp = 0
-            
+
             # 进度百分比
             fin_pct = (booked_gp / gp_target * 100) if gp_target > 0 else 0  # 更改为使用 Booked GP 计算百分比
             rec_pct = (sent_count / cv_target * 100) if cv_target > 0 else 0
@@ -584,7 +589,7 @@ def main():
             # 佣金计算逻辑
             total_comm = 0
             current_level = 0
-            
+
             # 初始化 c_sales 列
             if not c_sales.empty:
                 c_sales['Applied Level'] = 0
@@ -612,7 +617,7 @@ def main():
                             month_deals = paid_sales[paid_sales['Pay_Month_Key'] == month_key]
                             running_paid_gp += month_deals['GP'].sum()
                             pending_indices.extend(month_deals.index.tolist())
-                            
+
                             level, multiplier = calculate_commission_tier(running_paid_gp, base, is_team_lead)
 
                             if level > 0:
@@ -624,7 +629,7 @@ def main():
                                     paid_sales.at[idx, 'Applied Level'] = level
                                     paid_sales.at[idx, 'Commission Day Obj'] = payout_date
                                     # 如果未达标，计算出的 comm 暂时保留在 DataFrame 以便 debug，但在总数 total_comm 中不加
-                                    paid_sales.at[idx, 'Final Comm'] = deal_comm 
+                                    paid_sales.at[idx, 'Final Comm'] = deal_comm
                                 pending_indices = []
 
                         paid_gp = running_paid_gp
@@ -633,7 +638,7 @@ def main():
                         # 汇总可发放佣金 (需同时满足: 1. 已达标 2. 客户已付款 3. 到达发薪日)
                         for idx, row in paid_sales.iterrows():
                             comm_date = row['Commission Day Obj']
-                            if is_target_met: # 关键判断：是否达标
+                            if is_target_met:  # 关键判断：是否达标
                                 if pd.notnull(comm_date) and comm_date <= datetime.now() + timedelta(days=20):
                                     total_comm += row['Final Comm']
                             else:
@@ -643,13 +648,13 @@ def main():
                         c_sales.update(paid_sales)
                         c_sales['Commission Day'] = c_sales['Commission Day Obj'].apply(
                             lambda x: x.strftime("%Y-%m-%d") if pd.notnull(x) else "")
-                    
+
                     updated_sales_records.append(c_sales)
 
                 # Team Lead Override 计算
                 if is_team_lead and is_target_met and not sales_df_q4.empty:
                     override_mask = (sales_df_q4['Status'] == 'Paid') & (sales_df_q4['Consultant'] != c_name) & (
-                                sales_df_q4['Consultant'] != "Estela Peng")
+                            sales_df_q4['Consultant'] != "Estela Peng")
                     pot_overrides = sales_df_q4[override_mask].copy()
                     for _, row in pot_overrides.iterrows():
                         comm_pay_obj = get_commission_pay_date(row['Payment Date Obj'])
@@ -659,7 +664,7 @@ def main():
                             team_lead_overrides.append(
                                 {"Leader": c_name, "Source": row['Consultant'], "Salary": row['Candidate Salary'],
                                  "Date": comm_pay_obj.strftime("%Y-%m-%d"), "Bonus": bonus})
-            
+
             else:
                 # Intern 处理
                 if not c_sales.empty:
@@ -684,7 +689,8 @@ def main():
                 "Role": st.column_config.TextColumn("Role", width=100),
                 "GP Target": st.column_config.NumberColumn("GP Target", format="$%d", width=100),
                 "Paid GP": st.column_config.NumberColumn("Paid GP", format="$%d", width=100),
-                "Fin %": st.column_config.ProgressColumn("Financial % (Booked)", format="%.0f%%", min_value=0, max_value=100,
+                "Fin %": st.column_config.ProgressColumn("Financial % (Booked)", format="%.0f%%", min_value=0,
+                                                         max_value=100,
                                                          width=150),
                 "Status": st.column_config.TextColumn("Status", width=140),
                 "Level": st.column_config.NumberColumn("Level", width=80),
@@ -736,16 +742,6 @@ def main():
                             st.dataframe(my_ov, use_container_width=True, hide_index=True)
                         else:
                             st.info("None.")
-
-                st.divider();
-                st.markdown("#### 📝 Recruitment Logs")
-                if not rec_details_df.empty:
-                    c_logs = rec_details_df[rec_details_df['Consultant'] == c_name]
-                    if not c_logs.empty: st.dataframe(c_logs.groupby(['Month', 'Company', 'Position', 'Status'])[
-                                                          'Count'].sum().reset_index().sort_values('Month',
-                                                                                                   ascending=False),
-                                                      use_container_width=True, hide_index=True)
-
 
 if __name__ == "__main__":
     main()
