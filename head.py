@@ -19,7 +19,8 @@ from datetime import datetime  # 确保你有这一行
 now = datetime.now()
 CURRENT_YEAR = now.year
 CURRENT_QUARTER = (now.month - 1) // 3 + 1
-CURRENT_Q_STR = f"{CURRENT_YEAR} Q{CURRENT_QUARTER}"
+CURRENT_Q_STR = f"{CURRENT_YEAR} Q{CURRENT_QUARTER}" #就是2026Q1
+
 
 # 计算上个季度
 if CURRENT_QUARTER == 1:
@@ -31,13 +32,13 @@ else:
     prev_q_year = CURRENT_YEAR
     prev_q_start_m = (CURRENT_QUARTER - 2) * 3 + 1
 
-# 计算 (用于抓取数据)
+# 计算 (用于抓取数据) 判定表格里的201601这样的标签页
 prev_q_months = [f"{prev_q_year}{m:02d}" for m in range(prev_q_start_m, prev_q_start_m + 3)]
 start_m = (CURRENT_QUARTER - 1) * 3 + 1
 curr_q_months = [f"{CURRENT_YEAR}{m:02d}" for m in range(start_m, start_m + 3)]
 
 # 这是给 fetch_recruitment_stats 调用的全局变量
-quarter_months_str = curr_q_months
+quanbu = prev_q_months + curr_q_months
 
 # 🎯 简历目标设置 (季度)
 CV_TARGET_QUARTERLY = 87
@@ -409,7 +410,7 @@ def fetch_all_sales_data(client):
 
 
 # --- 📦 数据加载封装 ---
-def load_data_from_api(client, quarter_months_str):
+def load_data_from_api(client, curr_q_months):
     team_data = []
     for conf in TEAM_CONFIG:
         member = conf.copy()
@@ -418,9 +419,9 @@ def load_data_from_api(client, quarter_months_str):
         team_data.append(member)
         time.sleep(0.5)
 
-    rec_stats_df, rec_details_df = fetch_recruitment_stats(client, quarter_months_str)
+    rec_stats_df, rec_details_df = fetch_recruitment_stats(client, curr_q_months)
     time.sleep(1)
-    rec_hist_df = fetch_historical_recruitment_stats(client, exclude_months=quarter_months_str)
+    rec_hist_df = fetch_historical_recruitment_stats(client, exclude_months= prev_q_months)
     time.sleep(1)
     all_sales_df = fetch_all_sales_data(client)
 
@@ -441,15 +442,12 @@ def main():
     client = connect_to_google()
     if not client: st.error("❌ API Error"); return
 
-#   start_m, end_m = 10, 12
-#   quarter_months_str = [f"{CURRENT_YEAR}{m:02d}" for m in range(start_m, end_m + 1)]
-
     col1, col2 = st.columns([1, 5])
     with col1:
         if st.button("🔄 REFRESH DATA", type="primary"):
             with st.spinner("⏳ Fetching ..."):
                 try:
-                    data_package = load_data_from_api(client, quarter_months_str)
+                    data_package = load_data_from_api(client, quanbu)
                     st.session_state['data_cache'] = data_package
                     st.success(f"Updated: {data_package['last_updated']}")
                     time.sleep(0.5)
