@@ -18,9 +18,14 @@ SALES_SHEET_ID = '1jniQ-GpeMINjQMebniJ_J1eLVLQIR1NGbSjTtOFP9Q8'
 SALES_TAB_NAME = 'Positions'
 
 # 定义当前季度
-CURRENT_YEAR = 2025
-CURRENT_QUARTER = 4
+now = datetime.now()
+CURRENT_YEAR = now.year
+CURRENT_QUARTER = (now.month - 1) // 3 + 1
 CURRENT_Q_STR = f"{CURRENT_YEAR} Q{CURRENT_QUARTER}"
+
+start_m = (CURRENT_QUARTER - 1) * 3 + 1
+end_m = start_m + 2
+quarter_months_str = [f"{CURRENT_YEAR}{m:02d}" for m in range(start_m, end_m + 1)]
 
 # 🎯 简历目标设置 (季度)
 CV_TARGET_QUARTERLY = 87
@@ -419,8 +424,8 @@ def main():
     client = connect_to_google()
     if not client: st.error("❌ API Error"); return
 
-    start_m, end_m = 10, 12
-    quarter_months_str = [f"{CURRENT_YEAR}{m:02d}" for m in range(start_m, end_m + 1)]
+#   start_m, end_m = 10, 12
+#   quarter_months_str = [f"{CURRENT_YEAR}{m:02d}" for m in range(start_m, end_m + 1)]
 
     col1, col2 = st.columns([1, 5])
     with col1:
