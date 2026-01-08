@@ -447,7 +447,7 @@ def main():
     col1, col2 = st.columns([1, 5])
     with col1:
         if st.button("🔄 REFRESH DATA", type="primary"):
-            with st.spinner("⏳ Fetching live data & roles..."):
+            with st.spinner("⏳ Fetching ..."):
                 try:
                     data_package = load_data_from_api(client, quarter_months_str)
                     st.session_state['data_cache'] = data_package
@@ -458,7 +458,7 @@ def main():
                     st.error(str(e))
 
     if 'data_cache' not in st.session_state:
-        st.info("👋 Welcome! Click 'REFRESH DATA' to load the report. It might take a while");
+        st.info("👋 Click 'REFRESH DATA' to load the report. It might take a while");
         st.stop()
 
     cache = st.session_state['data_cache']
@@ -468,12 +468,23 @@ def main():
     st.caption(f"📅 Snapshot: {cache['last_updated']}")
 
     if not all_sales_df.empty:
+        # 1. 这个专门用于第二页 DETAILS 的“显示”，包含两个季度
         target_quarters = [CURRENT_Q_STR, PREV_Q_STR]
-        sales_df_q4 = all_sales_df[all_sales_df['Quarter'].isin(target_quarters)].copy()
-        # 历史数据定义为除了这两个季度以外的数据
+        sales_df_for_details = all_sales_df[all_sales_df['Quarter'].isin(target_quarters)].copy()
+
+        # 2. 这个专门用于第一页 DASHBOARD 的“计算”，只包含当前季度
+        sales_df_q4 = all_sales_df[all_sales_df['Quarter'] == CURRENT_Q_STR].copy()
+
+        # 其余的是历史
         sales_df_hist = all_sales_df[~all_sales_df['Quarter'].isin(target_quarters)].copy()
-    else:
-        sales_df_q4, sales_df_hist = pd.DataFrame(), pd.DataFrame()
+
+    # if not all_sales_df.empty:
+    #     target_quarters = [CURRENT_Q_STR, PREV_Q_STR]
+    #     sales_df_q4 = all_sales_df[all_sales_df['Quarter'].isin(target_quarters)].copy()
+    #     # 历史数据定义为除了这两个季度以外的数据
+    #     sales_df_hist = all_sales_df[~all_sales_df['Quarter'].isin(target_quarters)].copy()
+    # else:
+    #     sales_df_q4, sales_df_hist = pd.DataFrame(), pd.DataFrame()
 
     #     q4_mask = (all_sales_df['Onboard Date'].dt.year == CURRENT_YEAR) & (
     #             all_sales_df['Onboard Date'].dt.month >= start_m) & (all_sales_df['Onboard Date'].dt.month <= end_m)
@@ -584,8 +595,16 @@ def main():
             # 获取该顾问数据
             c_sales = sales_df_q4[
                 sales_df_q4['Consultant'] == c_name].copy() if not sales_df_q4.empty else pd.DataFrame()
-            sent_count = rec_stats_df[rec_stats_df['Consultant'] == c_name][
-                'Sent'].sum() if not rec_stats_df.empty else 0
+            # sent_count = rec_stats_df[rec_stats_df['Consultant'] == c_name]['Sent'].sum()
+
+            # 改成只算当前季度的 3 个月 (curr_q_months 我们之前在顶部定义过)
+            sent_count = rec_stats_df[
+                (rec_stats_df['Consultant'] == c_name) &
+                (rec_stats_df['Month'].isin(curr_q_months))
+                ]['Sent'].sum()
+
+            # sent_count = rec_stats_df[rec_stats_df['Consultant'] == c_name][
+            #     'Sent'].sum() if not rec_stats_df.empty else 0
 
             # 财务数据基础计算
             booked_gp = c_sales['GP'].sum() if not c_sales.empty else 0
