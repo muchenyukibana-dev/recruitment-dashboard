@@ -596,8 +596,11 @@ def main():
             cv_target = CV_TARGET_QUARTERLY
 
             # 获取该顾问数据
-            c_sales = sales_df_current[
-                sales_df_current['Consultant'] == c_name].copy() if not sales_df_current.empty else pd.DataFrame()
+            c_sales = sales_df_2q[
+                sales_df_2q['Consultant'] == c_name].copy() if not sales_df_2q.empty else pd.DataFrame()
+
+            # c_sales = sales_df_current[
+            #     sales_df_current['Consultant'] == c_name].copy() if not sales_df_current.empty else pd.DataFrame()
             # sent_count = rec_stats_df[rec_stats_df['Consultant'] == c_name]['Sent'].sum()
 
             # 改成只算当前季度的 3 个月 (curr_q_months 我们之前在顶部定义过)
@@ -720,9 +723,10 @@ def main():
                 # Intern 处理
                 if not c_sales.empty:
                     updated_sales_records.append(c_sales)
+            paid_gp_current = c_sales[c_sales['Quarter'] == CURRENT_Q_STR]['GP'].sum() #新加的不知道什么用
 
             financial_summary.append({
-                "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp, "Fin %": fin_pct,
+                "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp_current, "Fin %": fin_pct,
                 "Status": status_text, "Level": current_level, "Est. Commission": total_comm
             })
 
