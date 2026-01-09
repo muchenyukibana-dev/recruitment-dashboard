@@ -1384,38 +1384,22 @@ def main():
 
                                     updated_sales_records.append(c_sales)
 
-                                # --- Team Lead Override 计算 ---
-                                # 1. 这里的判断要改成 sales_df_2q，这样才能抓到上季度刚付钱的单子
-                                if is_team_lead and is_target_met and not sales_df_2q.empty:
-
-                                    # 2. 同样，在 sales_df_2q 里面找已付款的单子
-                                    override_mask = (sales_df_2q['Status'] == 'Paid') & \
-                                                    (sales_df_2q['Consultant'] != c_name) & \
-                                                    (sales_df_2q['Consultant'] != "Estela Peng")
-
-                                    pot_overrides = sales_df_2q[override_mask].copy()
-
+                                # Team Lead Override 计算
+                                if is_team_lead and is_target_met and not sales_df_current.empty:
+                                    override_mask = (sales_df_current['Status'] == 'Paid') & (
+                                                sales_df_current['Consultant'] != c_name) & (
+                                                            sales_df_current['Consultant'] != "Estela Peng")
+                                    pot_overrides = sales_df_current[override_mask].copy()
                                     for _, row in pot_overrides.iterrows():
-                                        # 获取这笔单子应该在什么时候发提成
                                         comm_pay_obj = get_commission_pay_date(row['Payment Date Obj'])
-
-                                        # 3. 这里的逻辑很重要：只有“发薪日”在最近（比如前后20天内）的才显示在 Dashboard
                                         if pd.notnull(comm_pay_obj) and comm_pay_obj <= datetime.now() + timedelta(
                                                 days=20):
-                                            # 计算 1000 块的提成（按比例）
                                             bonus = 1000 * row['Percentage']
                                             total_comm += bonus
-
-                                            # 存入列表，确保后面能画出表格
-                                            team_lead_overrides.append({
-                                                "Leader": c_name,
-                                                "Source": row['Consultant'],
-                                                "Salary": row['Candidate Salary'],
-                                                "Percentage": row['Percentage'],
-                                                "Date": comm_pay_obj.strftime("%Y-%m-%d"),
-                                                "Bonus": bonus,
-                                                "Quarter": row['Quarter']  # 建议加上季度，方便区分
-                                            })
+                                            team_lead_overrides.append(
+                                                {"Leader": c_name, "Source": row['Consultant'],
+                                                 "Salary": row['Candidate Salary'], "Percentage": row['Percentage'],
+                                                 "Date": comm_pay_obj.strftime("%Y-%m-%d"), "Bonus": bonus})
 
                             else:
                                 # Intern 处理
