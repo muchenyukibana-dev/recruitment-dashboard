@@ -465,32 +465,20 @@ def main():
         'rec_hist'], cache['sales_all']
     st.caption(f"📅 Snapshot: {cache['last_updated']}")
 
-    # if not all_sales_df.empty:
-    #     # 1. 这个专门用于第二页 DETAILS 的“显示”，包含两个季度
-    #     target_quarters = [CURRENT_Q_STR, PREV_Q_STR]
-    #     sales_df_for_details = all_sales_df[all_sales_df['Quarter'].isin(target_quarters)].copy()
-    #
-    #     # 2. 这个专门用于第一页 DASHBOARD 的“计算”，只包含当前季度
-    #     sales_df_current = all_sales_df[all_sales_df['Quarter'] == CURRENT_Q_STR].copy()
-    #
-    #     # 其余的是历史
-    #     sales_df_hist = all_sales_df[~all_sales_df['Quarter'].isin(target_quarters)].copy()
-
     if not all_sales_df.empty:
-        # 定义本季度,上季度，两个季度
+        # 1. 本季度
         sales_df_current = all_sales_df[all_sales_df['Quarter'] == CURRENT_Q_STR].copy()
+
+        # 2. 上季度 (现在你用 hist 代表上季度，没问题)
         sales_df_hist = all_sales_df[all_sales_df['Quarter'] == PREV_Q_STR].copy()
-        # 这行怎么了？
+
+        # 3. 两个季度的合集 (给循环和第二页用)
         sales_df_2q = all_sales_df[all_sales_df['Quarter'].isin([CURRENT_Q_STR, PREV_Q_STR])].copy()
     else:
-        sales_df_current, sales_df_hist, sales_df_2q = pd.DataFrame(), pd.DataFrame(), pd.DataFrame(),
+        # 注意：末尾不要加逗号
+        sales_df_current, sales_df_hist, sales_df_2q = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-    #     q4_mask = (all_sales_df['Onboard Date'].dt.year == CURRENT_YEAR) & (
-    #             all_sales_df['Onboard Date'].dt.month >= start_m) & (all_sales_df['Onboard Date'].dt.month <= end_m)
-    #     sales_df_current = all_sales_df[q4_mask].copy()
-    #     sales_df_hist = all_sales_df[~q4_mask].copy()
-    # else:
-    #     sales_df_current, sales_df_hist = pd.DataFrame(), pd.DataFrame()
+
 
     tab_dash, tab_details = st.tabs(["📊 DASHBOARD", "📝 DETAILS"])
 
@@ -747,20 +735,9 @@ def main():
 
         with st.expander("📜 Historical GP Summary"):
             # 从 all_sales_df 里只选上季度的
-            prev_data = all_sales_df[all_sales_df['Quarter'] == PREV_Q_STR]
-            if not prev_data.empty:
-                st.dataframe(prev_data.groupby('Consultant')['GP'].sum().reset_index())
+            if not sales_df_hist.empty:
+                st.dataframe(sales_df_hist.groupby('Consultant')['GP'].sum().reset_index())
 
-            # if not sales_df_hist.empty:
-            #     q_totals = sales_df_hist.groupby('Quarter')['GP'].sum().reset_index()
-            #     q_totals['Consultant'] = '📌 TOTAL'
-            #     d_rows = sales_df_hist.groupby(['Quarter', 'Consultant'])['GP'].sum().reset_index()
-            #     st.dataframe(
-            #         pd.concat([q_totals, d_rows]).sort_values(['Quarter', 'Consultant'], ascending=[False, True]),
-            #         use_container_width=True, hide_index=True,
-            #         column_config={"GP": st.column_config.NumberColumn("Total GP", format="$%d")})
-            # else:
-            #     st.info("No data.")
 
     with tab_details:
         st.markdown("### 🔍 Drill Down Details")
