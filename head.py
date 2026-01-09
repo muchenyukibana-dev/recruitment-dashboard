@@ -488,7 +488,9 @@ def main():
         # 1. Recruitment Stats
         st.markdown(f"### 🎯 Recruitment Stats (Q{CURRENT_QUARTER})")
         if not rec_stats_df.empty:
-            rec_summary = rec_stats_df.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
+            rec_stats_current = rec_stats_df[rec_stats_df['Month'].isin(curr_q_months)]
+            rec_summary = rec_stats_current.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
+            # rec_summary = rec_stats_df.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
 
             def get_role_target(c_name):
                 for member in dynamic_team_config:
@@ -555,13 +557,25 @@ def main():
             st.warning("No data.")
 
         with st.expander("📜 Historical Recruitment Data"):
-            if not rec_hist_df.empty:
+            rec_stats_prev = rec_stats_df[rec_stats_df['Month'].isin(prev_q_months)]
+            if not rec_stats_prev.empty:
+                # 汇总上季度数据
+                summary_prev = rec_stats_prev.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
                 st.dataframe(
-                    rec_hist_df.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index().sort_values('Sent',
-                                                                                                              ascending=False),
-                    use_container_width=True, hide_index=True)
+                    summary_prev.sort_values('Sent', ascending=False),
+                    use_container_width=True,
+                    hide_index=True
+                )
             else:
-                st.info("No data.")
+                st.info(f"No activity recorded for {PREV_Q_STR}")
+
+            # if not rec_hist_df.empty:
+            #     st.dataframe(
+            #         rec_hist_df.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index().sort_values('Sent',
+            #                                                                                                   ascending=False),
+            #         use_container_width=True, hide_index=True)
+            # else:
+            #     st.info("No data.")
         st.divider()
 
         # 2. Financial Performance
