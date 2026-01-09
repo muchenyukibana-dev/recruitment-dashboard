@@ -1398,6 +1398,10 @@ def main():
                                     for _, row in pot_overrides.iterrows():
                                         # 获取这笔单子应该在什么时候发提成
                                         comm_pay_obj = get_commission_pay_date(row['Payment Date Obj'])
+
+                                        # 3. 这里的逻辑很重要：只有“发薪日”在最近（比如前后20天内）的才显示在 Dashboard
+                                        if pd.notnull(comm_pay_obj) and comm_pay_obj <= datetime.now() + timedelta(
+                                                days=20):
                                             # 计算 1000 块的提成（按比例）
                                             bonus = 1000 * row['Percentage']
                                             total_comm += bonus
