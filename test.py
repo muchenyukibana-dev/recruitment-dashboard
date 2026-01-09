@@ -19,7 +19,8 @@ from datetime import datetime  # 确保你有这一行
 now = datetime.now()
 CURRENT_YEAR = now.year
 CURRENT_QUARTER = (now.month - 1) // 3 + 1
-CURRENT_Q_STR = f"{CURRENT_YEAR} Q{CURRENT_QUARTER}"
+CURRENT_Q_STR = f"{CURRENT_YEAR} Q{CURRENT_QUARTER}" #就是2026Q1
+
 
 # 计算上个季度
 if CURRENT_QUARTER == 1:
@@ -31,13 +32,13 @@ else:
     prev_q_year = CURRENT_YEAR
     prev_q_start_m = (CURRENT_QUARTER - 2) * 3 + 1
 
-# 计算这 6 个月的字符串 (用于抓取数据)
+# 计算 (用于抓取数据) 判定表格里的201601这样的标签页
 prev_q_months = [f"{prev_q_year}{m:02d}" for m in range(prev_q_start_m, prev_q_start_m + 3)]
 start_m = (CURRENT_QUARTER - 1) * 3 + 1
 curr_q_months = [f"{CURRENT_YEAR}{m:02d}" for m in range(start_m, start_m + 3)]
 
 # 这是给 fetch_recruitment_stats 调用的全局变量
-quarter_months_str = prev_q_months + curr_q_months
+quanbu = prev_q_months + curr_q_months
 
 # 🎯 简历目标设置 (季度)
 CV_TARGET_QUARTERLY = 87
@@ -409,7 +410,7 @@ def fetch_all_sales_data(client):
 
 
 # --- 📦 数据加载封装 ---
-def load_data_from_api(client, quarter_months_str):
+def load_data_from_api(client, quanbu):
     team_data = []
     for conf in TEAM_CONFIG:
         member = conf.copy()
@@ -418,10 +419,12 @@ def load_data_from_api(client, quarter_months_str):
         team_data.append(member)
         time.sleep(0.5)
 
-    rec_stats_df, rec_details_df = fetch_recruitment_stats(client, quarter_months_str)
+    rec_stats_df, rec_details_df = fetch_recruitment_stats(client, quanbu)
     time.sleep(1)
-    rec_hist_df = fetch_historical_recruitment_stats(client, exclude_months=quarter_months_str)
+    # 424行：既然不要更久远的历史数据，直接给个空表，不要再调用那个抓取历史的函数了
+    rec_hist_df = pd.DataFrame()
     time.sleep(1)
+
     all_sales_df = fetch_all_sales_data(client)
 
     return {
@@ -441,15 +444,12 @@ def main():
     client = connect_to_google()
     if not client: st.error("❌ API Error"); return
 
-#   start_m, end_m = 10, 12
-#   quarter_months_str = [f"{CURRENT_YEAR}{m:02d}" for m in range(start_m, end_m + 1)]
-
     col1, col2 = st.columns([1, 5])
     with col1:
         if st.button("🔄 REFRESH DATA", type="primary"):
-            with st.spinner("⏳ Fetching live data & roles..."):
+            with st.spinner("⏳ Fetching ..."):
                 try:
-                    data_package = load_data_from_api(client, quarter_months_str)
+                    data_package = load_data_from_api(client, quanbu)
                     st.session_state['data_cache'] = data_package
                     st.success(f"Updated: {data_package['last_updated']}")
                     time.sleep(0.5)
@@ -458,7 +458,7 @@ def main():
                     st.error(str(e))
 
     if 'data_cache' not in st.session_state:
-        st.info("👋 Welcome! Click 'REFRESH DATA' to load the Q4 report.");
+        st.info("👋 Click 'REFRESH DATA' to load the report. It might take a while");
         st.stop()
 
     cache = st.session_state['data_cache']
@@ -468,33 +468,37 @@ def main():
     st.caption(f"📅 Snapshot: {cache['last_updated']}")
 
     if not all_sales_df.empty:
-        target_quarters = [CURRENT_Q_STR, PREV_Q_STR]
-        sales_df_q4 = all_sales_df[all_sales_df['Quarter'].isin(target_quarters)].copy()
-        # 历史数据定义为除了这两个季度以外的数据
-        sales_df_hist = all_sales_df[~all_sales_df['Quarter'].isin(target_quarters)].copy()
-    else:
-        sales_df_q4, sales_df_hist = pd.DataFrame(), pd.DataFrame()
+        # 1. 本季度
+        sales_df_2q = all_sales_df[all_sales_df['Quarter'] == CURRENT_Q_STR].copy()
 
-    #     q4_mask = (all_sales_df['Onboard Date'].dt.year == CURRENT_YEAR) & (
-    #             all_sales_df['Onboard Date'].dt.month >= start_m) & (all_sales_df['Onboard Date'].dt.month <= end_m)
-    #     sales_df_q4 = all_sales_df[q4_mask].copy()
-    #     sales_df_hist = all_sales_df[~q4_mask].copy()
-    # else:
-    #     sales_df_q4, sales_df_hist = pd.DataFrame(), pd.DataFrame()
+        # 2. 上季度 (现在你用 hist 代表上季度，没问题)
+        sales_df_hist = all_sales_df[all_sales_df['Quarter'] == PREV_Q_STR].copy()
+
+        # 3. 两个季度的合集 (给循环和第二页用)
+        sales_df_2q = all_sales_df[all_sales_df['Quarter'].isin([CURRENT_Q_STR, PREV_Q_STR])].copy()
+    else:
+        # 注意：末尾不要加逗号
+        sales_df_2q, sales_df_hist, sales_df_2q = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+
 
     tab_dash, tab_details = st.tabs(["📊 DASHBOARD", "📝 DETAILS"])
 
     with tab_dash:
+        def get_role_target(c_name):
+            for member in dynamic_team_config:
+                if member['name'] == c_name:
+                    return member.get('role', 'Consultant'), CV_TARGET_QUARTERLY
+            return 'Consultant', CV_TARGET_QUARTERLY
+
         # 1. Recruitment Stats
         st.markdown(f"### 🎯 Recruitment Stats (Q{CURRENT_QUARTER})")
         if not rec_stats_df.empty:
-            rec_summary = rec_stats_df.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
+            rec_stats_current = rec_stats_df[rec_stats_df['Month'].isin(curr_q_months)]
+            rec_summary = rec_stats_current.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
+            # rec_summary = rec_stats_df.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
 
-            def get_role_target(c_name):
-                for member in dynamic_team_config:
-                    if member['name'] == c_name:
-                        return member.get('role', 'Consultant'), CV_TARGET_QUARTERLY
-                return 'Consultant', CV_TARGET_QUARTERLY
+
 
             rec_summary[['Role', 'CV Target']] = rec_summary['Consultant'].apply(
                 lambda x: pd.Series(get_role_target(x))
@@ -554,14 +558,71 @@ def main():
         else:
             st.warning("No data.")
 
-        with st.expander("📜 Historical Recruitment Data"):
-            if not rec_hist_df.empty:
+        with st.expander(f"📜 Historical Recruitment Data ({PREV_Q_STR})"):
+            rec_stats_prev = rec_stats_df[rec_stats_df['Month'].isin(prev_q_months)]
+            if not rec_stats_prev.empty:
+                # 1. 基础汇总
+                summary_prev = rec_stats_prev.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
+
+                # 2. 计算 Role, Target, % 等额外列 (复用 get_role_target 函数)
+                summary_prev[['Role', 'CV Target']] = summary_prev['Consultant'].apply(
+                    lambda x: pd.Series(get_role_target(x))
+                )
+                summary_prev['Activity %'] = (summary_prev['Sent'] / summary_prev['CV Target']).fillna(0) * 100
+                summary_prev['Int Rate'] = (summary_prev['Int'] / summary_prev['Sent']).fillna(0) * 100
+
+                # 3. 排序并选择列顺序
+                cols = ['Consultant', 'Role', 'CV Target', 'Sent', 'Activity %', 'Int', 'Off', 'Int Rate']
+                summary_prev = summary_prev[cols].sort_values('Sent', ascending=False)
+
+                # 4. 使用和主表完全一样的 column_config 显示
                 st.dataframe(
-                    rec_hist_df.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index().sort_values('Sent',
-                                                                                                              ascending=False),
-                    use_container_width=True, hide_index=True)
+                    summary_prev,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Consultant": st.column_config.TextColumn("Consultant", width=150),
+                        "Role": st.column_config.TextColumn("Role", width=100),
+                        "CV Target": st.column_config.NumberColumn("Target (Q)", format="%d", width=100),
+                        "Sent": st.column_config.NumberColumn("Sent", format="%d", width=100),
+                        "Activity %": st.column_config.ProgressColumn(
+                            "Activity %",
+                            format="%.0f%%",
+                            min_value=0,
+                            max_value=100,
+                            width=150
+                        ),
+                        "Int": st.column_config.NumberColumn("Int", width=140),
+                        "Off": st.column_config.NumberColumn("Off", width=80),
+                        "Int Rate": st.column_config.NumberColumn(
+                            "Int/Sent",
+                            format="%.2f%%",
+                            width=130
+                        ),
+                    }
+                )
             else:
-                st.info("No data.")
+                st.info(f"No activity recorded for {PREV_Q_STR}")
+        # with st.expander("📜 Historical Recruitment Data"):
+        #     rec_stats_prev = rec_stats_df[rec_stats_df['Month'].isin(prev_q_months)]
+        #     if not rec_stats_prev.empty:
+        #         # 汇总上季度数据
+        #         summary_prev = rec_stats_prev.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
+        #         st.dataframe(
+        #             summary_prev.sort_values('Sent', ascending=False),
+        #             use_container_width=True,
+        #             hide_index=True
+        #         )
+        #     else:
+        #         st.info(f"No activity recorded for {PREV_Q_STR}")
+
+            # if not rec_hist_df.empty:
+            #     st.dataframe(
+            #         rec_hist_df.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index().sort_values('Sent',
+            #                                                                                                   ascending=False),
+            #         use_container_width=True, hide_index=True)
+            # else:
+            #     st.info("No data.")
         st.divider()
 
         # 2. Financial Performance
@@ -582,10 +643,21 @@ def main():
             cv_target = CV_TARGET_QUARTERLY
 
             # 获取该顾问数据
-            c_sales = sales_df_q4[
-                sales_df_q4['Consultant'] == c_name].copy() if not sales_df_q4.empty else pd.DataFrame()
-            sent_count = rec_stats_df[rec_stats_df['Consultant'] == c_name][
-                'Sent'].sum() if not rec_stats_df.empty else 0
+            c_sales = sales_df_2q[
+                sales_df_2q['Consultant'] == c_name].copy() if not sales_df_2q.empty else pd.DataFrame()
+
+            # c_sales = sales_df_2q[
+            #     sales_df_2q['Consultant'] == c_name].copy() if not sales_df_2q.empty else pd.DataFrame()
+            # sent_count = rec_stats_df[rec_stats_df['Consultant'] == c_name]['Sent'].sum()
+
+            # 改成只算当前季度的 3 个月 (curr_q_months 我们之前在顶部定义过)
+            sent_count = rec_stats_df[
+                (rec_stats_df['Consultant'] == c_name) &
+                (rec_stats_df['Month'].isin(curr_q_months))
+                ]['Sent'].sum()
+
+            # sent_count = rec_stats_df[rec_stats_df['Consultant'] == c_name][
+            #     'Sent'].sum() if not rec_stats_df.empty else 0
 
             # 财务数据基础计算
             booked_gp = c_sales['GP'].sum() if not c_sales.empty else 0
@@ -681,26 +753,27 @@ def main():
                     updated_sales_records.append(c_sales)
 
                 # Team Lead Override 计算
-                if is_team_lead and is_target_met and not sales_df_q4.empty:
-                    override_mask = (sales_df_q4['Status'] == 'Paid') & (sales_df_q4['Consultant'] != c_name) & (
-                            sales_df_q4['Consultant'] != "Estela Peng")
-                    pot_overrides = sales_df_q4[override_mask].copy()
+                if is_team_lead and is_target_met and not sales_df_2q.empty:
+                    override_mask = (sales_df_2q['Status'] == 'Paid') & (sales_df_2q['Consultant'] != c_name) & (
+                            sales_df_2q['Consultant'] != "Estela Peng")
+                    pot_overrides = sales_df_2q[override_mask].copy()
                     for _, row in pot_overrides.iterrows():
                         comm_pay_obj = get_commission_pay_date(row['Payment Date Obj'])
                         if pd.notnull(comm_pay_obj) and comm_pay_obj <= datetime.now() + timedelta(days=20):
-                            bonus = 1000
+                            bonus = 1000 * row['Percentage']
                             total_comm += bonus
                             team_lead_overrides.append(
-                                {"Leader": c_name, "Source": row['Consultant'], "Salary": row['Candidate Salary'],
+                                {"Leader": c_name, "Source": row['Consultant'], "Salary": row['Candidate Salary'], "Percentage": row['Percentage'],
                                  "Date": comm_pay_obj.strftime("%Y-%m-%d"), "Bonus": bonus})
 
             else:
                 # Intern 处理
                 if not c_sales.empty:
                     updated_sales_records.append(c_sales)
+            paid_gp_current = c_sales[c_sales['Quarter'] == CURRENT_Q_STR]['GP'].sum() #新加的不知道什么用
 
             financial_summary.append({
-                "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp, "Fin %": fin_pct,
+                "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp_current, "Fin %": fin_pct,
                 "Status": status_text, "Level": current_level, "Est. Commission": total_comm
             })
 
@@ -728,16 +801,10 @@ def main():
         )
 
         with st.expander("📜 Historical GP Summary"):
+            # 从 all_sales_df 里只选上季度的
             if not sales_df_hist.empty:
-                q_totals = sales_df_hist.groupby('Quarter')['GP'].sum().reset_index()
-                q_totals['Consultant'] = '📌 TOTAL'
-                d_rows = sales_df_hist.groupby(['Quarter', 'Consultant'])['GP'].sum().reset_index()
-                st.dataframe(
-                    pd.concat([q_totals, d_rows]).sort_values(['Quarter', 'Consultant'], ascending=[False, True]),
-                    use_container_width=True, hide_index=True,
-                    column_config={"GP": st.column_config.NumberColumn("Total GP", format="$%d")})
-            else:
-                st.info("No data.")
+                st.dataframe(sales_df_hist.groupby('Consultant')['GP'].sum().reset_index())
+
 
     with tab_details:
         st.markdown("### 🔍 Drill Down Details")
