@@ -469,7 +469,7 @@ def main():
 
     if not all_sales_df.empty:
         # 1. 本季度
-        sales_df_current = all_sales_df[all_sales_df['Quarter'] == CURRENT_Q_STR].copy()
+        sales_df_2q = all_sales_df[all_sales_df['Quarter'] == CURRENT_Q_STR].copy()
 
         # 2. 上季度 (现在你用 hist 代表上季度，没问题)
         sales_df_hist = all_sales_df[all_sales_df['Quarter'] == PREV_Q_STR].copy()
@@ -478,7 +478,7 @@ def main():
         sales_df_2q = all_sales_df[all_sales_df['Quarter'].isin([CURRENT_Q_STR, PREV_Q_STR])].copy()
     else:
         # 注意：末尾不要加逗号
-        sales_df_current, sales_df_hist, sales_df_2q = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        sales_df_2q, sales_df_hist, sales_df_2q = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 
 
@@ -599,8 +599,8 @@ def main():
             c_sales = sales_df_2q[
                 sales_df_2q['Consultant'] == c_name].copy() if not sales_df_2q.empty else pd.DataFrame()
 
-            # c_sales = sales_df_current[
-            #     sales_df_current['Consultant'] == c_name].copy() if not sales_df_current.empty else pd.DataFrame()
+            # c_sales = sales_df_2q[
+            #     sales_df_2q['Consultant'] == c_name].copy() if not sales_df_2q.empty else pd.DataFrame()
             # sent_count = rec_stats_df[rec_stats_df['Consultant'] == c_name]['Sent'].sum()
 
             # 改成只算当前季度的 3 个月 (curr_q_months 我们之前在顶部定义过)
@@ -706,10 +706,10 @@ def main():
                     updated_sales_records.append(c_sales)
 
                 # Team Lead Override 计算
-                if is_team_lead and is_target_met and not sales_df_current.empty:
-                    override_mask = (sales_df_current['Status'] == 'Paid') & (sales_df_current['Consultant'] != c_name) & (
-                            sales_df_current['Consultant'] != "Estela Peng")
-                    pot_overrides = sales_df_current[override_mask].copy()
+                if is_team_lead and is_target_met and not sales_df_2q.empty:
+                    override_mask = (sales_df_2q['Status'] == 'Paid') & (sales_df_2q['Consultant'] != c_name) & (
+                            sales_df_2q['Consultant'] != "Estela Peng")
+                    pot_overrides = sales_df_2q[override_mask].copy()
                     for _, row in pot_overrides.iterrows():
                         comm_pay_obj = get_commission_pay_date(row['Payment Date Obj'])
                         if pd.notnull(comm_pay_obj) and comm_pay_obj <= datetime.now() + timedelta(days=20):
