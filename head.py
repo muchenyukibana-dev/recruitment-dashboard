@@ -410,7 +410,7 @@ def fetch_all_sales_data(client):
 
 
 # --- 📦 数据加载封装 ---
-def load_data_from_api(client, curr_q_months):
+def load_data_from_api(client, quanbu):
     team_data = []
     for conf in TEAM_CONFIG:
         member = conf.copy()
@@ -419,10 +419,12 @@ def load_data_from_api(client, curr_q_months):
         team_data.append(member)
         time.sleep(0.5)
 
-    rec_stats_df, rec_details_df = fetch_recruitment_stats(client, curr_q_months)
+    rec_stats_df, rec_details_df = fetch_recruitment_stats(client, quanbu)
     time.sleep(1)
-    rec_hist_df = fetch_historical_recruitment_stats(client, exclude_months= prev_q_months)
+    # 424行：既然不要更久远的历史数据，直接给个空表，不要再调用那个抓取历史的函数了
+    rec_hist_df = pd.DataFrame()
     time.sleep(1)
+
     all_sales_df = fetch_all_sales_data(client)
 
     return {
