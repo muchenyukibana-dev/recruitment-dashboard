@@ -626,12 +626,13 @@ def main():
             cv_target = CV_TARGET_QUARTERLY
 
 
+            c_sales_curr = sales_df_curr[sales_df_curr['Quarter'] == CURRENT_Q_STR] if not sales_df_curr.empty else pd.DataFrame() #当前Q
+
             c_sales = sales_df_2q[
                 sales_df_2q['Consultant'] == c_name].copy() if not sales_df_2q.empty else pd.DataFrame() # 获取该顾问数据(2个Q)
-            c_sales_curr = sales_df_curr[
-                sales_df_curr['Consultant'] == c_name].copy() if not sales_df_curr.empty else pd.DataFrame() # 获取该顾问数据(当前Q)
-            c_sales_hist = sales_df_hist[
-                sales_df_hist['Consultant'] == c_name].copy() if not sales_df_hist.empty else pd.DataFrame() # 获取该顾问数据(上个个Q)
+
+            # c_sales_hist = sales_df_hist[
+            #     sales_df_hist['Consultant'] == c_name].copy() if not sales_df_hist.empty else pd.DataFrame() # 获取该顾问数据(上个个Q)
 
             # 改成只算当前季度的 3 个月 (curr_q_months 我们之前在顶部定义过)
             sent_count = rec_stats_df[
@@ -641,11 +642,11 @@ def main():
 
 
             # 财务数据基础计算
-            booked_gp = c_sales['GP'].sum() if not c_sales.empty else 0
+            booked_gp_curr = c_sales_curr['GP'].sum() if not c_sales.empty else 0
             paid_gp = 0
 
             # 进度百分比
-            fin_pct = (booked_gp / gp_target * 100) if gp_target > 0 else 0  # 更改为使用 Booked GP 计算百分比
+            fin_pct = (booked_gp_curr / gp_target * 100) if gp_target > 0 else 0  # 当季 Booked GP 计算百分比
             rec_pct = (sent_count / cv_target * 100) if cv_target > 0 else 0
 
             # 达标判断 (Target Met)
