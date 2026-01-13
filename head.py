@@ -624,6 +624,7 @@ def main():
 
             gp_target = 0 if is_intern else base * (4.5 if is_team_lead else 9.0)
             cv_target = CV_TARGET_QUARTERLY
+            paid_sales = pd.DataFrame()
 
             c_sales = sales_df_2q[
                 sales_df_2q['Consultant'] == c_name].copy() if not sales_df_2q.empty else pd.DataFrame()  # 获取该顾问数据(2个Q)
