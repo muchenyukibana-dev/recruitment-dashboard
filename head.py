@@ -623,9 +623,9 @@ def main():
             gp_target = 0 if is_intern else base * (4.5 if is_team_lead else 9.0)
             cv_target = CV_TARGET_QUARTERLY
 
-            # 获取该顾问数据
-            c_sales = sales_df_2q[
-                sales_df_2q['Consultant'] == c_name].copy() if not sales_df_2q.empty else pd.DataFrame()
+            # 获取该顾问数据(更改了sales_df_2q,换这个Q)
+            c_sales = sales_df_curr[
+                sales_df_curr['Consultant'] == c_name].copy() if not sales_df_curr.empty else pd.DataFrame()
 
 
             # 改成只算当前季度的 3 个月 (curr_q_months 我们之前在顶部定义过)
