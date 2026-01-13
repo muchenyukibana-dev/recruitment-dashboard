@@ -611,7 +611,7 @@ def main():
         financial_summary = []
         financial_curr = []
         financial_hist = []
-        updated_sales_records = []
+        updated_sales_records = [] # 这个是给第二页明细的（存 Q1 + Q4）
         team_lead_overrides = []
 
         for conf in dynamic_team_config:
@@ -625,14 +625,13 @@ def main():
             gp_target = 0 if is_intern else base * (4.5 if is_team_lead else 9.0)
             cv_target = CV_TARGET_QUARTERLY
 
-
-            c_sales_curr = sales_df_curr[sales_df_curr['Quarter'] == CURRENT_Q_STR] if not sales_df_curr.empty else pd.DataFrame() #当前Q
-
             c_sales = sales_df_2q[
-                sales_df_2q['Consultant'] == c_name].copy() if not sales_df_2q.empty else pd.DataFrame() # 获取该顾问数据(2个Q)
+                sales_df_2q['Consultant'] == c_name].copy() if not sales_df_2q.empty else pd.DataFrame()  # 获取该顾问数据(2个Q)
+            c_sales_curr = c_sales[c_sales['Quarter'] == CURRENT_Q_STR] if not sales_df_curr.empty else pd.DataFrame() #当前Q 改
 
+            c_sales_hist = c_sales[c_sales['Quarter'] == PREV_Q_STR] # 获取该顾问数据(上个个Q)
             # c_sales_hist = sales_df_hist[
-            #     sales_df_hist['Consultant'] == c_name].copy() if not sales_df_hist.empty else pd.DataFrame() # 获取该顾问数据(上个个Q)
+            #     sales_df_hist['Consultant'] == c_name].copy() if not sales_df_hist.empty else pd.DataFrame()
 
             # 改成只算当前季度的 3 个月 (curr_q_months 我们之前在顶部定义过)
             sent_count = rec_stats_df[
@@ -684,7 +683,8 @@ def main():
             if not is_intern:
                 if not c_sales.empty:
                     # 即使不达标，也会显示 GP 数据，但 Final Comm 会在后面被置为 0
-                    paid_sales = c_sales[c_sales['Status'] == 'Paid'].copy()
+                    # paid_sales = c_sales_curr[c_sales['Status'] == 'Paid'].copy()
+                    paid_sales = c_sales_curr[c_sales_curr['Status'] == 'Paid']['GP'].sum() if not c_sales_curr.empty else 0 #如果支付日期不为空，则判断为已付
 
                     if not paid_sales.empty:
                         paid_sales['Payment Date Obj'] = pd.to_datetime(paid_sales['Payment Date Obj'])
@@ -753,9 +753,10 @@ def main():
                 if not c_sales.empty:
                     updated_sales_records.append(c_sales)
             paid_gp_current = c_sales[c_sales['Quarter'] == CURRENT_Q_STR]['GP'].sum() #新加的不知道什么用
+            paid_gp_hist = c_sales[c_sales['Quarter'] == PREV_Q_STR]['GP'].sum()
 
             financial_hist.append({
-                "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp_current, "Fin %": fin_pct,
+                "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp_hist, "Fin %": fin_pct,
                 "Status": status_text, "Level": current_level, "Est. Commission": total_comm
             })
 
