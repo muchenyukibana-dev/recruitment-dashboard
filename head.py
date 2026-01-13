@@ -776,7 +776,7 @@ def main():
         df_fin_curr = pd.DataFrame(financial_curr).sort_values('Paid GP', ascending=False)
 
         st.dataframe(
-            df_fin,
+            df_fin_curr,
             use_container_width=True,
             hide_index=True,
             column_config={
@@ -796,7 +796,7 @@ def main():
         with st.expander("📜 Historical GP Summary"):
             if not sales_df_hist.empty:
                 st.dataframe(
-                    df_fin_hist.groupby('Consultant')['GP'].sum().reset_index()
+                    df_fin_hist,
                     use_container_width = True,
                     hide_index = True,
                     column_config = {
