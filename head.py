@@ -794,10 +794,9 @@ def main():
         )
 
         with st.expander("📜 Historical GP Summary"):
-            # 从 all_sales_df 里只选上季度的
             if not sales_df_hist.empty:
                 st.dataframe(
-                    df_fin_hist.groupby('Consultant')['GP'].sum().reset_index())
+                    df_fin_hist.groupby('Consultant')['GP'].sum().reset_index()
                     use_container_width = True,
                     hide_index = True,
                     column_config = {
@@ -850,17 +849,6 @@ def main():
                     else:
                         st.info("No deals.")
 
-                        # if not c_view.empty:
-                        #     c_view['Pct Display'] = c_view['Percentage'].apply(lambda x: f"{x * 100:.0f}%")
-                        #     st.dataframe(c_view[
-                        #                      ['Onboard Date Str', 'Payment Date', 'Commission Day', 'Candidate Salary',
-                        #                       'Pct Display', 'GP', 'Status', 'Applied Level', 'Final Comm']],
-                        #                  use_container_width=True, hide_index=True,
-                        #                  column_config={"Commission Day": st.column_config.TextColumn("Comm. Date"),
-                        #                                 "Final Comm": st.column_config.NumberColumn("Comm ($)",
-                        #                                                                             format="$%.2f")})
-                        # else:
-                        #     st.info("No deals.")
 
                 if fin_row['Role'] == 'Team Lead':
                     st.divider();
