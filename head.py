@@ -812,7 +812,7 @@ def main():
                         "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d", width=130),
                     }
                 )
-                else:
+            else:
                 st.info(f"No financial records found for {PREV_Q_STR}")
 
 
