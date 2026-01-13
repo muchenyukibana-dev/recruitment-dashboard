@@ -609,6 +609,8 @@ def main():
         # 2. Financial Performance
         st.markdown(f"### 💰 Financial Performance (Q{CURRENT_QUARTER})")
         financial_summary = []
+        financial_curr = []
+        financial_hist = []
         updated_sales_records = []
         team_lead_overrides = []
 
@@ -623,10 +625,13 @@ def main():
             gp_target = 0 if is_intern else base * (4.5 if is_team_lead else 9.0)
             cv_target = CV_TARGET_QUARTERLY
 
-            # 获取该顾问数据(更改了sales_df_2q,换这个Q)
-            c_sales = sales_df_curr[
-                sales_df_curr['Consultant'] == c_name].copy() if not sales_df_curr.empty else pd.DataFrame()
 
+            c_sales = sales_df_2q[
+                sales_df_2q['Consultant'] == c_name].copy() if not sales_df_2q.empty else pd.DataFrame() # 获取该顾问数据(2个Q)
+            c_sales_curr = sales_df_curr[
+                sales_df_curr['Consultant'] == c_name].copy() if not sales_df_curr.empty else pd.DataFrame() # 获取该顾问数据(当前Q)
+            c_sales_hist = sales_df_hist[
+                sales_df_hist['Consultant'] == c_name].copy() if not sales_df_hist.empty else pd.DataFrame() # 获取该顾问数据(上个个Q)
 
             # 改成只算当前季度的 3 个月 (curr_q_months 我们之前在顶部定义过)
             sent_count = rec_stats_df[
@@ -748,6 +753,16 @@ def main():
                     updated_sales_records.append(c_sales)
             paid_gp_current = c_sales[c_sales['Quarter'] == CURRENT_Q_STR]['GP'].sum() #新加的不知道什么用
 
+            financial_hist.append({
+                "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp_current, "Fin %": fin_pct,
+                "Status": status_text, "Level": current_level, "Est. Commission": total_comm
+            })
+
+            financial_curr.append({
+                "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp_current,
+                "Fin %": fin_pct,
+                "Status": status_text, "Level": current_level, "Est. Commission": total_comm
+            })
             financial_summary.append({
                 "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp_current, "Fin %": fin_pct,
                 "Status": status_text, "Level": current_level, "Est. Commission": total_comm
@@ -757,6 +772,8 @@ def main():
         override_df = pd.DataFrame(team_lead_overrides)
 
         df_fin = pd.DataFrame(financial_summary).sort_values('Paid GP', ascending=False)
+        df_fin_hist = pd.DataFrame(financial_hist).sort_values('Paid GP', ascending=False)
+        df_fin_curr = pd.DataFrame(financial_curr).sort_values('Paid GP', ascending=False)
 
         st.dataframe(
             df_fin,
@@ -779,7 +796,25 @@ def main():
         with st.expander("📜 Historical GP Summary"):
             # 从 all_sales_df 里只选上季度的
             if not sales_df_hist.empty:
-                st.dataframe(sales_df_hist.groupby('Consultant')['GP'].sum().reset_index())
+                st.dataframe(
+                    df_fin_hist.groupby('Consultant')['GP'].sum().reset_index())
+                    use_container_width = True,
+                    hide_index = True,
+                    column_config = {
+                        "Consultant": st.column_config.TextColumn("Consultant", width=150),
+                        "Role": st.column_config.TextColumn("Role", width=100),
+                        "GP Target": st.column_config.NumberColumn("GP Target", format="$%d", width=100),
+                        "Paid GP": st.column_config.NumberColumn("Paid GP", format="$%d", width=100),
+                        "Fin %": st.column_config.ProgressColumn("Financial %", format="%.0f%%", min_value=0,
+                                                                 max_value=100,
+                                                                 width=150),
+                        "Status": st.column_config.TextColumn("Status", width=140),
+                        "Level": st.column_config.NumberColumn("Level", width=80),
+                        "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d", width=130),
+                    }
+                )
+                else:
+                st.info(f"No financial records found for {PREV_Q_STR}")
 
 
     with tab_details:
