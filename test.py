@@ -788,17 +788,17 @@ def main():
 
             financial_hist.append({
                 "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp_hist, "Fin %": fin_hist,
-                "Status": status_text, "Level": current_level, "Est. Commission": total_comm
+                "Status": status_text_hist, "Level": current_level, "Est. Commission": total_comm
             })
 
             financial_curr.append({
                 "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp_current,
                 "Fin %": fin_curr,
-                "Status": status_text, "Level": current_level, "Est. Commission": total_comm
+                "Status": status_text_curr, "Level": current_level, "Est. Commission": total_comm
             })
             financial_summary.append({
                 "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp_current,
-                "Status": status_text, "Level": current_level, "Est. Commission": total_comm
+                "Status": status_text_curr, "Level": current_level, "Est. Commission": total_comm
             })
 
         final_sales_df = pd.concat(updated_sales_records) if updated_sales_records else pd.DataFrame()
@@ -827,7 +827,7 @@ def main():
         )
 
         with st.expander("📜 Historical GP Summary"):
-            if not sales_df_hist.empty:
+            if not df_fin_hist.empty:
                 st.dataframe(
                     df_fin_hist,
                     use_container_width = True,
