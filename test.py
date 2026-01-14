@@ -839,7 +839,7 @@ def main():
                                                          max_value=100,
                                                          width=150),
                 "Status": st.column_config.TextColumn("Status", width=140),
-                "Level": st.column_config.NumberColumn("Level", width=80),
+                # "Level": st.column_config.NumberColumn("Level", width=80),
                 "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d", width=130),
             }
         )
@@ -859,7 +859,7 @@ def main():
                                                                  max_value=100,
                                                                  width=150),
                         "Status": st.column_config.TextColumn("Status", width=140),
-                        "Level": st.column_config.NumberColumn("Level", width=80),
+                        # "Level": st.column_config.NumberColumn("Level", width=80),
                         "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d", width=130),
                     }
                 )
