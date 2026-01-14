@@ -702,8 +702,13 @@ def main():
 
 
             # 佣金计算逻辑
-            total_comm = 0
-            current_level = 0
+            # --- 1. 佣金逻辑初始化 (增加两个季度的钱包) ---
+            total_comm_curr = 0
+            total_comm_hist = 0
+            level_curr = 0
+            level_hist = 0
+            # total_comm = 0
+            # current_level = 0
 
             # 初始化 c_sales 列
             if not c_sales.empty:
@@ -718,6 +723,11 @@ def main():
                     paid_sales = c_sales[c_sales['Status'] == 'Paid'].copy() #之后改如果支付日期不为空，则判断为已付
 
                     if not paid_sales.empty:
+                        for q_name in [PREV_Q_STR, CURRENT_Q_STR]:
+                            q_mask = paid_sales['Quarter'] == q_name
+                            q_data = paid_sales[q_mask].copy()
+                            if q_data.empty:
+                                continue  # 如果这个季度没单子，直接跳过看下一个季度
                         paid_sales['Payment Date Obj'] = pd.to_datetime(paid_sales['Payment Date Obj'])
                         paid_sales = paid_sales.sort_values(by='Payment Date Obj')
                         paid_sales['Pay_Month_Key'] = paid_sales['Payment Date Obj'].dt.to_period('M')
@@ -725,6 +735,7 @@ def main():
 
                         running_paid_gp = 0
                         pending_indices = []
+                        paid_sales.update(q_data)
 
                         # 计算 Tiers
                         for month_key in unique_months:
@@ -747,14 +758,14 @@ def main():
                                 pending_indices = []
 
                         paid_gp = running_paid_gp
-                        current_level, _ = calculate_commission_tier(running_paid_gp, base, is_team_lead)
+                        level_curr, _ = calculate_commission_tier(running_paid_gp, base, is_team_lead)
 
                         # 汇总可发放佣金 (需同时满足: 1. 已达标 2. 客户已付款 3. 到达发薪日)
                         for idx, row in paid_sales.iterrows():
                             comm_date = row['Commission Day Obj']
                             if is_target_met_curr:  # 关键判断：是否达标
                                 if pd.notnull(comm_date) and comm_date <= datetime.now() + timedelta(days=20):
-                                    total_comm += row['Final Comm']
+                                    total_comm_curr += row['Final Comm']
                             else:
                                 # 未达标，佣金归零
                                 paid_sales.at[idx, 'Final Comm'] = 0
@@ -774,7 +785,7 @@ def main():
                         comm_pay_obj = get_commission_pay_date(row['Payment Date Obj'])
                         if pd.notnull(comm_pay_obj) and comm_pay_obj <= datetime.now() + timedelta(days=20):
                             bonus = 1000 * row['Percentage']
-                            total_comm += bonus
+                            total_comm_curr += bonus
                             team_lead_overrides.append(
                                 {"Leader": c_name, "Source": row['Consultant'], "Salary": row['Candidate Salary'], "Percentage": row['Percentage'],
                                  "Date": comm_pay_obj.strftime("%Y-%m-%d"), "Bonus": bonus})
@@ -788,17 +799,17 @@ def main():
 
             financial_hist.append({
                 "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp_hist, "Fin %": fin_hist,
-                "Status": status_text_hist, "Level": current_level, "Est. Commission": total_comm
+                "Status": status_text_hist, "Level": level_hist, "Est. Commission": total_comm_hist
             })
 
             financial_curr.append({
                 "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp_current,
                 "Fin %": fin_curr,
-                "Status": status_text_curr, "Level": current_level, "Est. Commission": total_comm
+                "Status": status_text_curr, "Level": level_curr, "Est. Commission": total_comm_curr
             })
             financial_summary.append({
                 "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp_current,
-                "Status": status_text_curr, "Level": current_level, "Est. Commission": total_comm
+                "Status": status_text_curr, "Level": level_curr, "Est. Commission": total_comm_curr
             })
 
         final_sales_df = pd.concat(updated_sales_records) if updated_sales_records else pd.DataFrame()
@@ -860,11 +871,28 @@ def main():
                     st.markdown("#### 💸 Commission Breakdown")
                     if not final_sales_df.empty:
                         c_view = final_sales_df[final_sales_df['Consultant'] == c_name].copy()
-                        # --- 修改这里：按季度循环显示 ---
-                        for q_name in [CURRENT_Q_STR, PREV_Q_STR]:
-                            q_data = c_view[c_view['Quarter'] == q_name]
 
-                            if not q_data.empty:
+                        # for q_name in [CURRENT_Q_STR, PREV_Q_STR]:
+                        #     q_mask = paid_sales['Quarter'] == q_name
+                        #     q_data = paid_sales[q_mask].copy()
+                        #     # q_data = c_view[c_view['Quarter'] == q_name]
+                        #     if q_data.empty: continue
+                        #     current_q_target_met = is_target_met_hist if q_name == PREV_Q_STR else is_target_met_curr
+                        #     #新增
+                        #     for idx in pending_indices:
+                        #         # 计算单笔佣金
+                        #         deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * row[
+                        #             'Percentage']
+                        #
+                        #         # 🌟 修正这里：判断这个季度的开关是否打开
+                        #         if current_q_target_met:
+                        #             # 达标了，写入实际佣金
+                        #             q_data.at[idx, 'Final Comm'] = deal_comm
+                        #         else:
+                        #             # 没达标，佣金设为 0
+                        #             q_data.at[idx, 'Final Comm'] = 0
+                        #     # 新增结束
+                        #     if not q_data.empty:
                                 st.markdown(f"**📅 {q_name}**")  # 季度小标题
                                 q_data['Pct Display'] = q_data['Percentage'].apply(lambda x: f"{x * 100:.0f}%")
 
