@@ -859,67 +859,62 @@ def main():
             else:
                 st.info(f"No financial records found for {PREV_Q_STR}")
 
-
     with tab_details:
         st.markdown("### 🔍 Drill Down Details")
         for conf in dynamic_team_config:
             c_name = conf['name']
-            fin_row = df_fin[df_fin['Consultant'] == c_name].iloc[0]
-            header = f"👤 {c_name} ({fin_row['Role']}) | Status: {fin_row['Status']}"
+            # 从之前计算好的汇总表中获取该顾问的 Role 和 Status
+            try:
+                fin_row = df_fin[df_fin['Consultant'] == c_name].iloc[0]
+                header = f"👤 {c_name} ({fin_row['Role']}) | Status: {fin_row['Status']}"
+            except:
+                header = f"👤 {c_name}"
+
             with st.expander(header):
+                # 实习生通常不显示佣金明细
                 if fin_row['Role'] != "Intern":
                     st.markdown("#### 💸 Commission Breakdown")
                     if not final_sales_df.empty:
+                        # 筛选出当前顾问的所有成交记录
                         c_view = final_sales_df[final_sales_df['Consultant'] == c_name].copy()
 
-                        # for q_name in [CURRENT_Q_STR, PREV_Q_STR]:
-                        #     q_mask = paid_sales['Quarter'] == q_name
-                        #     q_data = paid_sales[q_mask].copy()
-                        #     # q_data = c_view[c_view['Quarter'] == q_name]
-                        #     if q_data.empty: continue
-                        #     current_q_target_met = is_target_met_hist if q_name == PREV_Q_STR else is_target_met_curr
-                        #     #新增
-                        #     for idx in pending_indices:
-                        #         # 计算单笔佣金
-                        #         deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * row[
-                        #             'Percentage']
-                        #
-                        #         # 🌟 修正这里：判断这个季度的开关是否打开
-                        #         if current_q_target_met:
-                        #             # 达标了，写入实际佣金
-                        #             q_data.at[idx, 'Final Comm'] = deal_comm
-                        #         else:
-                        #             # 没达标，佣金设为 0
-                        #             q_data.at[idx, 'Final Comm'] = 0
-                        #     # 新增结束
-                        #     if not q_data.empty:
+                        # 遍历上季度和本季度
+                        for q_name in [PREV_Q_STR, CURRENT_Q_STR]:
+                            q_data = c_view[c_view['Quarter'] == q_name].copy()
+
+                            if not q_data.empty:
                                 st.markdown(f"**📅 {q_name}**")  # 季度小标题
                                 q_data['Pct Display'] = q_data['Percentage'].apply(lambda x: f"{x * 100:.0f}%")
 
-                                st.dataframe(q_data[
-                                                 ['Onboard Date Str', 'Payment Date', 'Commission Day',
-                                                  'Candidate Salary',
-                                                  'Pct Display', 'GP', 'Status', 'Applied Level', 'Final Comm']],
-                                             use_container_width=True, hide_index=True,
-                                             column_config={"Commission Day": st.column_config.TextColumn("Comm. Date"),
-                                                            "Final Comm": st.column_config.NumberColumn("Comm ($)",
-                                                                                                        format="$%.2f")})
-                                st.divider()  # 分界线
+                                # 显示该季度的明细表格
+                                st.dataframe(
+                                    q_data[['Onboard Date Str', 'Payment Date', 'Commission Day',
+                                            'Candidate Salary', 'Pct Display', 'GP', 'Status',
+                                            'Applied Level', 'Final Comm']],
+                                    use_container_width=True,
+                                    hide_index=True,
+                                    column_config={
+                                        "Commission Day": st.column_config.TextColumn("Comm. Date"),
+                                        "Final Comm": st.column_config.NumberColumn("Comm ($)", format="$%.2f")
+                                    }
+                                )
+                                st.divider()  # 季度间分界线
                             else:
                                 st.caption(f"No data for {q_name}")
                     else:
-                        st.info("No deals.")
+                        st.info("No deals recorded.")
 
-
+                # 如果是 Team Lead，显示额外提成
                 if fin_row['Role'] == 'Team Lead':
-                    st.divider();
+                    st.divider()
                     st.markdown("#### 👥 Team Overrides")
                     if not override_df.empty:
                         my_ov = override_df[override_df['Leader'] == c_name]
                         if not my_ov.empty:
                             st.dataframe(my_ov, use_container_width=True, hide_index=True)
                         else:
-                            st.info("None.")
+                            st.info("No team overrides earned yet.")
+
 
 if __name__ == "__main__":
     main()
