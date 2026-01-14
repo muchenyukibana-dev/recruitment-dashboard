@@ -762,10 +762,17 @@ def main():
 
                         # 汇总可发放佣金 (需同时满足: 1. 已达标 2. 客户已付款 3. 到达发薪日)
                         for idx, row in paid_sales.iterrows():
+                            deal_quarter = row['Quarter']  # 获取这笔单子所属季度
+                            target_is_met = is_target_met_curr if deal_quarter == CURRENT_Q_STR else is_target_met_hist
                             comm_date = row['Commission Day Obj']
-                            if is_target_met_curr:  # 关键判断：是否达标
+                            if target_is_met:  # 如果该单子所属的季度达标了
                                 if pd.notnull(comm_date) and comm_date <= datetime.now() + timedelta(days=20):
-                                    total_comm_curr += row['Final Comm']
+                                    if deal_quarter == CURRENT_Q_STR:
+                                        total_comm_curr += row['Final Comm']
+                                    else:
+                                        total_comm_hist += row['Final Comm']  # 确保历史佣金也能累加
+                                # if pd.notnull(comm_date) and comm_date <= datetime.now() + timedelta(days=20):
+                                #     total_comm_curr += row['Final Comm']
                             else:
                                 # 未达标，佣金归零
                                 paid_sales.at[idx, 'Final Comm'] = 0
