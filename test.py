@@ -752,7 +752,7 @@ def main():
                         # 汇总可发放佣金 (需同时满足: 1. 已达标 2. 客户已付款 3. 到达发薪日)
                         for idx, row in paid_sales.iterrows():
                             comm_date = row['Commission Day Obj']
-                            if is_target_met:  # 关键判断：是否达标
+                            if is_target_met_curr:  # 关键判断：是否达标
                                 if pd.notnull(comm_date) and comm_date <= datetime.now() + timedelta(days=20):
                                     total_comm += row['Final Comm']
                             else:
@@ -766,7 +766,7 @@ def main():
                     updated_sales_records.append(c_sales)
 
                 # Team Lead Override 计算
-                if is_team_lead and is_target_met and not sales_df_2q.empty:
+                if is_team_lead and is_target_met_curr and not sales_df_2q.empty:
                     override_mask = (sales_df_2q['Status'] == 'Paid') & (sales_df_2q['Consultant'] != c_name) & (
                             sales_df_2q['Consultant'] != "Estela Peng")
                     pot_overrides = sales_df_2q[override_mask].copy()
