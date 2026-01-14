@@ -685,7 +685,8 @@ def main():
                 if not c_sales.empty:
                     # 即使不达标，也会显示 GP 数据，但 Final Comm 会在后面被置为 0
                     # paid_sales = c_sales_curr[c_sales['Status'] == 'Paid'].copy()
-                    paid_sales = c_sales_curr[c_sales_curr['Status'] == 'Paid']['GP'].sum() if not c_sales_curr.empty else 0 #如果支付日期不为空，则判断为已付
+                    # paid_sales = c_sales_curr[c_sales_curr['Status'] == 'Paid']['GP'].sum() if not c_sales_curr.empty else 0
+                    paid_sales = c_sales[c_sales['Status'] == 'Paid'].copy() #之后改如果支付日期不为空，则判断为已付
 
                     if not paid_sales.empty:
                         paid_sales['Payment Date Obj'] = pd.to_datetime(paid_sales['Payment Date Obj'])
