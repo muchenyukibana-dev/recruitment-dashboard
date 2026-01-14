@@ -469,7 +469,7 @@ def main():
 
     if not all_sales_df.empty:
         # 1. 本季度
-        sales_df_2q = all_sales_df[all_sales_df['Quarter'] == CURRENT_Q_STR].copy()
+        sales_df_curr = all_sales_df[all_sales_df['Quarter'] == CURRENT_Q_STR].copy()
 
         # 2. 上季度 (现在你用 hist 代表上季度，没问题)
         sales_df_hist = all_sales_df[all_sales_df['Quarter'] == PREV_Q_STR].copy()
@@ -478,7 +478,7 @@ def main():
         sales_df_2q = all_sales_df[all_sales_df['Quarter'].isin([CURRENT_Q_STR, PREV_Q_STR])].copy()
     else:
         # 注意：末尾不要加逗号
-        sales_df_2q, sales_df_hist, sales_df_2q = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        sales_df_curr, sales_df_hist, sales_df_2q = pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 
 
@@ -494,9 +494,8 @@ def main():
         # 1. Recruitment Stats
         st.markdown(f"### 🎯 Recruitment Stats (Q{CURRENT_QUARTER})")
         if not rec_stats_df.empty:
-            rec_stats_current = rec_stats_df[rec_stats_df['Month'].isin(curr_q_months)]
-            rec_summary = rec_stats_current.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
-            # rec_summary = rec_stats_df.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
+            rec_curr = rec_stats_df[rec_stats_df['Month'].isin(curr_q_months)]
+            rec_summary = rec_curr.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
 
 
 
@@ -603,32 +602,15 @@ def main():
                 )
             else:
                 st.info(f"No activity recorded for {PREV_Q_STR}")
-        # with st.expander("📜 Historical Recruitment Data"):
-        #     rec_stats_prev = rec_stats_df[rec_stats_df['Month'].isin(prev_q_months)]
-        #     if not rec_stats_prev.empty:
-        #         # 汇总上季度数据
-        #         summary_prev = rec_stats_prev.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
-        #         st.dataframe(
-        #             summary_prev.sort_values('Sent', ascending=False),
-        #             use_container_width=True,
-        #             hide_index=True
-        #         )
-        #     else:
-        #         st.info(f"No activity recorded for {PREV_Q_STR}")
 
-            # if not rec_hist_df.empty:
-            #     st.dataframe(
-            #         rec_hist_df.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index().sort_values('Sent',
-            #                                                                                                   ascending=False),
-            #         use_container_width=True, hide_index=True)
-            # else:
-            #     st.info("No data.")
         st.divider()
 
         # 2. Financial Performance
         st.markdown(f"### 💰 Financial Performance (Q{CURRENT_QUARTER})")
         financial_summary = []
-        updated_sales_records = []
+        financial_curr = []
+        financial_hist = []
+        updated_sales_records = [] # 这个是给第二页明细的（存 Q1 + Q4）
         team_lead_overrides = []
 
         for conf in dynamic_team_config:
@@ -641,51 +623,83 @@ def main():
 
             gp_target = 0 if is_intern else base * (4.5 if is_team_lead else 9.0)
             cv_target = CV_TARGET_QUARTERLY
+            paid_sales = pd.DataFrame()
 
-            # 获取该顾问数据
             c_sales = sales_df_2q[
-                sales_df_2q['Consultant'] == c_name].copy() if not sales_df_2q.empty else pd.DataFrame()
+                sales_df_2q['Consultant'] == c_name].copy() if not sales_df_2q.empty else pd.DataFrame()  # 获取该顾问数据(2个Q)
+            c_sales_curr = c_sales[c_sales['Quarter'] == CURRENT_Q_STR] if not sales_df_curr.empty else pd.DataFrame() #当前Q 改
 
-            # c_sales = sales_df_2q[
-            #     sales_df_2q['Consultant'] == c_name].copy() if not sales_df_2q.empty else pd.DataFrame()
-            # sent_count = rec_stats_df[rec_stats_df['Consultant'] == c_name]['Sent'].sum()
+            c_sales_hist = c_sales[c_sales['Quarter'] == PREV_Q_STR] # 获取该顾问数据(上个个Q)
+            # c_sales_hist = sales_df_hist[
+            #     sales_df_hist['Consultant'] == c_name].copy() if not sales_df_hist.empty else pd.DataFrame()
 
             # 改成只算当前季度的 3 个月 (curr_q_months 我们之前在顶部定义过)
-            sent_count = rec_stats_df[
+            sent_curr = rec_stats_df[
                 (rec_stats_df['Consultant'] == c_name) &
                 (rec_stats_df['Month'].isin(curr_q_months))
                 ]['Sent'].sum()
+            sent_hist = rec_stats_df[
+                (rec_stats_df['Consultant'] == c_name) &
+                (rec_stats_df['Month'].isin(prev_q_months))
+                ]['Sent'].sum()
 
-            # sent_count = rec_stats_df[rec_stats_df['Consultant'] == c_name][
-            #     'Sent'].sum() if not rec_stats_df.empty else 0
 
             # 财务数据基础计算
-            booked_gp = c_sales['GP'].sum() if not c_sales.empty else 0
+            booked_gp_curr = c_sales_curr['GP'].sum() if not c_sales.empty else 0
+            booked_gp_hist = c_sales_hist['GP'].sum() if not c_sales.empty else 0
             paid_gp = 0
 
             # 进度百分比
-            fin_pct = (booked_gp / gp_target * 100) if gp_target > 0 else 0  # 更改为使用 Booked GP 计算百分比
-            rec_pct = (sent_count / cv_target * 100) if cv_target > 0 else 0
+            fin_curr = (booked_gp_curr / gp_target * 100) if gp_target > 0 else 0  # 当季 Booked GP 计算百分比
+            fin_hist = (booked_gp_hist / gp_target * 100) if gp_target > 0 else 0  # 上季 Booked GP 计算百分比
+            rec_pct_curr = (sent_curr / cv_target * 100) if cv_target > 0 else 0
+            rec_pct_hist = (sent_hist / cv_target * 100) if cv_target > 0 else 0
 
-            # 达标判断 (Target Met)
-            achieved = []
-            is_target_met = False
+            # --- A. 当前季度达标判断 (Current Quarter) ---
+            achieved_curr = []
+            is_target_met_curr = False
 
             if is_intern:
-                # Intern 只看简历发送
-                if rec_pct >= 100:
-                    achieved.append("Activity")
-                    is_target_met = True
+                # Intern 只看简历
+                if rec_pct_curr >= 100:
+                    achieved_curr.append("Activity")
+                    is_target_met_curr = True
             else:
                 # Consultant / Team Lead 看 GP 或 简历
-                if fin_pct >= 100:
-                    achieved.append("Financial")
-                    is_target_met = True
-                if rec_pct >= 100:
-                    achieved.append("Activity")
-                    is_target_met = True
+                if fin_curr >= 100:
+                    achieved_curr.append("Financial")
+                    is_target_met_curr = True
+                if rec_pct_curr >= 100:
+                    # 防止重复添加
+                    if "Activity" not in achieved_curr:
+                        achieved_curr.append("Activity")
+                    is_target_met_curr = True
 
-            status_text = " & ".join(achieved) if achieved else "In Progress"
+            # 显示文字：达标显示具体项，未达标显示 In Progress
+            status_text_curr = " & ".join(achieved_curr) if achieved_curr else "In Progress"
+
+            # --- B. 上季度达标判断 (Historical Quarter) ---
+            achieved_hist = []
+            is_target_met_hist = False
+
+            if is_intern:
+                # Intern 只看上季简历
+                if rec_pct_hist >= 100:
+                    achieved_hist.append("Activity")
+                    is_target_met_hist = True
+            else:
+                # Consultant / Team Lead 看上季 GP 或 上季简历
+                if fin_hist >= 100:
+                    achieved_hist.append("Financial")
+                    is_target_met_hist = True
+                if rec_pct_hist >= 100:  # 🌟 修正：这里必须用 hist
+                    if "Activity" not in achieved_hist:
+                        achieved_hist.append("Activity")
+                    is_target_met_hist = True
+
+            # 显示文字：历史未达标通常显示 Below Target
+            status_text_hist = " & ".join(achieved_hist) if achieved_hist else "Below Target"
+
 
             # 佣金计算逻辑
             total_comm = 0
@@ -701,8 +715,7 @@ def main():
             # 仅当非 Intern 且 达标 (Target Met) 时才计算佣金
             if not is_intern:
                 if not c_sales.empty:
-                    # 即使不达标，也会显示 GP 数据，但 Final Comm 会在后面被置为 0
-                    paid_sales = c_sales[c_sales['Status'] == 'Paid'].copy()
+                    paid_sales = c_sales[c_sales['Status'] == 'Paid'].copy() #之后改如果支付日期不为空，则判断为已付
 
                     if not paid_sales.empty:
                         paid_sales['Payment Date Obj'] = pd.to_datetime(paid_sales['Payment Date Obj'])
@@ -771,9 +784,20 @@ def main():
                 if not c_sales.empty:
                     updated_sales_records.append(c_sales)
             paid_gp_current = c_sales[c_sales['Quarter'] == CURRENT_Q_STR]['GP'].sum() #新加的不知道什么用
+            paid_gp_hist = c_sales[c_sales['Quarter'] == PREV_Q_STR]['GP'].sum()
 
+            financial_hist.append({
+                "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp_hist, "Fin %": fin_hist,
+                "Status": status_text, "Level": current_level, "Est. Commission": total_comm
+            })
+
+            financial_curr.append({
+                "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp_current,
+                "Fin %": fin_curr,
+                "Status": status_text, "Level": current_level, "Est. Commission": total_comm
+            })
             financial_summary.append({
-                "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp_current, "Fin %": fin_pct,
+                "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp_current,
                 "Status": status_text, "Level": current_level, "Est. Commission": total_comm
             })
 
@@ -781,9 +805,11 @@ def main():
         override_df = pd.DataFrame(team_lead_overrides)
 
         df_fin = pd.DataFrame(financial_summary).sort_values('Paid GP', ascending=False)
+        df_fin_hist = pd.DataFrame(financial_hist).sort_values('Paid GP', ascending=False)
+        df_fin_curr = pd.DataFrame(financial_curr).sort_values('Paid GP', ascending=False)
 
         st.dataframe(
-            df_fin,
+            df_fin_curr,
             use_container_width=True,
             hide_index=True,
             column_config={
@@ -801,9 +827,26 @@ def main():
         )
 
         with st.expander("📜 Historical GP Summary"):
-            # 从 all_sales_df 里只选上季度的
             if not sales_df_hist.empty:
-                st.dataframe(sales_df_hist.groupby('Consultant')['GP'].sum().reset_index())
+                st.dataframe(
+                    df_fin_hist,
+                    use_container_width = True,
+                    hide_index = True,
+                    column_config = {
+                        "Consultant": st.column_config.TextColumn("Consultant", width=150),
+                        "Role": st.column_config.TextColumn("Role", width=100),
+                        "GP Target": st.column_config.NumberColumn("GP Target", format="$%d", width=100),
+                        "Paid GP": st.column_config.NumberColumn("Paid GP", format="$%d", width=100),
+                        "Fin %": st.column_config.ProgressColumn("Financial %", format="%.0f%%", min_value=0,
+                                                                 max_value=100,
+                                                                 width=150),
+                        "Status": st.column_config.TextColumn("Status", width=140),
+                        "Level": st.column_config.NumberColumn("Level", width=80),
+                        "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d", width=130),
+                    }
+                )
+            else:
+                st.info(f"No financial records found for {PREV_Q_STR}")
 
 
     with tab_details:
@@ -839,17 +882,6 @@ def main():
                     else:
                         st.info("No deals.")
 
-                        # if not c_view.empty:
-                        #     c_view['Pct Display'] = c_view['Percentage'].apply(lambda x: f"{x * 100:.0f}%")
-                        #     st.dataframe(c_view[
-                        #                      ['Onboard Date Str', 'Payment Date', 'Commission Day', 'Candidate Salary',
-                        #                       'Pct Display', 'GP', 'Status', 'Applied Level', 'Final Comm']],
-                        #                  use_container_width=True, hide_index=True,
-                        #                  column_config={"Commission Day": st.column_config.TextColumn("Comm. Date"),
-                        #                                 "Final Comm": st.column_config.NumberColumn("Comm ($)",
-                        #                                                                             format="$%.2f")})
-                        # else:
-                        #     st.info("No deals.")
 
                 if fin_row['Role'] == 'Team Lead':
                     st.divider();
