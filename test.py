@@ -806,17 +806,17 @@ def main():
 
             financial_hist.append({
                 "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp_hist, "Fin %": fin_hist,
-                "Status": status_text_hist, "Level": level_hist, "Est. Commission": total_comm_hist
+                "Status": status_text_hist, "Est. Commission": total_comm_hist
             })
 
             financial_curr.append({
                 "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp_current,
                 "Fin %": fin_curr,
-                "Status": status_text_curr, "Level": level_curr, "Est. Commission": total_comm_curr
+                "Status": status_text_curr,  "Est. Commission": total_comm_curr
             })
             financial_summary.append({
                 "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp_current,
-                "Status": status_text_curr, "Level": level_curr, "Est. Commission": total_comm_curr
+                "Status": status_text_curr, "Est. Commission": total_comm_curr
             })
 
         final_sales_df = pd.concat(updated_sales_records) if updated_sales_records else pd.DataFrame()
