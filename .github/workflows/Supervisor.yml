@@ -1,0 +1,15 @@
+name: Wake Up Management Board
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'
+  workflow_dispatch: 
+
+jobs:
+  wake_up_job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open Streamlit App
+        # 添加了 --max-redirs 限制，并加上 || true 确保不报错
+        run: |
+          curl -s -L --max-redirs 5 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36" "https://recruitment-dashboard-kyhnhmdicnr6qjeamripzs.streamlit.app/" || true
