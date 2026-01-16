@@ -1,0 +1,18 @@
+name: Wake Up Streamlit App
+
+on:
+  schedule:
+    # 每天每隔 12 小时执行一次 (你可以根据需要缩短，比如每 6 小时)
+    - cron: '0 */12 * * *'
+  workflow_dispatch: # 允许你手动点击测试
+
+jobs:
+  wake_up:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open Streamlit App
+        run: |
+          # 使用 curl 模拟带浏览器特征的访问
+          curl -s -L -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36" \
+          "https://recruitment-dashboard-kyhnhmdicnr6qjeamripzs.streamlit.app/" > /dev/null
+          echo "App pinged at $(date)"
