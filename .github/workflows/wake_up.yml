@@ -1,4 +1,4 @@
-name: Wake Up Streamlit App
+name: Wake Up Management Board
 
 on:
   schedule:
