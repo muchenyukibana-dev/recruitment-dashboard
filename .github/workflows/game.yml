@@ -1,4 +1,4 @@
-name: Wake Up My Game
+name: Wake Up Game
 on:
   schedule:
     - cron: '0 */2 * * *' # 每 2 小时自动运行
