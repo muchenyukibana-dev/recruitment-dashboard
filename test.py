@@ -385,49 +385,51 @@ def main():
                                                               max_value=100)})
 
         st.divider()
+        # 2. Financial Performance 标题
         st.markdown(f"### 💰 Financial Performance (Q{CURRENT_QUARTER})")
-        financial_curr, financial_hist, updated_sales_records, team_lead_overrides = [], [], [], []
+
+        # --- [这里是计算逻辑的开始] ---
+        financial_summary = []
+        financial_curr = []
+        financial_hist = []
+        updated_sales_records = []
+        team_lead_overrides = []
+
         for conf in dynamic_team_config:
             c_name, base, role = conf['name'], conf['base_salary'], conf.get('role', 'Consultant')
             is_intern, is_team_lead = (role == "Intern"), (role == "Team Lead")
             gp_target = 0 if is_intern else base * (4.5 if is_team_lead else 9.0)
-            cv_target = CV_TARGET_QUARTERLY
 
-            # --- 1. 初始化所有变量，防止 NameError ---
-            fin_curr, fin_hist = 0, 0
-            rec_pct_curr, rec_pct_hist = 0, 0
-            total_comm_curr, total_comm_hist = 0, 0
+            # 初始化每个顾问的变量
+            fin_curr, fin_hist = 0.0, 0.0
+            rec_pct_curr, rec_pct_hist = 0.0, 0.0
+            total_comm_curr, total_comm_hist = 0.0, 0.0
             is_target_met_curr, is_target_met_hist = False, False
             achieved_curr, achieved_hist = [], []
 
-            # 获取该顾问数据
+            # 提取该顾问的数据
             c_sales = sales_df_2q[
                 sales_df_2q['Consultant'] == c_name].copy() if not sales_df_2q.empty else pd.DataFrame()
             c_sales_curr = c_sales[c_sales['Quarter'] == CURRENT_Q_STR] if not c_sales.empty else pd.DataFrame()
             c_sales_hist = c_sales[c_sales['Quarter'] == PREV_Q_STR] if not c_sales.empty else pd.DataFrame()
 
-            # --- 2. 计算财务进度 (Booked GP) ---
-            # 无论是否支付，只要上岗了就计入进度
-            booked_gp_curr = c_sales_curr['GP'].sum() if not c_sales_curr.empty else 0
-            booked_gp_hist = c_sales_hist['GP'].sum() if not c_sales_hist.empty else 0
-
-            if gp_target > 0:
-                fin_curr = (booked_gp_curr / gp_target * 100)
-                fin_hist = (booked_gp_hist / gp_target * 100)
-
-            # --- 3. 计算简历进度 ---
+            # 简历统计
             sent_curr = \
             rec_stats_df[(rec_stats_df['Consultant'] == c_name) & (rec_stats_df['Month'].isin(curr_q_months))][
                 'Sent'].sum()
             sent_hist = \
             rec_stats_df[(rec_stats_df['Consultant'] == c_name) & (rec_stats_df['Month'].isin(prev_q_months))][
                 'Sent'].sum()
+            rec_pct_curr = (sent_curr / CV_TARGET_QUARTERLY * 100) if CV_TARGET_QUARTERLY > 0 else 0
+            rec_pct_hist = (sent_hist / CV_TARGET_QUARTERLY * 100) if CV_TARGET_QUARTERLY > 0 else 0
 
-            if cv_target > 0:
-                rec_pct_curr = (sent_curr / cv_target * 100)
-                rec_pct_hist = (sent_hist / cv_target * 100)
+            # 财务进度 (Booked GP)
+            booked_gp_curr = c_sales_curr['GP'].sum() if not c_sales_curr.empty else 0
+            booked_gp_hist = c_sales_hist['GP'].sum() if not c_sales_hist.empty else 0
+            fin_curr = (booked_gp_curr / gp_target * 100) if gp_target > 0 else 0
+            fin_hist = (booked_gp_hist / gp_target * 100) if gp_target > 0 else 0
 
-            # --- 4. 判定达标状态 (现在可以使用 fin_curr 了) ---
+            # --- 达标判定 (确定 Status) ---
             if is_intern:
                 if rec_pct_curr >= 100: achieved_curr.append("Activity"); is_target_met_curr = True
                 if rec_pct_hist >= 100: achieved_hist.append("Activity"); is_target_met_hist = True
@@ -440,88 +442,107 @@ def main():
             status_text_curr = " & ".join(achieved_curr) if achieved_curr else "In Progress"
             status_text_hist = " & ".join(achieved_hist) if achieved_hist else "Below Target"
 
-            # --- 5. 佣金明细计算 ---
+            # --- 佣金计算 ---
             if not is_intern and not c_sales.empty:
-                # 确保日期格式
-                c_sales['Payment Date Obj'] = pd.to_datetime(c_sales['Payment Date Obj'], errors='coerce')
-                c_sales['Onboard Date Obj'] = pd.to_datetime(c_sales['Onboard Date Obj'], errors='coerce')
+                # 自动兼容不同的列名
+                t_col = next(
+                    (c for c in ['Onboard Date Obj', 'Onboard Date Str', 'Onboarding Date'] if c in c_sales.columns),
+                    None)
+                if t_col:
+                    c_sales['Onboard Date Obj'] = pd.to_datetime(c_sales[t_col], errors='coerce')
+                    c_sales['Payment Date Obj'] = pd.to_datetime(c_sales['Payment Date Obj'], errors='coerce')
+                    c_sales['Applied Level'], c_sales['Final Comm'], c_sales['Commission Day'] = 0, 0.0, ""
 
-                # 初始化
-                c_sales['Applied Level'] = 0
-                c_sales['Final Comm'] = 0.0
-                c_sales['Commission Day'] = ""
+                    # 补发比例锁定 (Level 1)
+                    trigger_gp = base * (5.0 if is_team_lead else 10.0)
+                    _, level1_mult = calculate_commission_tier(trigger_gp, base, is_team_lead)
 
-                # 预获取 Level 1 的比例用于补发 (必须传入足以触发 Level 1 的 GP 值)
-                # Consultant 需要 9*base, Team Lead 需要 4.5*base
-                trigger_gp = base * (5.0 if is_team_lead else 10.0)
-                _, level1_mult = calculate_commission_tier(trigger_gp, base, is_team_lead)
+                    for q_name in [PREV_Q_STR, CURRENT_Q_STR]:
+                        q_mask = c_sales['Quarter'] == q_name
+                        if not q_mask.any(): continue
 
-                for q_name in [PREV_Q_STR, CURRENT_Q_STR]:
-                    q_mask = c_sales['Quarter'] == q_name
-                    if not q_mask.any(): continue
+                        target_is_met = is_target_met_curr if q_name == CURRENT_Q_STR else is_target_met_hist
+                        q_data = c_sales[q_mask].copy().sort_values(by='Onboard Date Obj')
+                        running_onboard_gp = 0
 
-                    target_is_met = is_target_met_curr if q_name == CURRENT_Q_STR else is_target_met_hist
-                    q_data = c_sales[q_mask].copy().sort_values(by='Onboard Date Obj')
-                    running_onboard_gp = 0
+                        for idx, row in q_data.iterrows():
+                            running_onboard_gp += row['GP']
+                            level, multiplier = calculate_commission_tier(running_onboard_gp, base, is_team_lead)
 
-                    for idx, row in q_data.iterrows():
-                        running_onboard_gp += row['GP']
-                        level, multiplier = calculate_commission_tier(running_onboard_gp, base, is_team_lead)
+                            # [特赦逻辑] 达标后 Level 0 变 Level 1
+                            if target_is_met and level == 0: level, multiplier = 1, level1_mult
 
-                        # --- 【核心修复逻辑】 ---
-                        # 如果该季度达标了，且当前处于 Level 0 阶段，强制拉升到 Level 1
-                        if target_is_met and level == 0:
-                            level = 1
-                            multiplier = level1_mult  # 使用正确的 Level 1 比例
-
-                        # 写入定档 Level
-                        c_sales.at[idx, 'Applied Level'] = level
-
-                        # 计算并发放佣金：必须是 Paid 且 此时 Level 已经 >= 1
-                        if target_is_met and row['Status'] == 'Paid' and level > 0:
-                            # 重新计算佣金，确保 multiplier 不为 0
-                            comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * row[
-                                'Percentage']
-
-                            p_date = get_commission_pay_date(row['Payment Date Obj'])
-
-                            c_sales.at[idx, 'Final Comm'] = comm
-                            if p_date:
-                                c_sales.at[idx, 'Commission Day'] = p_date.strftime("%Y-%m-%d")
-                                # 汇总到 Dashboard 发薪统计
-                                if p_date <= datetime.now() + timedelta(days=20):
-                                    if q_name == CURRENT_Q_STR:
-                                        total_comm_curr += comm
-                                    else:
-                                        total_comm_hist += comm
-
-
+                            c_sales.at[idx, 'Applied Level'] = level
+                            if target_is_met and row['Status'] == 'Paid' and level > 0:
+                                comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * row[
+                                    'Percentage']
+                                p_date = get_commission_pay_date(row['Payment Date Obj'])
+                                if p_date:
+                                    c_sales.at[idx, 'Final Comm'] = comm
+                                    c_sales.at[idx, 'Commission Day'] = p_date.strftime("%Y-%m-%d")
+                                    if p_date <= datetime.now() + timedelta(days=20):
+                                        if q_name == CURRENT_Q_STR:
+                                            total_comm_curr += comm
+                                        else:
+                                            total_comm_hist += comm
                 updated_sales_records.append(c_sales)
             else:
                 updated_sales_records.append(c_sales)
 
-            # --- 6. 填充 Dashboard 列表 ---
-            # 这里确保显示的是已付 GP
-            actual_paid_gp_curr = c_sales_curr[c_sales_curr['Status'] == 'Paid'][
+            # 主管津贴 (Overrides)
+            if is_team_lead and is_target_met_curr and not sales_df_2q.empty:
+                ov_mask = (sales_df_2q['Status'] == 'Paid') & (sales_df_2q['Consultant'] != c_name) & (
+                            sales_df_2q['Consultant'] != "Estela Peng")
+                for _, row in sales_df_2q[ov_mask].iterrows():
+                    p_date = get_commission_pay_date(row['Payment Date Obj'])
+                    if p_date and p_date <= datetime.now() + timedelta(days=20):
+                        bonus = 1000 * row['Percentage']
+                        total_comm_curr += bonus
+                        team_lead_overrides.append(
+                            {"Leader": c_name, "Source": row['Consultant'], "Salary": row['Candidate Salary'],
+                             "Percentage": row['Percentage'], "Date": p_date.strftime("%Y-%m-%d"), "Bonus": bonus})
+
+            # 汇总显示
+            paid_gp_curr_display = c_sales_curr[c_sales_curr['Status'] == 'Paid'][
                 'GP'].sum() if not c_sales_curr.empty else 0
+            paid_gp_hist_display = c_sales_hist[c_sales_hist['Status'] == 'Paid'][
+                'GP'].sum() if not c_sales_hist.empty else 0
 
-            financial_curr.append({
-                "Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": actual_paid_gp_curr,
-                "Fin %": fin_curr, "Status": status_text_curr, "Est. Commission": total_comm_curr
-            })
-            # (依此类推填充 financial_hist 和 financial_summary)
-        
-            financial_hist.append({"Consultant": c_name, "Role": role, "GP Target": gp_target,
-                                   "Paid GP": c_sales_hist['GP'].sum() if not c_sales_hist.empty else 0,
-                                   "Fin %": fin_hist, "Status": status_text_hist, "Est. Commission": total_comm_hist})
+            financial_curr.append(
+                {"Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp_curr_display,
+                 "Fin %": fin_curr, "Status": status_text_curr, "Est. Commission": total_comm_curr})
+            financial_hist.append(
+                {"Consultant": c_name, "Role": role, "GP Target": gp_target, "Paid GP": paid_gp_hist_display,
+                 "Fin %": fin_hist, "Status": status_text_hist, "Est. Commission": total_comm_hist})
+            financial_summary.append({"Consultant": c_name, "Role": role, "Status": status_text_curr})
 
+        # --- 渲染表格 ---
+        df_fin_curr = pd.DataFrame(financial_curr).sort_values('Paid GP', ascending=False)
+        df_fin_hist = pd.DataFrame(financial_hist).sort_values('Paid GP', ascending=False)
+        df_fin = pd.DataFrame(financial_summary)
         final_sales_df = pd.concat(updated_sales_records) if updated_sales_records else pd.DataFrame()
         override_df = pd.DataFrame(team_lead_overrides)
-        st.dataframe(pd.DataFrame(financial_curr).sort_values('Paid GP', ascending=False), use_container_width=True,
-                     hide_index=True,
-                     column_config={"Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d"),
-                                    "Fin %": st.column_config.ProgressColumn("Financial % (Booked)", format="%.0f%%",
-                                                                             min_value=0, max_value=100)})
+
+        st.dataframe(
+            df_fin_curr,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Consultant": st.column_config.TextColumn("Consultant", width=150),
+                "GP Target": st.column_config.NumberColumn("GP Target", format="$%d"),
+                "Paid GP": st.column_config.NumberColumn("Paid GP", format="$%d"),
+                "Fin %": st.column_config.ProgressColumn("Financial % (Booked)", format="%.0f%%", min_value=0,
+                                                         max_value=100),
+                "Status": st.column_config.TextColumn("Status", width=140),
+                "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d"),
+            }
+        )
+
+        # 历史记录 Expander
+        with st.expander(f"📜 Historical GP Summary ({PREV_Q_STR})"):
+            if not df_fin_hist.empty:
+                st.dataframe(df_fin_hist, use_container_width=True, hide_index=True, column_config={
+                    "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d")})
 
     with tab_details:
         st.markdown("### 🔍 Drill Down Details")
