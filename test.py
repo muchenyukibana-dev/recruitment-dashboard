@@ -442,47 +442,59 @@ def main():
 
             # --- 5. 佣金明细计算 ---
             if not is_intern and not c_sales.empty:
-                # 统一列名处理
-                if 'Onboard Date Obj' in c_sales.columns:
-                    c_sales['Payment Date Obj'] = pd.to_datetime(c_sales['Payment Date Obj'], errors='coerce')
+                # 确保日期格式
+                c_sales['Payment Date Obj'] = pd.to_datetime(c_sales['Payment Date Obj'], errors='coerce')
+                c_sales['Onboard Date Obj'] = pd.to_datetime(c_sales['Onboard Date Obj'], errors='coerce')
 
-                    # 按季度分别处理
-                    for q_name in [PREV_Q_STR, CURRENT_Q_STR]:
-                        q_mask = c_sales['Quarter'] == q_name
-                        if not q_mask.any(): continue
+                # 初始化
+                c_sales['Applied Level'] = 0
+                c_sales['Final Comm'] = 0.0
+                c_sales['Commission Day'] = ""
 
-                        target_is_met = is_target_met_curr if q_name == CURRENT_Q_STR else is_target_met_hist
-                        # 核心：按上岗时间排序定 Level
-                        q_data = c_sales[q_mask].copy().sort_values(by='Onboard Date Obj')
-                        running_onboard_gp = 0
-                        # 预获取 Level 1 的比例用于补发
-                        _, level1_mult = calculate_commission_tier(base + 1, base, is_team_lead)
+                # 预获取 Level 1 的比例用于补发 (必须传入足以触发 Level 1 的 GP 值)
+                # Consultant 需要 9*base, Team Lead 需要 4.5*base
+                trigger_gp = base * (5.0 if is_team_lead else 10.0)
+                _, level1_mult = calculate_commission_tier(trigger_gp, base, is_team_lead)
 
-                        for idx, row in q_data.iterrows():
-                            running_onboard_gp += row['GP']
-                            level, multiplier = calculate_commission_tier(running_onboard_gp, base, is_team_lead)
+                for q_name in [PREV_Q_STR, CURRENT_Q_STR]:
+                    q_mask = c_sales['Quarter'] == q_name
+                    if not q_mask.any(): continue
 
-                            # 【Raul逻辑】达标后 Level 0 自动转 Level 1
-                            if target_is_met and level == 0:
-                                level, multiplier = 1, level1_mult
+                    target_is_met = is_target_met_curr if q_name == CURRENT_Q_STR else is_target_met_hist
+                    q_data = c_sales[q_mask].copy().sort_values(by='Onboard Date Obj')
+                    running_onboard_gp = 0
 
-                            c_sales.at[idx, 'Applied Level'] = level
+                    for idx, row in q_data.iterrows():
+                        running_onboard_gp += row['GP']
+                        level, multiplier = calculate_commission_tier(running_onboard_gp, base, is_team_lead)
 
-                            # 发放条件：达标 + 已付钱
-                            if target_is_met and row['Status'] == 'Paid' and level > 0:
-                                comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * row[
-                                    'Percentage']
-                                p_date = get_commission_pay_date(row['Payment Date Obj'])
+                        # --- 【核心修复逻辑】 ---
+                        # 如果该季度达标了，且当前处于 Level 0 阶段，强制拉升到 Level 1
+                        if target_is_met and level == 0:
+                            level = 1
+                            multiplier = level1_mult  # 使用正确的 Level 1 比例
 
-                                c_sales.at[idx, 'Final Comm'] = comm
-                                if p_date:
-                                    c_sales.at[idx, 'Commission Day'] = p_date.strftime("%Y-%m-%d")
-                                    # 汇总到 Dashboard
-                                    if p_date <= datetime.now() + timedelta(days=20):
-                                        if q_name == CURRENT_Q_STR:
-                                            total_comm_curr += comm
-                                        else:
-                                            total_comm_hist += comm
+                        # 写入定档 Level
+                        c_sales.at[idx, 'Applied Level'] = level
+
+                        # 计算并发放佣金：必须是 Paid 且 此时 Level 已经 >= 1
+                        if target_is_met and row['Status'] == 'Paid' and level > 0:
+                            # 重新计算佣金，确保 multiplier 不为 0
+                            comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * row[
+                                'Percentage']
+
+                            p_date = get_commission_pay_date(row['Payment Date Obj'])
+
+                            c_sales.at[idx, 'Final Comm'] = comm
+                            if p_date:
+                                c_sales.at[idx, 'Commission Day'] = p_date.strftime("%Y-%m-%d")
+                                # 汇总到 Dashboard 发薪统计
+                                if p_date <= datetime.now() + timedelta(days=20):
+                                    if q_name == CURRENT_Q_STR:
+                                        total_comm_curr += comm
+                                    else:
+                                        total_comm_hist += comm
+
 
                 updated_sales_records.append(c_sales)
             else:
