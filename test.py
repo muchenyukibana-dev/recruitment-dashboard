@@ -232,6 +232,12 @@ def internal_fetch_sheet_data(client, conf, tab):
 
 
 def fetch_all_sales_data(client):
+    # 定义保底列名，防止后续代码报 KeyError
+    columns = [
+        "Consultant", "GP", "Candidate Salary", "Percentage",
+        "Onboard Date Obj", "Onboard Date Str", "Payment Date",
+        "Payment Date Obj", "Status", "Quarter"
+    ]
     try:
         sheet = safe_api_call(client.open_by_key, SALES_SHEET_ID)
         ws = safe_api_call(sheet.worksheet, SALES_TAB_NAME)
@@ -246,9 +252,8 @@ def fetch_all_sales_data(client):
             if not any(cell.strip() for cell in row): continue
             row_lower = [str(x).strip().lower() for x in row]
 
-            # --- 优化表头匹配逻辑 ---
             if not found_header:
-                # 只要一行里同时出现了 "consultant" 和 "onboarding" 就算找到了表头
+                # 只要一行里同时出现了 "consultant" 和 "onboarding" 就判定为表头
                 if any("consultant" in c for c in row_lower) and any("onboarding" in c for c in row_lower):
                     for idx, cell in enumerate(row_lower):
                         if "consultant" in cell: col_cons = idx
@@ -260,14 +265,12 @@ def fetch_all_sales_data(client):
                     continue
 
             if found_header:
-                # 停止条件
                 if "POSITION" in " ".join(row_lower).upper() and "PLACED" not in " ".join(row_lower).upper(): break
                 if len(row) <= max(col_cons, col_onboard): continue
 
                 consultant_name = row[col_cons].strip()
                 if not consultant_name: continue
 
-                # 日期解析
                 onboard_date = None
                 for fmt in date_formats:
                     try:
@@ -275,10 +278,8 @@ def fetch_all_sales_data(client):
                         break
                     except:
                         pass
-
                 if not onboard_date: continue
 
-                # 匹配顾问姓名
                 matched = "Unknown"
                 c_norm = normalize_text(consultant_name)
                 for conf in TEAM_CONFIG:
@@ -286,10 +287,8 @@ def fetch_all_sales_data(client):
                     if conf_norm in c_norm or c_norm in conf_norm:
                         matched = conf['name']
                         break
-
                 if matched == "Unknown": continue
 
-                # 薪资与提成比
                 try:
                     salary = float(str(row[col_sal]).replace(',', '').replace('$', '').strip())
                 except:
@@ -306,7 +305,6 @@ def fetch_all_sales_data(client):
 
                 calc_gp = salary * (1.0 if salary < 20000 else 1.5) * pct_val
 
-                # 付款状态
                 pay_date_obj, status = None, "Pending"
                 if col_pay != -1 and len(row) > col_pay:
                     pay_str = row[col_pay].strip()
@@ -325,10 +323,12 @@ def fetch_all_sales_data(client):
                     "Payment Date": row[col_pay].strip() if col_pay != -1 and len(row) > col_pay else "",
                     "Payment Date Obj": pay_date_obj, "Status": status, "Quarter": get_quarter_str(onboard_date)
                 })
+
+        if not sales_records:
+            return pd.DataFrame(columns=columns)
         return pd.DataFrame(sales_records)
     except Exception as e:
-        st.error(f"Data Fetch Error: {e}")
-        return pd.DataFrame()
+        return pd.DataFrame(columns=columns)
 
 
 def load_data_from_api(client, quanbu):
@@ -393,19 +393,24 @@ def main():
             is_intern, is_team_lead = (role == "Intern"), (role == "Team Lead")
             gp_target = 0 if is_intern else base * (4.5 if is_team_lead else 9.0)
 
-            # 这里的筛选一定要准确
             c_sales = sales_df_2q[
-                sales_df_2q['Consultant'] == c_name].copy() if not sales_df_2q.empty else pd.DataFrame()
+                sales_df_2q['Consultant'] == c_name].copy() if not sales_df_2q.empty else pd.DataFrame(
+                columns=all_sales_df.columns)
+            c_sales_curr = c_sales[c_sales['Quarter'] == CURRENT_Q_STR] if not c_sales.empty else pd.DataFrame(
+                columns=c_sales.columns)
+            c_sales_hist = c_sales[c_sales['Quarter'] == PREV_Q_STR] if not c_sales.empty else pd.DataFrame(
+                columns=c_sales.columns)
 
-            # 分开当前季度和历史季度的数据
-            c_sales_curr = c_sales[c_sales['Quarter'] == CURRENT_Q_STR] if not c_sales.empty else pd.DataFrame()
-            c_sales_hist = c_sales[c_sales['Quarter'] == PREV_Q_STR] if not c_sales.empty else pd.DataFrame()
+            # --- 修正报错的地方：增加安全检查 ---
+            if not c_sales_curr.empty and 'Status' in c_sales_curr.columns:
+                paid_gp_curr_display = c_sales_curr[c_sales_curr['Status'] == 'Paid']['GP'].sum()
+            else:
+                paid_gp_curr_display = 0
 
-            # 计算 Paid GP 用于 Dashboard 显示 (只要上岗且已付就算)
-            paid_gp_curr_display = c_sales_curr[c_sales_curr['Status'] == 'Paid']['GP'].sum()
-            paid_gp_hist_display = c_sales_hist[c_sales_hist['Status'] == 'Paid']['GP'].sum()
-
-            # ... (后面接简历统计和达标判定) ...
+            if not c_sales_hist.empty and 'Status' in c_sales_hist.columns:
+                paid_gp_hist_display = c_sales_hist[c_sales_hist['Status'] == 'Paid']['GP'].sum()
+            else:
+                paid_gp_hist_display = 0
 
             # --- 达标判定 ---
             achieved_curr, is_target_met_curr = [], False
