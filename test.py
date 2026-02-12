@@ -523,26 +523,34 @@ def main():
         final_sales_df = pd.concat(updated_sales_records) if updated_sales_records else pd.DataFrame()
         override_df = pd.DataFrame(team_lead_overrides)
 
+        # 1. 定义统一的列配置映射
+        common_config = {
+            "Consultant": st.column_config.TextColumn("Consultant", width=150),
+            "GP Target": st.column_config.NumberColumn("GP Target", format="$%d"),
+            "Paid GP": st.column_config.NumberColumn("Paid GP", format="$%d"),
+            "Fin %": st.column_config.ProgressColumn("Financial % (Booked)", format="%.0f%%", min_value=0,
+                                                     max_value=100),
+            "Status": st.column_config.TextColumn("Status", width=140),
+            "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d"),
+        }
+
+        # 2. 第一个表格使用配置
         st.dataframe(
             df_fin_curr,
             use_container_width=True,
             hide_index=True,
-            column_config={
-                "Consultant": st.column_config.TextColumn("Consultant", width=150),
-                "GP Target": st.column_config.NumberColumn("GP Target", format="$%d"),
-                "Paid GP": st.column_config.NumberColumn("Paid GP", format="$%d"),
-                "Fin %": st.column_config.ProgressColumn("Financial % (Booked)", format="%.0f%%", min_value=0,
-                                                         max_value=100),
-                "Status": st.column_config.TextColumn("Status", width=140),
-                "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d"),
-            }
+            column_config=common_config
         )
 
-        # 历史记录 Expander
+        # 3. 历史记录表格也使用相同的配置
         with st.expander(f"📜 Historical GP Summary ({PREV_Q_STR})"):
             if not df_fin_hist.empty:
-                st.dataframe(df_fin_hist, use_container_width=True, hide_index=True, column_config={
-                    "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d")})
+                st.dataframe(
+                    df_fin_hist,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config=common_config  # 使用同一个变量
+                )
 
     with tab_details:
         st.markdown("### 🔍 Drill Down Details")
