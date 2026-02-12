@@ -546,19 +546,69 @@ def main():
 
     with tab_details:
         st.markdown("### 🔍 Drill Down Details")
-        for conf in dynamic_team_config:
-            c_name = conf['name']
-            with st.expander(f"👤 {c_name}"):
-                if not final_sales_df.empty:
-                    c_view = final_sales_df[final_sales_df['Consultant'] == c_name]
-                    for q_name in [PREV_Q_STR, CURRENT_Q_STR]:
-                        q_data = c_view[c_view['Quarter'] == q_name]
-                        if not q_data.empty:
-                            st.markdown(f"**📅 {q_name}**")
-                            st.dataframe(q_data[
-                                             ['Onboard Date Str', 'Payment Date', 'Commission Day', 'Candidate Salary',
-                                              'GP', 'Status', 'Applied Level', 'Final Comm']], use_container_width=True,
-                                         hide_index=True)
+
+        # 确保 df_fin 存在且有内容，否则无法查找
+        if 'df_fin' in locals() and not df_fin.empty:
+            for conf in dynamic_team_config:
+                c_name = conf['name']
+
+                # --- [核心修复] 从 df_fin 中安全地获取 Role 和 Status ---
+                header = f"👤 {c_name}"  # 默认标题
+                try:
+                    # 在 df_fin 中查找当前顾问的信息
+                    fin_row = df_fin[df_fin['Consultant'] == c_name].iloc[0]
+                    # 用查到的信息构建完整的标题
+                    header = f"👤 {c_name} ({fin_row['Role']}) | Status: {fin_row['Status']}"
+                except (IndexError, KeyError):
+                    # 如果找不到，就使用默认标题，避免崩溃
+                    pass
+
+                with st.expander(header):
+                    # 只有非实习生才显示佣金明细
+                    if conf.get('role', 'Consultant') != "Intern":
+                        st.markdown("#### 💸 Commission Breakdown")
+
+                        if not final_sales_df.empty:
+                            c_view = final_sales_df[final_sales_df['Consultant'] == c_name].copy()
+                            if not c_view.empty:
+                                for q_name in [PREV_Q_STR, CURRENT_Q_STR]:
+                                    q_data = c_view[c_view['Quarter'] == q_name]
+                                    if not q_data.empty:
+                                        st.markdown(f"**📅 {q_name}**")
+                                        q_data['Pct Display'] = q_data['Percentage'].apply(lambda x: f"{x * 100:.0f}%")
+
+                                        st.dataframe(
+                                            q_data[['Onboard Date Str', 'Payment Date', 'Commission Day',
+                                                    'Candidate Salary', 'Pct Display', 'GP', 'Status',
+                                                    'Applied Level', 'Final Comm']],
+                                            use_container_width=True,
+                                            hide_index=True,
+                                            column_config={
+                                                "Commission Day": st.column_config.TextColumn("Comm. Date"),
+                                                "Final Comm": st.column_config.NumberColumn("Comm ($)", format="$%.2f")
+                                            }
+                                        )
+                            else:
+                                st.info("No deals recorded for this consultant.")
+                        else:
+                            st.info("No deals data available.")
+
+                    # --- [核心修复] 如果是 Team Lead, 显示 Overrides ---
+                    if conf.get('role', 'Consultant') == 'Team Lead':
+                        st.divider()
+                        st.markdown("#### 👥 Team Overrides")
+
+                        if not override_df.empty:
+                            # 筛选出当前主管的 Overrides
+                            my_ov = override_df[override_df['Leader'] == c_name]
+                            if not my_ov.empty:
+                                st.dataframe(my_ov, use_container_width=True, hide_index=True)
+                            else:
+                                st.info("No team overrides earned yet for this period.")
+                        else:
+                            st.info("No override data available.")
+        else:
+            st.warning("Financial summary data is not available to display details.")
 
 
 if __name__ == "__main__":
