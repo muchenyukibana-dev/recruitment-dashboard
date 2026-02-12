@@ -717,63 +717,57 @@ def main():
                 c_sales['Commission Day Obj'] = pd.NaT
                 c_sales['Commission Day'] = ""
 
-            # 假设 base 是该顾问的季度业绩门槛 (如 100,000)
             if not is_intern:
                 if not c_sales.empty:
-                    # 1. 预处理
+                    # 0. 预处理：确保日期格式正确
+                    c_sales['Onboard Date Obj'] = pd.to_datetime(c_sales['Onboard Date Obj'])
                     c_sales['Payment Date Obj'] = pd.to_datetime(c_sales['Payment Date Obj'])
                     c_sales['Applied Level'] = 0
                     c_sales['Final Comm'] = 0.0
+                    c_sales['Commission Day Obj'] = pd.NaT
 
-                    # 2. 按“上岗季度”分组处理 (确保跨季度付款仍回到原季度累积)
-                    # 这里的 PREV_Q_STR 和 CURRENT_Q_STR 是单子所属的季度
+                    # 1. 按“上岗季度”分别计算累积 Level
                     for q_name in [PREV_Q_STR, CURRENT_Q_STR]:
-                        # 找出属于该季度的所有单子
                         q_mask = c_sales['Quarter'] == q_name
                         if not q_mask.any():
                             continue
 
-                        # 该季度是否达标 (基于上岗时间计算的 target，不依赖付款)
+                        # 关键：取出该季度所有单子，按【上岗日期】排序
+                        # 无论付没付钱，上岗顺序决定了谁先冲破门槛
+                        q_data = c_sales[q_mask].copy().sort_values(by='Onboard Date Obj')
+
+                        running_onboard_gp = 0
                         target_is_met = is_target_met_curr if q_name == CURRENT_Q_STR else is_target_met_hist
 
-                        # 筛选该季度中【已付款】的单子，并按【付款日期】升序排列
-                        # 这样才能体现“由于这一笔付款，我达到了某个 Level”
-                        paid_deals = c_sales[q_mask & (c_sales['Status'] == 'Paid')].copy()
-                        paid_deals = paid_deals.sort_values(by='Payment Date Obj')
+                        for idx, row in q_data.iterrows():
+                            # 累加当前这笔上岗单子的 GP
+                            running_onboard_gp += row['GP']
 
-                        if not paid_deals.empty:
-                            running_paid_gp = 0  # 每个季度重置累积计电器
+                            # 判定这笔单子处于哪个 Level (一旦判定，锁定在该行)
+                            level, multiplier = calculate_commission_tier(running_onboard_gp, base, is_team_lead)
+                            q_data.at[idx, 'Applied Level'] = level
 
-                            for idx, row in paid_deals.iterrows():
-                                # 关键：先累加当前这笔的 GP
-                                running_paid_gp += row['GP']
+                            # 2. 佣金发放逻辑：只有【已付款】且【已达标】且【Level > 0】时才计算
+                            if row['Status'] == 'Paid' and target_is_met and level > 0:
+                                deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * row[
+                                    'Percentage']
 
-                                # 根据累加后的 GP 判定这一笔单子能拿到的 Level
-                                level, multiplier = calculate_commission_tier(running_paid_gp, base, is_team_lead)
+                                # 发放日期基于付款日期
+                                pay_month_key = row['Payment Date Obj'].to_period('M')
+                                payout_date = get_payout_date_from_month_key(str(pay_month_key))
 
-                                # 只有达标且 Level > 0 才有钱
-                                if target_is_met and level > 0:
-                                    # 计算佣金
-                                    deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * \
-                                                row['Percentage']
+                                q_data.at[idx, 'Final Comm'] = deal_comm
+                                q_data.at[idx, 'Commission Day Obj'] = payout_date
+                            else:
+                                # 未付钱、未达标 或 Level 还没到，佣金都是 0
+                                q_data.at[idx, 'Final Comm'] = 0
 
-                                    # 确定发放日期
-                                    pay_month_key = row['Payment Date Obj'].to_period('M')
-                                    payout_date = get_payout_date_from_month_key(str(pay_month_key))
+                        # 将计算好的季度数据（包含定好的 Level）更新回总表
+                        c_sales.update(q_data)
 
-                                    # 写入结果
-                                    c_sales.at[idx, 'Applied Level'] = level
-                                    c_sales.at[idx, 'Commission Day Obj'] = payout_date
-                                    c_sales.at[idx, 'Final Comm'] = deal_comm
-                                else:
-                                    # 没达标或者还没冲破 base 门槛
-                                    c_sales.at[idx, 'Applied Level'] = level
-                                    c_sales.at[idx, 'Final Comm'] = 0
-
-                    # 3. 最后：统计总数 (判断是否到了发薪时间)
+                    # 3. 汇总可发放佣金（基于 Commission Day 判断当前是否可领）
                     for idx, row in c_sales.iterrows():
                         comm_date = row['Commission Day Obj']
-                        # 如果日期有效 且 在发放窗口内（当前日期前后20天，根据你业务调优）
                         if pd.notnull(comm_date) and comm_date <= datetime.now() + timedelta(days=20):
                             if row['Quarter'] == CURRENT_Q_STR:
                                 total_comm_curr += row['Final Comm']
