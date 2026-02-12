@@ -769,73 +769,53 @@ def main():
             # 仅当非 Intern 时才计算佣金
             if not is_intern:
                 if not c_sales.empty:
-                    # 1. 预处理：将原始列 'Onboarding Date' 和 'Payment Date' 转换为日期对象
-                    # 使用 errors='coerce' 防止脏数据导致崩溃
+                    # 1. 预处理日期
                     c_sales['Onboard Date Obj'] = pd.to_datetime(c_sales['Onboarding Date'], errors='coerce')
                     c_sales['Payment Date Obj'] = pd.to_datetime(c_sales['Payment Date'], errors='coerce')
 
-                    # 初始化计算结果列
                     c_sales['Applied Level'] = 0
                     c_sales['Final Comm'] = 0.0
                     c_sales['Commission Day Obj'] = pd.NaT
 
-                    # 2. 按季度独立计算
                     for q_name in [PREV_Q_STR, CURRENT_Q_STR]:
                         q_mask = c_sales['Quarter'] == q_name
                         if not q_mask.any():
                             continue
 
-                        # 【关键】取出该季度所有单子（含未付款），按上岗日期排序
-                        # 这样确保了谁先上岗，谁先消耗 Base 门槛
+                        # 外部预判的总开关：只要上岗总 GP >= Base，这个就是 True
+                        target_is_met = is_target_met_curr if q_name == CURRENT_Q_STR else is_target_met_hist
+
+                        # 按上岗日期排序
                         q_data = c_sales[q_mask].copy().sort_values(by='Onboard Date Obj')
 
                         running_onboard_gp = 0
-                        # 判定该季度是否达标 (基于全季度的上岗情况)
-                        target_is_met = is_target_met_curr if q_name == CURRENT_Q_STR else is_target_met_hist
 
                         for idx, row in q_data.iterrows():
-                            # 无论付没付钱，只要上岗了，GP 就累加进池子用来定 Level
                             running_onboard_gp += row['GP']
 
-                            # 根据当前的累积 GP 判定这一笔单子的 Level
+                            # 计算当前单子的实际 Level
                             level, multiplier = calculate_commission_tier(running_onboard_gp, base, is_team_lead)
 
-                            # 将定好的 Level 写回原始 DataFrame
+                            # 【核心逻辑修改】：
+                            # 如果总业绩达标了，那么原本处于 Level 0 阶段的单子，自动“解锁”变为 Level 1
+                            if target_is_met and level == 0:
+                                level = 1
+                                # 重新获取 Level 1 对应的提成比例
+                                # 传入 base + 1 确保 calculate_commission_tier 返回 Level 1 的比例
+                                _, multiplier = calculate_commission_tier(base + 1, base, is_team_lead)
+
                             c_sales.at[idx, 'Applied Level'] = level
 
-                            # 3. 佣金发放判定
-                            # 只有满足：1. 客户已付钱 2. 顾问该季度达标
-                            if row['Status'] == 'Paid' and target_is_met :
-                                # 计算单笔佣金
+                            # 只有达标且已付钱才给钱
+                            if target_is_met and row['Status'] == 'Paid' and level > 0:
                                 deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * row[
                                     'Percentage']
 
-                                # 确定发放日期 (基于 Payment Date)
                                 if pd.notnull(row['Payment Date Obj']):
                                     pay_month_key = row['Payment Date Obj'].to_period('M')
-                                    payout_date = get_payout_date_from_month_key(str(pay_month_key))
-
-                                    c_sales.at[idx, 'Commission Day Obj'] = payout_date
+                                    c_sales.at[idx, 'Commission Day Obj'] = get_payout_date_from_month_key(
+                                        str(pay_month_key))
                                     c_sales.at[idx, 'Final Comm'] = deal_comm
-                            else:
-                                # 如果没付钱，或者没过门槛，或者没达标，佣金为 0
-                                c_sales.at[idx, 'Final Comm'] = 0
-
-                    # 4. 汇总总佣金 (只累加到发薪日期的)
-                    for idx, row in c_sales.iterrows():
-                        comm_date = row['Commission Day Obj']
-                        if pd.notnull(comm_date) and comm_date <= datetime.now() + timedelta(days=20):
-                            if row['Quarter'] == CURRENT_Q_STR:
-                                total_comm_curr += row['Final Comm']
-                            else:
-                                total_comm_hist += row['Final Comm']
-
-                    # 格式化日期显示
-                    c_sales['Commission Day'] = c_sales['Commission Day Obj'].apply(
-                        lambda x: x.strftime("%Y-%m-%d") if pd.notnull(x) else "")
-
-                updated_sales_records.append(c_sales)
-
 
                 # Team Lead Override 计算
                 if is_team_lead and is_target_met_curr and not sales_df_2q.empty:
