@@ -476,24 +476,16 @@ def connect_to_google():
     return None
 
 
-def fetch_role_info(client, sheet_id):
-    try:
-        sheet = safe_api_call(client.open_by_key, sheet_id)
-        ws = safe_api_call(sheet.worksheet, 'Credentials')
-        role_raw = safe_api_call(ws.acell, 'B1').value
-
-        role_str = role_raw.strip() if role_raw else "Consultant"
-
-        # 核心逻辑：在这里直接判定两个关键布尔值
-        is_lead = "lead" in role_str.lower() or "manager" in role_str.lower()
-        is_intern = "intern" in role_str.lower()
-
-        role_type = "Intern" if is_intern else "Full-Time"
-
-        return role_type, is_lead, role_str.title()
-    except:
-        # 如果读取失败（比如没权限或没这个 Tab），默认按普通员工算
-        return "Full-Time", False, "Consultant"
+def load_data_from_api(client, quanbu):
+    team_data = []
+    for conf in TEAM_CONFIG:
+        member = conf.copy()
+        member['role'] = fetch_role_from_personal_sheet(client, conf['id'])
+        team_data.append(member)
+    rec_stats_df, rec_details_df = fetch_recruitment_stats(client, quanbu)
+    all_sales_df = fetch_all_sales_data(client)
+    return {"team_data": team_data, "rec_stats": rec_stats_df, "rec_details": rec_details_df,
+            "rec_hist": pd.DataFrame(), "sales_all": all_sales_df, "last_updated": datetime.now().strftime("%H:%M:%S")}
 
 
 def fetch_cv_data_with_details(client, conf, tabs):
@@ -725,7 +717,7 @@ def main():
         with st.spinner("🛰️ SCANNING SECTOR..."):
             sales_df = fetch_sales_history(client, now.year)
             for conf in TEAM_CONFIG:
-                role, is_lead, title = fetch_role_info(client, conf['id'])
+                role, is_lead, title = fetch_role_from_personal_sheet(client, conf['id'])
                 c_conf = {**conf, "role": role, "is_team_lead": is_lead, "title_display": title}
                 active_team.append(c_conf)
 
