@@ -25,6 +25,7 @@ curr_year = now.year
 curr_q = (now.month - 1) // 3 + 1
 CURRENT_Q_STR = f"{curr_year} Q{curr_q}"
 
+# 计算上个季度的标识
 if curr_q == 1:
     PREV_Q_STR = f"{curr_year - 1} Q4"
     prev_q_start_m, prev_q_year = 10, curr_year - 1
@@ -56,12 +57,11 @@ st.markdown("""
     .stApp { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); font-family: 'Press Start 2P', monospace; }
     h1 { text-shadow: 4px 4px 0px #000; color: #FFD700 !important; text-align: center; font-size: 3.5em !important; -webkit-text-stroke: 2px #000; }
     
-    /* 按钮居中逻辑 */
     .stButton { display: flex; justify-content: center; width: 100%; margin-left: 200px; }
     .stButton>button { 
         background-color: #FF4757; color: white; border: 4px solid #000; border-radius: 15px; 
         font-family: 'Press Start 2P', monospace; font-size: 24px !important; padding: 20px 40px !important;
-        box-shadow: 0px 8px 0px #a71c2a; width: 100%; transition: all 0.1s;
+        box-shadow: 0px 8px 0px #a71c2a; width: 100%; 
     }
     .stButton>button:hover { transform: translateY(4px); box-shadow: 0px 4px 0px #a71c2a; background-color: #ff6b81; }
 
@@ -71,7 +71,6 @@ st.markdown("""
     
     @keyframes barberpole { from { background-position: 0 0; } to { background-position: 50px 50px; } }
     @keyframes rainbow-move { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
-    
     .pit-fill-boss { background: linear-gradient(270deg, #ff6b6b, #feca57, #48dbfb, #ff9ff3, #54a0ff); background-size: 400% 400%; animation: rainbow-move 6s ease infinite; height: 100%; display: flex; align-items: center; justify-content: flex-end; }
     .pit-fill-season { background-image: linear-gradient(45deg, #3742fa 25%, #5352ed 25%, #5352ed 50%, #3742fa 50%, #3742fa 75%, #5352ed 75%, #5352ed 100%); background-size: 50px 50px; animation: barberpole 3s linear infinite; height: 100%; display: flex; align-items: center; justify-content: flex-end; }
     .money-fill { background-image: linear-gradient(45deg, #2ed573 25%, #7bed9f 25%, #7bed9f 50%, #2ed573 50%, #2ed573 75%, #7bed9f 75%, #7bed9f 100%); background-size: 50px 50px; animation: barberpole 4s linear infinite; height: 100%; display: flex; align-items: center; justify-content: flex-end; }
@@ -83,7 +82,6 @@ st.markdown("""
     .card-border-3 { border-bottom: 6px solid #48dbfb; }
     .card-border-4 { border-bottom: 6px solid #ff9ff3; }
     
-    /* 状态标签 */
     .status-badge-pass { background-color: #2ed573; color: white; padding: 8px 12px; border-radius: 20px; border: 2px solid #000; font-size: 0.6em; box-shadow: 2px 2px 0px #000; animation: bounce 1s infinite alternate; }
     .status-badge-loading { background-color: #feca57; color: #000; padding: 8px 12px; border-radius: 20px; border: 2px solid #000; font-size: 0.6em; }
     @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-2px); } }
@@ -94,9 +92,8 @@ st.markdown("""
     .header-bordered { background-color: #FFF; border: 4px solid #000; border-radius: 15px; box-shadow: 6px 6px 0px #000; padding: 20px; text-align: center; margin-bottom: 25px; }
     .sub-label { font-family: 'Fredoka One', sans-serif; font-size: 0.8em; color: #FFF; margin-bottom: 5px; text-transform: uppercase; text-shadow: 1px 1px 0px #000; }
     
-    /* 核心修复：白底黑框的个人数据方块 */
     .stat-card { background-color: #fff; border: 3px solid #000; border-radius: 10px; padding: 10px; text-align: center; box-shadow: 4px 4px 0px rgba(0,0,0,0.1); }
-    .stat-val { color: #000; font-size: 1.2em; font-weight: bold; margin-top: 5px; }
+    .stat-val { color: #000; font-size: 1.2em; font-weight: bold; }
     .stat-name { color: #555; font-size: 0.7em; }
     </style>
     """, unsafe_allow_html=True)
@@ -165,7 +162,6 @@ def fetch_cv_data_with_details(client, conf, tabs):
     details = []
     COMPANY_KEYS = ["Company", "Client", "Cliente", "公司名称", "客户"]
     POSITION_KEYS = ["Position", "Role", "Posición", "职位", "岗位"]
-    
     try:
         sheet = safe_api_call(client.open_by_key, conf['id'])
         for tab in tabs:
@@ -173,23 +169,18 @@ def fetch_cv_data_with_details(client, conf, tabs):
                 ws = safe_api_call(sheet.worksheet, tab)
                 rows = safe_api_call(ws.get_all_values)
                 target_key = conf.get('keyword', 'Name')
-                current_company, current_position = "Unknown", "Unknown"
-                
+                curr_c, curr_p = "Unknown", "Unknown"
                 for r in rows:
                     if not r: continue
-                    cleaned = [str(x).strip() for x in r]
-                    first_cell = cleaned[0] if cleaned else ""
-                    if first_cell in COMPANY_KEYS:
-                        current_company = cleaned[1] if len(cleaned) > 1 else "Unknown"
-                    elif first_cell in POSITION_KEYS:
-                        current_position = cleaned[1] if len(cleaned) > 1 else "Unknown"
-                    
-                    if target_key in cleaned:
-                        idx = cleaned.index(target_key)
-                        cands = [x for x in cleaned[idx+1:] if x]
+                    cl = [str(x).strip() for x in r]
+                    if cl[0] in COMPANY_KEYS: curr_c = cl[1] if len(cl)>1 else "Unknown"
+                    elif cl[0] in POSITION_KEYS: curr_p = cl[1] if len(cl)>1 else "Unknown"
+                    if target_key in cl:
+                        idx = cl.index(target_key)
+                        cands = [x for x in cl[idx+1:] if x]
                         total += len(cands)
                         if tab == tabs[-1] and len(cands) > 0:
-                            details.append({"Consultant": conf['name'], "Company": current_company, "Position": current_position, "Count": len(cands)})
+                            details.append({"Consultant": conf['name'], "Company": curr_c, "Position": curr_p, "Count": len(cands)})
             except: continue
     except: pass
     return total, details
@@ -205,188 +196,4 @@ def fetch_sales_history(client, year):
         for row in rows:
             row_l = [str(x).strip().lower() for x in row]
             if not found_header:
-                if any("consultant" in c for c in row_l) and any("onboarding" in c for c in row_l):
-                    for idx, c in enumerate(row_l):
-                        if "consultant" in c: col_cons = idx
-                        if "onboarding" in c and "date" in c: col_onboard = idx
-                        if "salary" in c: col_sal = idx
-                        if "payment" in c and "date" in c: col_pay = idx
-                        if "percentage" in c or c == "%": col_pct = idx
-                    found_header = True
-            else:
-                if len(row) <= max(col_cons, col_onboard): continue
-                c_name_raw = row[col_cons].strip()
-                if not c_name_raw: continue
-                onboard_date = None
-                for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d"]:
-                    try: onboard_date = datetime.strptime(row[col_onboard].strip(), fmt); break
-                    except: pass
-                if not onboard_date or onboard_date.year != year: continue
-                q_label = f"{onboard_date.year} Q{(onboard_date.month - 1) // 3 + 1}"
-                matched = "Unknown"
-                for conf in TEAM_CONFIG_TEMPLATE:
-                    if normalize_text(conf['name']) in normalize_text(c_name_raw): matched = conf['name']; break
-                if matched == "Unknown": continue
-                sal = float(str(row[col_sal]).replace(',','').replace('$','').strip() or 0)
-                pct = 1.0
-                if col_pct != -1 and len(row) > col_pct:
-                    try:
-                        p_val = float(str(row[col_pct]).replace('%','').strip()); pct = p_val/100 if p_val > 1 else p_val
-                    except: pct = 1.0
-                pay_date_obj, status = None, "Pending"
-                if col_pay != -1 and len(row) > col_pay and len(row[col_pay].strip()) > 5:
-                    status = "Paid"
-                    for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d"]:
-                        try: pay_date_obj = datetime.strptime(row[col_pay].strip(), fmt); break
-                        except: pass
-                records.append({"Consultant": matched, "GP": sal * (1.5 if sal >= 20000 else 1.0) * pct, "Salary": sal, "Pct": pct, "Status": status, "PayDateObj": pay_date_obj, "Quarter": q_label})
-    except: pass
-    return pd.DataFrame(records)
-
-# ==========================================
-# 🎨 5. 渲染组件
-# ==========================================
-
-def render_boss_bar(current, goal, color_class, icon):
-    pct = (current / goal * 100) if goal > 0 else 0
-    st.markdown(f"""
-        <div class="sub-label" style="font-size: 1.2em; text-align:center;">{int(current)} / {goal} CVS</div>
-        <div class="pit-container pit-height-boss">
-            <div class="{color_class}" style="width: {min(pct, 100)}%;">
-                <div style="margin-right:15px; font-size:40px;">{icon}</div>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-
-def render_player_hub_card(conf, q_cvs, prev_q_cvs, sales_df, idx):
-    c_name = conf['name']
-    role, is_lead, base = conf['role'], conf['is_team_lead'], conf['base_salary']
-    c_sales_curr = sales_df[(sales_df['Consultant'] == c_name) & (sales_df['Quarter'] == CURRENT_Q_STR)]
-    c_sales_prev = sales_df[(sales_df['Consultant'] == c_name) & (sales_df['Quarter'] == PREV_Q_STR)]
-    booked_gp_curr = c_sales_curr['GP'].sum()
-    target_gp = base * (4.5 if is_lead else 9.0)
-    
-    is_qualified_curr = (booked_gp_curr >= target_gp or q_cvs >= CV_TARGET_INDIVIDUAL) if role != "Intern" else (q_cvs >= CV_TARGET_INDIVIDUAL)
-    is_qualified_prev = (c_sales_prev['GP'].sum() >= target_gp or prev_q_cvs >= CV_TARGET_INDIVIDUAL) if role != "Intern" else (prev_q_cvs >= CV_TARGET_INDIVIDUAL)
-
-    total_comm = 0
-    payout_limit = datetime.now() + timedelta(days=20)
-    if role != "Intern":
-        for is_q_ok, q_df in [(is_qualified_curr, c_sales_curr), (is_qualified_prev, c_sales_prev)]:
-            if is_q_ok:
-                running_gp = 0
-                for _, row in q_df[q_df['Status'] == 'Paid'].sort_values('PayDateObj').iterrows():
-                    running_gp += row['GP']
-                    _, mult = calculate_commission_tier(running_gp, base, is_lead)
-                    if mult == 0: _, mult = calculate_commission_tier(base * 10, base, is_lead) # 保底逻辑
-                    p_date = get_commission_pay_date(row['PayDateObj'])
-                    if p_date and p_date <= payout_limit: total_comm += calculate_single_deal_commission(row['Salary'], mult) * row['Pct']
-        if is_lead and is_qualified_curr:
-            for _, row in sales_df[(sales_df['Status'] == 'Paid') & (sales_df['Consultant'] != c_name) & (sales_df['Consultant'] != "Estela Peng")].iterrows():
-                p_date = get_commission_pay_date(row['PayDateObj'])
-                if p_date and p_date <= payout_limit: total_comm += 1000 * row['Pct']
-
-    border = f"card-border-{(idx % 4) + 1}"
-    status = '<span class="status-badge-pass">LEVEL UP! 🌟</span>' if is_qualified_curr else '<span class="status-badge-loading">LOADING... 🚀</span>'
-    
-    st.markdown(f"""
-    <div class="player-card {border}">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-            <div><b style="font-size:1.1em;">{c_name} {"👑" if is_lead else ""}</b><br><small style="color:#999;">{conf['title_display']}</small></div>
-            {status}
-        </div>
-    """, unsafe_allow_html=True)
-    
-    if role == "Intern":
-        pct = (q_cvs / CV_TARGET_INDIVIDUAL * 100)
-        st.markdown(f'<div class="sub-label">Q. CVS ({pct:.1f}%)</div><div class="pit-container pit-height-std"><div class="cv-fill" style="width:{min(pct,100)}%;"></div></div>', unsafe_allow_html=True)
-    else:
-        gp_pct = (booked_gp_curr / target_gp * 100)
-        st.markdown(f'<div class="sub-label">GP TARGET ({gp_pct:.1f}%)</div><div class="pit-container pit-height-std"><div class="money-fill" style="width:{min(gp_pct,100)}%;"></div></div>', unsafe_allow_html=True)
-        st.markdown('<div style="font-size:0.5em; color:#666; margin:5px 0;">OR RECRUITMENT GOAL:</div>', unsafe_allow_html=True)
-        cv_pct = (q_cvs / CV_TARGET_INDIVIDUAL * 100)
-        st.markdown(f'<div class="sub-label">Q. CVS ({cv_pct:.1f}%)</div><div class="pit-container pit-height-std"><div class="cv-fill" style="width:{min(cv_pct,100)}%;"></div></div>', unsafe_allow_html=True)
-
-    if role != "Intern":
-        if total_comm > 0: st.markdown(f'<div class="comm-unlocked">💰 UNLOCKED: ${total_comm:,.0f}</div>', unsafe_allow_html=True)
-        else: st.markdown(f'<div class="comm-locked">{"🔒 LOCKED (WAITING PAY)" if is_qualified_curr else "🔒 LOCKED (TARGET NOT MET)"}</div>', unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# ==========================================
-# 🎮 6. 主程序
-# ==========================================
-
-def main():
-    st.title("👾 FILL THE PIT 👾")
-    col1, col2, col3 = st.columns([1, 3, 1])
-    with col2: start_btn = st.button("🚩 PRESS START")
-
-    if start_btn:
-        client = connect_to_google()
-        if not client: st.error("CONNECTION ERROR"); return
-
-        active_team, m_cv_data, q_cv_counts, prev_q_counts, all_logs = [], [], {}, {}, []
-        with st.spinner("🛰️ SCANNING SECTOR..."):
-            sales_df = fetch_sales_history(client, now.year)
-            for conf in TEAM_CONFIG_TEMPLATE:
-                role, is_lead, title = fetch_role_info(client, conf['id'])
-                c_conf = {**conf, "role": role, "is_team_lead": is_lead, "title_display": title}
-                active_team.append(c_conf)
-                
-                q_count, m_logs = fetch_cv_data_with_details(client, c_conf, CURR_Q_MONTHS)
-                m_count = sum([l['Count'] for l in m_logs]) if m_logs else 0
-                prev_q_count, _ = fetch_cv_data_with_details(client, c_conf, PREV_Q_MONTHS)
-                
-                q_cv_counts[conf['name']] = q_count
-                m_cv_data.append({"name": conf['name'], "count": m_count})
-                prev_q_counts[conf['name']] = prev_q_count
-                all_logs.extend(m_logs)
-
-        # --- Boss Bar 1: MONTHLY ---
-        st.markdown(f'<div class="header-bordered" style="border-color:#feca57;">🏆 TEAM MONTHLY GOAL ({CURR_Q_MONTHS[-1]})</div>', unsafe_allow_html=True)
-        m_total = sum([d['count'] for d in m_cv_data])
-        
-        # 动画效果
-        m_bar_ph = st.empty()
-        m_stat_ph = st.empty()
-        steps = 15
-        for i in range(steps + 1):
-            curr_val = (m_total / steps) * i
-            with m_bar_ph: render_boss_bar(curr_val, MONTHLY_GOAL, "pit-fill-boss", "🔥")
-            time.sleep(0.01)
-        
-        # 核心修复：渲染个人统计方块
-        with m_stat_ph:
-            cols = st.columns(len(m_cv_data))
-            for i, d in enumerate(m_cv_data):
-                with cols[i]:
-                    st.markdown(f'<div class="stat-card"><div class="stat-name">{d["name"]}</div><div class="stat-val">{int(d["count"])}</div></div>', unsafe_allow_html=True)
-
-        # --- Boss Bar 2: QUARTERLY ---
-        st.markdown(f'<div class="header-bordered" style="border-color:#54a0ff; margin-top:20px;">🌊 TEAM QUARTERLY GOAL ({CURRENT_Q_STR})</div>', unsafe_allow_html=True)
-        q_total = sum(q_cv_counts.values())
-        q_bar_ph = st.empty()
-        for i in range(steps + 1):
-            curr_val = (q_total / steps) * i
-            with q_bar_ph: render_boss_bar(curr_val, QUARTERLY_TEAM_GOAL, "pit-fill-season", "🌊")
-            time.sleep(0.01)
-
-        # --- Player Hub ---
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown('<div class="header-bordered" style="border-color:#48dbfb;">❄️ PLAYER STATS</div>', unsafe_allow_html=True)
-        p_row1, p_row2 = st.columns(2), st.columns(2)
-        all_p_cols = p_row1 + p_row2
-        for i, conf in enumerate(active_team):
-            with all_p_cols[i]: render_player_hub_card(conf, q_cv_counts[conf['name']], prev_q_counts[conf['name']], sales_df, i)
-
-        # --- Logs ---
-        if all_logs:
-            st.markdown("---")
-            with st.expander(f"📜 MISSION LOGS ({CURR_Q_MONTHS[-1]})"):
-                log_df = pd.DataFrame(all_logs)
-                tabs = st.tabs([c['name'] for c in active_team])
-                for i, tab in enumerate(tabs):
-                    with tab:
-                        p_logs = log_df[log_df['Consultant'] == active_team[i]['name']]
-                        if not p_logs.empty:
-                            st.dataframe(p_logs.groupby(['Company','Position'])['Count']
+                if any("consultan
