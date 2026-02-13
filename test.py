@@ -47,19 +47,6 @@ TEAM_CONFIG = [
      "base_salary": 15000},
 ]
 
-st.set_page_config(page_title="Management Dashboard", page_icon="💼", layout="wide")
-
-st.markdown("""
-    <style>
-    .stApp { background-color: #FFFFFF; color: #000000; }
-    h1, h2, h3, h4 { color: #333333 !important; font-family: 'Arial', sans-serif; }
-    .stButton>button { background-color: #0056b3; color: white; border: none; border-radius: 4px; padding: 10px 24px; font-weight: bold; }
-    .stButton>button:hover { background-color: #004494; color: white; }
-    .dataframe { font-size: 14px !important; border: 1px solid #ddd !important; }
-    div[data-testid="metric-container"] { background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 15px; border-radius: 8px; color: #333; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-    </style>
-    """, unsafe_allow_html=True)
-
 
 
 # --- 🧮 辅助函数 ---
