@@ -174,11 +174,19 @@ def fetch_role_info(client, sheet_id):
     try:
         sheet = safe_api_call(client.open_by_key, sheet_id)
         ws = safe_api_call(sheet.worksheet, 'Credentials')
-        role_raw = safe_api_call(ws.acell, 'B1').value or "Consultant"
-        is_lead = "lead" in role_raw.lower() or "manager" in role_raw.lower()
-        is_intern = "intern" in role_raw.lower()
-        return "Intern" if is_intern else "Full-Time", is_lead, role_raw.title()
+        role_raw = safe_api_call(ws.acell, 'B1').value
+
+        role_str = role_raw.strip() if role_raw else "Consultant"
+
+        # 核心逻辑：在这里直接判定两个关键布尔值
+        is_lead = "lead" in role_str.lower() or "manager" in role_str.lower()
+        is_intern = "intern" in role_str.lower()
+
+        role_type = "Intern" if is_intern else "Full-Time"
+
+        return role_type, is_lead, role_str.title()
     except:
+        # 如果读取失败（比如没权限或没这个 Tab），默认按普通员工算
         return "Full-Time", False, "Consultant"
 
 
