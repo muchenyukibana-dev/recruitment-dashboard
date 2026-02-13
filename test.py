@@ -61,21 +61,6 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 
-def keep_alive_worker():
-    app_url = st.secrets.get("public_url", None)
-    while True:
-        try:
-            time.sleep(300)
-            if app_url: requests.get(app_url, timeout=30)
-        except:
-            pass
-
-
-if 'keep_alive_started' not in st.session_state:
-    t = threading.Thread(target=keep_alive_worker, daemon=True)
-    t.start()
-    st.session_state['keep_alive_started'] = True
-
 
 # --- 🧮 辅助函数 ---
 def get_quarter_str(date_obj):
