@@ -316,38 +316,47 @@ def render_player_card(conf, q_cvs, prev_q_cvs, sales_df, idx):
                 prev_q_cvs >= CV_TARGET_INDIVIDUAL)
 
     total_comm = 0
-    # 发放窗口：结算日在“今天”之后 20 天内（覆盖 2月15日）
-    pay_limit = datetime.now() + timedelta(days=20)
+
+    # --- 智能计算当前的“发薪周期” ---
+    # 如果今天是 15 号（含）之前，展示本月 15 号的钱
+    # 如果今天是 15 号之后，展示下个月 15 号的钱
+    now_date = datetime.now()
+    if now_date.day <= 15:
+        target_pay_year = now_date.year
+        target_pay_month = now_date.month
+    else:
+        target_pay_year = now_date.year + 1 if now_date.month == 12 else now_date.year
+        target_pay_month = 1 if now_date.month == 12 else now_date.month + 1
 
     if role != "Intern":
-        # 分别处理本季度和上季度的佣金
-        # 只要该单据所属季度达标，且付款状态为 Paid，且结算日到期，就计入总额
+        # 遍历本季度和上季度的单据
         for is_qualified, q_df in [(is_q_curr, c_sales_curr), (is_q_prev, c_sales_prev)]:
             if is_qualified and not q_df.empty:
-                # 按照 Onboarding 日期排序计算阶梯
-                temp_df = q_df.sort_index()  # 简单处理，或者按日期排
+                temp_df = q_df.sort_index()
                 running_gp = 0
                 for _, row in temp_df.iterrows():
                     running_gp += row['GP']
                     if row['Status'] == 'Paid':
-                        # 计算当前单据应得的倍率
                         _, mult = calculate_commission_tier(running_gp, base, is_lead)
                         # 达标保底逻辑
                         if mult == 0:
                             _, mult = calculate_commission_tier(base * 10, base, is_lead)
 
                         p_date = get_commission_pay_date(row['PayDateObj'])
-                        if p_date and p_date <= pay_limit:
+
+                        # --- 核心锁定：只统计属于当前【发薪周期】的单子 ---
+                        if p_date and p_date.year == target_pay_year and p_date.month == target_pay_month:
                             deal_comm = calculate_single_deal_commission(row['Salary'], mult) * row['Pct']
                             total_comm += deal_comm
 
-        # 主管津贴 Overrides (只要本季达标，领取所有到期的 1000 元/单奖励)
+        # 主管津贴 Overrides
         if is_lead and is_q_curr:
             ov_mask = (sales_df['Status'] == 'Paid') & (sales_df['Consultant'] != c_name) & (
                         sales_df['Consultant'] != "Estela Peng")
             for _, row in sales_df[ov_mask].iterrows():
                 p_date = get_commission_pay_date(row['PayDateObj'])
-                if p_date and p_date <= pay_limit:
+                # 津贴同样只看当前【发薪周期】
+                if p_date and p_date.year == target_pay_year and p_date.month == target_pay_month:
                     total_comm += 1000 * row['Pct']
 
     # --- UI 渲染部分保持不变 ---
