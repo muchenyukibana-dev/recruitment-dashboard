@@ -714,14 +714,38 @@ def main():
                 active_team.append(c_conf)
 
                 # 抓取 CV 数据
-                q_c, m_logs = internal_fetch_sheet_data (client, c_conf, curr_q_months)
-                m_c = sum([l['Count'] for l in m_logs]) if m_logs else 0
-                prev_q_c, _ = internal_fetch_sheet_data (client, c_conf, prev_q_months)
+                q_sent_total = 0
+                q_int_total = 0
+                q_off_total = 0
+                current_month_logs = []
+                current_month_str = datetime.now().strftime("%Y%m")
 
-                q_cv_counts[conf['name']] = q_c
+                for m_str in curr_q_months:
+                    # 接收 4 个返回值
+                    s, i, o, d = internal_fetch_sheet_data(client, c_conf, m_str)
+                    q_sent_total += s
+                    q_int_total += i
+                    q_off_total += o
+                    # 如果是当前月份，把详情存入 m_logs 用于展示 Mission Logs
+                    if m_str == current_month_str:
+                        current_month_logs = d
+
+                    # 存入字典供后续 UI 使用
+                q_cv_counts[conf['name']] = q_sent_total  # 季度总简历数
+
+                # 计算当前月的总数用于 Monthly Goal Bar
+                m_c = sum([l['Count'] for l in current_month_logs]) if current_month_logs else 0
                 m_cv_data.append({"name": conf['name'], "count": m_c})
-                prev_q_counts[conf['name']] = prev_q_c
-                all_logs.extend(m_logs)
+
+                # 记录 Log 详情
+                all_logs.extend(current_month_logs)
+
+                # 处理上季度数据 (同样需要循环)
+                prev_q_total_sent = 0
+                for pm_str in prev_q_months:
+                    ps, pi, po, pd = internal_fetch_sheet_data(client, c_conf, pm_str)
+                    prev_q_total_sent += ps
+                prev_q_counts[conf['name']] = prev_q_total_sent
 
         # --- Boss Bar 1: MONTHLY ---
         st.markdown(
