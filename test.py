@@ -134,27 +134,10 @@ def fetch_role_from_personal_sheet(client, sheet_id):
     try:
         sheet = safe_api_call(client.open_by_key, sheet_id)
         ws = safe_api_call(sheet.worksheet, 'Credentials')
-
-        # 读取 B2 单元格的内容
-        b2_value = safe_api_call(ws.acell, 'B2').value
-
-        # 统一转成小写并去掉空格，防止因为大小写或空格导致判断失败
-        role_text = b2_value.strip().lower() if b2_value else ""
-
-        # --- 重新定义判定逻辑 ---
-        # 1. 如果 B2 是 team lead，那么 is_lead 为 True
-        is_lead = True if role_text == "team lead" else False
-
-        # 2. role 变量直接使用 B2 的原始值（或者给个默认值）
-        role = b2_value.strip() if b2_value else "Consultant"
-
-        # 3. title 变量在这里可以暂时和 role 保持一致，或者读取 B3
-        title = role
-
-        return role, is_lead, title
+        role = safe_api_call(ws.acell, 'B1').value
+        return role.strip() if role else "Consultant"
     except:
-        # 如果出错了，默认不是 Lead
-        return "Consultant", False, "Consultant"
+        return "Consultant"
 
 
 def fetch_recruitment_stats(client, months):
@@ -735,8 +718,20 @@ def main():
         with st.spinner("🛰️ SCANNING SECTOR..."):
             sales_df = fetch_sales_history(client, now.year)
             for conf in TEAM_CONFIG:
-                role, is_lead, title = fetch_role_from_personal_sheet(client, conf['id'])
-                c_conf = {**conf, "role": role, "is_team_lead": is_lead, "title_display": title}
+                # --- 修改开始 ---
+                # 1. 函数只返回一个值，所以我们只用一个变量 role_val 来接
+                role_val = fetch_role_from_personal_sheet(client, conf['id'])
+
+                # 2. 手动判定是否为 Lead（根据你说的，判断字符串里是否有 team lead）
+                is_lead = True if "team lead" in role_val.lower() else False
+
+                # 3. 设定 title（既然不改函数，我们就让 title 暂时等于 role_val）
+                title = role_val
+
+                # 4. 把处理好的变量塞进配置字典
+                c_conf = {**conf, "role": role_val, "is_team_lead": is_lead, "title_display": title}
+                # --- 修改结束 ---
+
                 active_team.append(c_conf)
 
                 # 抓取 CV 数据
