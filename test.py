@@ -724,7 +724,11 @@ def main():
 
                 # 2. 手动判定是否为 Lead（根据你说的，判断字符串里是否有 team lead）
                 is_lead = True if "team lead" in role_val.lower() else False
-
+                # --- 插入下面这行代码来验证 ---
+                if conf['name'] == "Karina Albarran":
+                    st.write(f"DEBUG: Karina 单元格读取到的值是: '{role_val}'")
+                    st.write(f"DEBUG: Karina 是否被判定为主管: {is_lead}")
+                # ----------------------------
                 # 3. 设定 title（既然不改函数，我们就让 title 暂时等于 role_val）
                 title = role_val
 
