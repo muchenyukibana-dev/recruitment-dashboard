@@ -131,13 +131,34 @@ def connect_to_google():
 
 
 def fetch_role_from_personal_sheet(client, sheet_id):
+    # 定义默认值，防止读取失败时程序崩溃
+    default_role = "Consultant"
+    default_is_lead = False
+    default_title = "Consultant"
+
     try:
         sheet = safe_api_call(client.open_by_key, sheet_id)
         ws = safe_api_call(sheet.worksheet, 'Credentials')
-        role = safe_api_call(ws.acell, 'B1').value
-        return role.strip() if role else "Consultant"
-    except:
-        return "Consultant"
+
+        # 1. 获取 Role (B1)
+        role_val = safe_api_call(ws.acell, 'B1').value
+        role = role_val.strip() if role_val else default_role
+
+        # 2. 获取 Is Lead (B2) - 假设表格里填的是 "Yes" 或 "No"
+        is_lead_val = safe_api_call(ws.acell, 'B2').value
+        is_lead = True if is_lead_val and is_lead_val.strip().upper() == "YES" else False
+
+        # 3. 获取 Title (B3)
+        title_val = safe_api_call(ws.acell, 'B3').value
+        title = title_val.strip() if title_val else role  # 如果Title为空，默认用Role
+
+        # 关键：这里必须返回 3 个值，对应调用处的 role, is_lead, title
+        return role, is_lead, title
+
+    except Exception as e:
+        # 如果出错了（比如找不到Sheet或单元格），返回一组默认值，确保程序不崩溃
+        print(f"读取数据失败: {e}")
+        return default_role, default_is_lead, default_title
 
 
 def fetch_recruitment_stats(client, months):
@@ -304,6 +325,7 @@ def fetch_all_sales_data(client):
         return pd.DataFrame(columns=columns)
 
 
+@st.cache_data(ttl=600)  # 数据缓存 10 分钟，不用每次都去抓 API
 def load_data_from_api(client, quanbu):
     team_data = []
     for conf in TEAM_CONFIG:
