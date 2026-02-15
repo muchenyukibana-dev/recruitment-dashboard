@@ -468,27 +468,6 @@ def get_commission_pay_date(payment_date_obj):
 # 🛰️ 4. 数据爬取逻辑
 # ==========================================
 
-def connect_to_google():
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    if "gcp_service_account" in st.secrets:
-        creds_dict = dict(st.secrets["gcp_service_account"])
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        return gspread.authorize(creds)
-    return None
-
-
-def load_data_from_api(client, quanbu):
-    team_data = []
-    for conf in TEAM_CONFIG:
-        member = conf.copy()
-        member['role'] = fetch_role_from_personal_sheet(client, conf['id'])
-        team_data.append(member)
-    rec_stats_df, rec_details_df = fetch_recruitment_stats(client, quanbu)
-    all_sales_df = fetch_all_sales_data(client)
-    return {"team_data": team_data, "rec_stats": rec_stats_df, "rec_details": rec_details_df,
-            "rec_hist": pd.DataFrame(), "sales_all": all_sales_df, "last_updated": datetime.now().strftime("%H:%M:%S")}
-
-
 def fetch_cv_data_with_details(client, conf, tabs):
     total = 0
     details = []
@@ -623,8 +602,8 @@ def render_player_card(conf, q_cvs, prev_q_cvs, sales_df, idx):
                 prev_q_cvs >= CV_TARGET_QUARTERLY)
 
     total_comm = 0
-    
-    
+
+
 
     # Karina commision计算 ---
     def render_player_card(conf, q_cvs, prev_q_cvs, sales_df, idx):
