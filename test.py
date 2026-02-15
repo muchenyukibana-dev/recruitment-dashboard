@@ -623,8 +623,79 @@ def render_player_card(conf, q_cvs, prev_q_cvs, sales_df, idx):
                 prev_q_cvs >= CV_TARGET_QUARTERLY)
 
     total_comm = 0
+    
+    
 
-    # --- 智能计算当前的“发薪周期” ---
+    # Karina commision计算 ---
+    def render_player_card(conf, q_cvs, prev_q_cvs, sales_df, idx):
+        c_name = conf['name']
+        role, is_lead, base = conf['role'], conf['is_team_lead'], conf['base_salary']
+
+        # ... (前面的筛选逻辑保持不变) ...
+
+        total_comm = 0
+        debug_details = []  # 用于存储明细
+
+        # 确定发薪周期逻辑 (保持与原代码一致)
+        now_date = datetime.now()
+        if now_date.day <= 15:
+            target_pay_year, target_pay_month = now_date.year, now_date.month
+        else:
+            target_pay_year = now_date.year + 1 if now_date.month == 12 else now_date.year
+            target_pay_month = 1 if now_date.month == 12 else now_date.month + 1
+
+        if role != "Intern":
+            # --- 1. 计算个人成单提成 ---
+            for q_label, q_df in [("本季度", c_sales_curr), ("上季度", c_sales_prev)]:
+                # 判定是否达标 (is_q_curr/is_q_prev 在函数上方已定义)
+                is_qualified = (
+                            booked_gp_curr >= target_gp or q_cvs >= CV_TARGET_QUARTERLY) if q_label == "本季度" else (
+                            booked_gp_prev >= target_gp or prev_q_cvs >= CV_TARGET_QUARTERLY)
+
+                if is_qualified and not q_df.empty:
+                    temp_df = q_df.sort_index()
+                    running_gp = 0
+                    for _, row in temp_df.iterrows():
+                        running_gp += row['GP']
+                        if row['Status'] == 'Paid':
+                            p_date = get_commission_pay_date(row['PayDateObj'])
+                            if p_date and p_date.year == target_pay_year and p_date.month == target_pay_month:
+                                _, mult = calculate_commission_tier(running_gp, base, is_lead)
+                                if mult == 0: _, mult = calculate_commission_tier(base * 10, base, is_lead)
+
+                                deal_comm = calculate_single_deal_commission(row['Salary'], mult) * row['Pct']
+                                total_comm += deal_comm
+                                debug_details.append(
+                                    f"🏠 个人单: {q_label} | 薪资:{row['Salary']} | 比例:{row['Pct']} | 提成:{deal_comm:,.2f}")
+
+            # --- 2. 计算主管津贴 Overrides ---
+            if is_lead:
+                ov_mask = (sales_df['Status'] == 'Paid') & (sales_df['Consultant'] != c_name) & (
+                            sales_df['Consultant'] != "Estela Peng")
+                for _, row in sales_df[ov_mask].iterrows():
+                    p_date = get_commission_pay_date(row['PayDateObj'])
+                    if p_date and p_date.year == target_pay_year and p_date.month == target_pay_month:
+                        bonus = 1000 * row['Pct']
+                        total_comm += bonus
+                        debug_details.append(
+                            f"👥 团队单: 顾问:{row['Consultant']} | 比例:{row['Pct']} | 津贴:{bonus:,.2f}")
+
+        # --- 关键的 DEBUG 显示区域 ---
+        if c_name == "Karina Albarran":
+            with st.expander("🔍 KARINA 佣金明细调试 (12745 是怎么来的)"):
+                st.write(f"**判定身份:** {'👑 主管 (Team Lead)' if is_lead else '顾问 (Consultant)'}")
+                st.write(f"**读取 B1 内容:** {role}")
+                st.write(f"**本月发薪周期:** {target_pay_year}-{target_pay_month}-15")
+                st.write(f"**本季度达标状态:** {'✅ 已达标' if is_q_curr else '❌ 未达标'}")
+                st.write("---")
+                if debug_details:
+                    for line in debug_details:
+                        st.write(line)
+                    st.write(f"**🔥 最终总计: {total_comm:,.2f}**")
+                else:
+                    st.write("⚠️ 本月发薪周期内没有找到任何已付款 (Paid) 的单据。")
+
+        # ... (后面的 UI 渲染代码保持不变) ...
     # 如果今天是 15 号（含）之前，展示本月 15 号的钱
     # 如果今天是 15 号之后，展示下个月 15 号的钱
     now_date = datetime.now()
