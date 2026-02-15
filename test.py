@@ -47,8 +47,6 @@ TEAM_CONFIG = [
      "base_salary": 15000},
 ]
 
-
-
 # --- 🧮 辅助函数 ---
 def get_quarter_str(date_obj):
     if pd.isna(date_obj): return "Unknown"
@@ -318,43 +316,6 @@ def load_data_from_api(client, quanbu):
 
 
 # ==========================================
-# 🔧 1. 配置与季度定义
-# ==========================================
-# SALES_SHEET_ID = '1jniQ-GpeMINjQMebniJ_J1eLVLQIR1NGbSjTtOFP9Q8'
-# SALES_TAB_NAME = 'Positions'
-#
-# CV_TARGET_INDIVIDUAL = 87
-# MONTHLY_GOAL = 116
-# QUARTERLY_TEAM_GOAL = 348
-#
-# now = datetime.now()
-# curr_year = now.year
-# curr_q = (now.month - 1) // 3 + 1
-# CURRENT_Q_STR = f"{curr_year} Q{curr_q}"
-#
-# # 计算上个季度的标识
-# if curr_q == 1:
-#     PREV_Q_STR = f"{curr_year - 1} Q4"
-#     prev_q_m, prev_q_y = 10, curr_year - 1
-# else:
-#     PREV_Q_STR = f"{curr_year} Q{curr_q - 1}"
-#     prev_q_m, prev_q_y = (curr_q - 2) * 3 + 1, curr_year
-#
-# start_m = (curr_q - 1) * 3 + 1
-# CURR_Q_MONTHS = [f"{curr_year}{m:02d}" for m in range(start_m, start_m + 3)]
-# PREV_Q_MONTHS = [f"{prev_q_y}{m:02d}" for m in range(prev_q_m, prev_q_m + 3)]
-#
-# TEAM_CONFIG_TEMPLATE = [
-#     {"name": "Raul Solis", "id": "1vQuN-iNBRUug5J6gBMX-52jp6oogbA77SaeAf9j_zYs", "keyword": "Name",
-#      "base_salary": 11000},
-#     {"name": "Estela Peng", "id": "1sUkffAXzWnpzhhmklqBuwtoQylpR1U18zqBQ-lsp7Z4", "keyword": "姓名",
-#      "base_salary": 20800},
-#     {"name": "Ana Cruz", "id": "1VMVw5YCV12eI8I-VQSXEKg86J2IVZJEgjPJT7ggAFD0", "keyword": "Name", "base_salary": 13000},
-#     {"name": "Karina Albarran", "id": "1zc4ghvfjIxH0eJ2aXfopOWHqiyTDlD8yFNjBzpH07D8", "keyword": "Name",
-#      "base_salary": 15000},
-# ]
-
-# ==========================================
 # 🎨 2. CSS 样式 (完全还原)
 # ==========================================
 st.set_page_config(page_title="Fill The Pit", page_icon="🎮", layout="wide")
@@ -467,42 +428,6 @@ def get_commission_pay_date(payment_date_obj):
 # ==========================================
 # 🛰️ 4. 数据爬取逻辑
 # ==========================================
-
-def fetch_cv_data_with_details(client, conf, tabs):
-    total = 0
-    details = []
-    # 关键字列表
-    COMP_KEYS = ["Company", "Client", "Cliente", "公司名称", "客户"]
-    POS_KEYS = ["Position", "Role", "Posición", "职位", "岗位"]
-    try:
-        sheet = safe_api_call(client.open_by_key, conf['id'])
-        for tab in tabs:
-            try:
-                ws = safe_api_call(sheet.worksheet, tab)
-                rows = safe_api_call(ws.get_all_values)
-                target_key = conf.get('keyword', 'Name')
-                c_comp, c_pos = "Unknown", "Unknown"
-                for r in rows:
-                    if not r: continue
-                    cl = [str(x).strip() for x in r]
-                    if cl[0] in COMP_KEYS:
-                        c_comp = cl[1] if len(cl) > 1 else "Unknown"
-                    elif cl[0] in POS_KEYS:
-                        c_pos = cl[1] if len(cl) > 1 else "Unknown"
-                    if target_key in cl:
-                        idx = cl.index(target_key)
-                        cands = [x for x in cl[idx + 1:] if x]
-                        total += len(cands)
-                        if tab == tabs[-1] and len(cands) > 0:
-                            details.append({"Consultant": conf['name'],
-                                            "Company": c_comp,
-                                            "Position": c_pos,
-                                            "Count": len(cands)})
-            except:
-                continue
-    except:
-        pass
-    return total, details
 
 
 def fetch_sales_history(client, year):
@@ -789,9 +714,9 @@ def main():
                 active_team.append(c_conf)
 
                 # 抓取 CV 数据
-                q_c, m_logs = fetch_cv_data_with_details(client, c_conf, curr_q_months)
+                q_c, m_logs = internal_fetch_sheet_data (client, c_conf, curr_q_months)
                 m_c = sum([l['Count'] for l in m_logs]) if m_logs else 0
-                prev_q_c, _ = fetch_cv_data_with_details(client, c_conf, prev_q_months)
+                prev_q_c, _ = internal_fetch_sheet_data (client, c_conf, prev_q_months)
 
                 q_cv_counts[conf['name']] = q_c
                 m_cv_data.append({"name": conf['name'], "count": m_c})
