@@ -131,34 +131,30 @@ def connect_to_google():
 
 
 def fetch_role_from_personal_sheet(client, sheet_id):
-    # 定义默认值，防止读取失败时程序崩溃
-    default_role = "Consultant"
-    default_is_lead = False
-    default_title = "Consultant"
-
     try:
         sheet = safe_api_call(client.open_by_key, sheet_id)
         ws = safe_api_call(sheet.worksheet, 'Credentials')
 
-        # 1. 获取 Role (B1)
-        role_val = safe_api_call(ws.acell, 'B1').value
-        role = role_val.strip() if role_val else default_role
+        # 读取 B2 单元格的内容
+        b2_value = safe_api_call(ws.acell, 'B2').value
 
-        # 2. 获取 Is Lead (B2) - 假设表格里填的是 "Yes" 或 "No"
-        is_lead_val = safe_api_call(ws.acell, 'B2').value
-        is_lead = True if is_lead_val and is_lead_val.strip().upper() == "YES" else False
+        # 统一转成小写并去掉空格，防止因为大小写或空格导致判断失败
+        role_text = b2_value.strip().lower() if b2_value else ""
 
-        # 3. 获取 Title (B3)
-        title_val = safe_api_call(ws.acell, 'B3').value
-        title = title_val.strip() if title_val else role  # 如果Title为空，默认用Role
+        # --- 重新定义判定逻辑 ---
+        # 1. 如果 B2 是 team lead，那么 is_lead 为 True
+        is_lead = True if role_text == "team lead" else False
 
-        # 关键：这里必须返回 3 个值，对应调用处的 role, is_lead, title
+        # 2. role 变量直接使用 B2 的原始值（或者给个默认值）
+        role = b2_value.strip() if b2_value else "Consultant"
+
+        # 3. title 变量在这里可以暂时和 role 保持一致，或者读取 B3
+        title = role
+
         return role, is_lead, title
-
-    except Exception as e:
-        # 如果出错了（比如找不到Sheet或单元格），返回一组默认值，确保程序不崩溃
-        print(f"读取数据失败: {e}")
-        return default_role, default_is_lead, default_title
+    except:
+        # 如果出错了，默认不是 Lead
+        return "Consultant", False, "Consultant"
 
 
 def fetch_recruitment_stats(client, months):
@@ -714,7 +710,7 @@ def render_player_card(conf, q_cvs, prev_q_cvs, sales_df, idx):
 
     if role != "Intern":
         if total_comm > 0:
-            st.markdown(f'<div class="comm-unlocked">💰 UNLOCKED: ${total_comm:,.0f}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="comm-unlocked">💰 THIS MONTH: ${total_comm:,.0f}</div>', unsafe_allow_html=True)
         else:
             msg = "🔒 LOCKED (WAITING PAY)" if is_q_curr else "🔒 LOCKED (TARGET NOT MET)"
             st.markdown(f'<div class="comm-locked">{msg}</div>', unsafe_allow_html=True)
