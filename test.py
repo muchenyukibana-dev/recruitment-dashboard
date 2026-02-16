@@ -346,50 +346,70 @@ def render_player_card(conf, q_cvs, pq_cvs, sales_df, idx):
     is_q_prev = (c_sales_prev['GP'].sum() >= target_gp or pq_cvs >= CV_TARGET_QUARTERLY) if role != "Intern" else (
                 pq_cvs >= CV_TARGET_QUARTERLY)
 
-    # Commission Logic
+    # ==========================================================
+    # 💰 佣金计算逻辑核心修复版
+    # ==========================================================
     total_comm = 0
-    now_date = datetime.now()
-    target_pay_year, target_pay_month = (now_date.year, now_date.month) if now_date.day <= 15 else (
-        now_date.year + 1 if now_date.month == 12 else now_date.year, 1 if now_date.month == 12 else now_date.month + 1)
 
-    if role != "Intern":
-        # 我们把原来的 is_qual 挪个位置，增加一个 q_label 标签
-        for q_label, q_df, is_qual in [("current", c_sales_curr, is_q_curr), ("prev", c_sales_prev, is_q_prev)]:
-            if not q_df.empty:  # <--- 注意：这里去掉了 is_qual，让没达标的单子也能进入计算
-                running_gp = 0
-                for _, row in q_df.sort_index().iterrows():
-                    running_gp += row['GP']
+    # 1. 确定当前看板展示的是哪个发薪周期的回款 (本月15号发上个月收到的钱)
+    now_date = datetime.now()
+    if now_date.day <= 15:
+        target_pay_year, target_pay_month = now_date.year, now_date.month
+    else:
+        # 15号以后，看板应展示下个月15号预估发放的金额
+        target_pay_year = now_date.year + 1 if now_date.month == 12 else now_date.year
+        target_pay_month = 1 if now_date.month == 12 else now_date.month + 1
+
+    if "intern" not in role.lower():
+        # --- 个人提成部分 ---
+        # 扫描本季度和上季度所有的成单
+        for q_label, q_df, is_qualified in [
+            ("Current Q", c_sales_curr, is_q_curr),
+            ("Prev Q", c_sales_prev, is_q_prev)
+        ]:
+            if not q_df.empty:
+                # 按照成单日期排序，为了计算累计 GP 以确定提成阶梯
+                sorted_deals = q_df.sort_index()
+                cumulative_gp = 0
+
+                for _, row in sorted_deals.iterrows():
+                    cumulative_gp += row['GP']  # 累加该季度的总业绩
+
+                    # 只有标记为 "Paid" 的单子才参与提成发放
                     if row['Status'] == 'Paid':
                         p_date = get_commission_pay_date(row['PayDateObj'])
 
-                        # 判断是否属于本月发放周期
+                        # 核心过滤：只看回款日期落在【目标发薪周期】内的单子
                         if p_date and p_date.year == target_pay_year and p_date.month == target_pay_month:
 
-                            # --- 核心判断逻辑修改 ---
-                            # 如果是上个季度的单子，必须上个季度达标(is_qual)才发
-                            # 如果是本季度的单子，即便目前没达标(is_qual为False)，只要回款了就发
-                            if q_label == "current" or (q_label == "prev" and is_qual):
-                                _, mult = calculate_commission_tier(running_gp, base, is_lead)
+                            # 发放前提：该单子所在的那个季度必须达标 (简历够或GP够)
+                            if is_qualified:
+                                # 计算该单子对应的阶梯等级
+                                _, mult = calculate_commission_tier(cumulative_gp, base, is_lead)
 
-                                # 达标保底逻辑：如果没到GP门槛但 CV 够了，按最低档发
+                                # 保底逻辑：如果 GP 没到阶梯但 CV 够了(即 is_qualified 为 True)，强制给 1 倍倍率
                                 if mult == 0:
-                                    _, mult = calculate_commission_tier(base * 10, base, is_lead)
+                                    mult = 1
 
-                                deal_comm = calculate_single_deal_commission(row['Salary'], mult) * row['Pct']
-                                total_comm += deal_comm
+                                # 计算单笔奖金
+                                deal_reward = calculate_single_deal_commission(row['Salary'], mult) * row['Pct']
+                                total_comm += deal_reward
 
-    if is_lead:
-        ov_mask = (sales_df['Status'] == 'Paid') & (sales_df['Consultant'] != name) & (
-        sales_df['Consultant'] != "Estela Peng")
+        # --- 主管津贴部分 (Overrides) ---
+        if is_lead:
+            # 主管拿津贴不需要看自己的 CV，只要回款日期对得上，且回款的是团队成员
+            # 过滤条件：已付钱 + 不是自己成的单 + 不是 Estela(如果是特定规则)
+            ov_mask = (sales_df['Status'] == 'Paid') & \
+                      (sales_df['Consultant'] != name)
 
-        for _, row in sales_df[ov_mask].iterrows():
-            p_date = get_commission_pay_date(row['PayDateObj'])
+            for _, row in sales_df[ov_mask].iterrows():
+                p_date = get_commission_pay_date(row['PayDateObj'])
+                if p_date and p_date.year == target_pay_year and p_date.month == target_pay_month:
+                    total_comm += (1000 * row['Pct'])
 
-            # 核心判断：只要回款日期属于本月发放周期，就计入主管津贴
-            if p_date and p_date.year == target_pay_year and p_date.month == target_pay_month:
-               total_comm += 1000 * row['Pct']
-
-    # UI
+    # ==========================================================
+    # 🎨 渲染 UI (保持原有格式)
+    # ==========================================================
     border = f"card-border-{(idx % 4) + 1}"
     status_tag = '<span class="status-badge-pass">LEVEL UP! 🌟</span>' if is_q_curr else '<span class="status-badge-loading">LOADING... 🚀</span>'
     st.markdown(
