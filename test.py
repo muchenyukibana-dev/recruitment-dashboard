@@ -254,7 +254,7 @@ def get_all_dashboard_data():
 
     for conf in TEAM_CONFIG:
         role_val = fetch_role_from_personal_sheet(client, conf['id'])
-        is_lead = "team lead" in role_val.lower()
+        is_lead = "Team Lead" in role_val.lower()
         c_conf = {**conf, "role": role_val, "is_team_lead": is_lead, "title_display": role_val}
         team_processed.append(c_conf)
 
@@ -353,25 +353,41 @@ def render_player_card(conf, q_cvs, pq_cvs, sales_df, idx):
         now_date.year + 1 if now_date.month == 12 else now_date.year, 1 if now_date.month == 12 else now_date.month + 1)
 
     if role != "Intern":
-        for is_qual, q_df in [(is_q_curr, c_sales_curr), (is_q_prev, c_sales_prev)]:
-            if is_qual and not q_df.empty:
+        # 我们把原来的 is_qual 挪个位置，增加一个 q_label 标签
+        for q_label, q_df, is_qual in [("current", c_sales_curr, is_q_curr), ("prev", c_sales_prev, is_q_prev)]:
+            if not q_df.empty:  # <--- 注意：这里去掉了 is_qual，让没达标的单子也能进入计算
                 running_gp = 0
                 for _, row in q_df.sort_index().iterrows():
                     running_gp += row['GP']
                     if row['Status'] == 'Paid':
                         p_date = get_commission_pay_date(row['PayDateObj'])
-                        if p_date and p_date.year == target_pay_year and p_date.month == target_pay_month:
-                            _, mult = calculate_commission_tier(running_gp, base, is_lead)
-                            if mult == 0: _, mult = calculate_commission_tier(base * 10, base, is_lead)
-                            total_comm += calculate_single_deal_commission(row['Salary'], mult) * row['Pct']
 
-        if is_lead and is_q_curr:
-            ov_mask = (sales_df['Status'] == 'Paid') & (sales_df['Consultant'] != name) & (
-                        sales_df['Consultant'] != "Estela Peng")
-            for _, row in sales_df[ov_mask].iterrows():
-                p_date = get_commission_pay_date(row['PayDateObj'])
-                if p_date and p_date.year == target_pay_year and p_date.month == target_pay_month:
-                    total_comm += 1000 * row['Pct']
+                        # 判断是否属于本月发放周期
+                        if p_date and p_date.year == target_pay_year and p_date.month == target_pay_month:
+
+                            # --- 核心判断逻辑修改 ---
+                            # 如果是上个季度的单子，必须上个季度达标(is_qual)才发
+                            # 如果是本季度的单子，即便目前没达标(is_qual为False)，只要回款了就发
+                            if q_label == "current" or (q_label == "prev" and is_qual):
+                                _, mult = calculate_commission_tier(running_gp, base, is_lead)
+
+                                # 达标保底逻辑：如果没到GP门槛但 CV 够了，按最低档发
+                                if mult == 0:
+                                    _, mult = calculate_commission_tier(base * 10, base, is_lead)
+
+                                deal_comm = calculate_single_deal_commission(row['Salary'], mult) * row['Pct']
+                                total_comm += deal_comm
+
+    if is_lead:
+        ov_mask = (sales_df['Status'] == 'Paid') & (sales_df['Consultant'] != name) & (
+        sales_df['Consultant'] != "Estela Peng")
+
+        for _, row in sales_df[ov_mask].iterrows():
+            p_date = get_commission_pay_date(row['PayDateObj'])
+
+            # 核心判断：只要回款日期属于本月发放周期，就计入主管津贴
+            if p_date and p_date.year == target_pay_year and p_date.month == target_pay_month:
+               total_comm += 1000 * row['Pct']
 
     # UI
     border = f"card-border-{(idx % 4) + 1}"
