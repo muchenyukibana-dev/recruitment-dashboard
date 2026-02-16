@@ -185,7 +185,7 @@ def internal_fetch_sheet_data(client, conf, tab):
         rows = safe_api_call(ws.get_all_values)
         details, cs, ci, co = [], 0, 0, 0
         target_key = conf.get('keyword', 'Name')
-        COMPANY_KEYS, POSITION_KEYS, STAGE_KEYS = ["Company", "Client", "Cliente", "公司", "客户"], ["Position", "Role",
+        COMPANY_KEYS, POSITION_KEYS, STAGE_KEYS = ["Company", "Client", "Cliente", "公司", "公司名称","客户"], ["Position", "Role",
                                                                                                      "职位"], ["Stage",
                                                                                                                "Status",
                                                                                                                "阶段"]
@@ -212,7 +212,8 @@ def internal_fetch_sheet_data(client, conf, tab):
             if not r: continue
             fc = r[0].strip()
             if fc in COMPANY_KEYS:
-                details.extend(flush(block)); block = {"c": r[1] if len(r) > 1 else "Unk", "p": "Unk", "cands": {}}
+                details.extend(flush(block));
+                block = {"c": r[1] if len(r) > 1 else "Unk", "p": "Unk", "cands": {}}
             elif fc in POSITION_KEYS:
                 block['p'] = r[1] if len(r) > 1 else "Unk"
             elif fc == target_key:
@@ -383,7 +384,7 @@ def main():
             st.dataframe(rec_summary, use_container_width=True, hide_index=True, column_config={
                 "Activity %": st.column_config.ProgressColumn("Activity %", format="%.0f%%", min_value=0,
                                                               max_value=100)})
-        
+
         with st.expander(f"📜 Historical Recruitment Data ({PREV_Q_STR})"):
             rec_stats_prev = rec_stats_df[rec_stats_df['Month'].isin(prev_q_months)]
             if not rec_stats_prev.empty:
@@ -429,7 +430,7 @@ def main():
                 )
             else:
                 st.info(f"No activity recorded for {PREV_Q_STR}")
-                
+
         st.divider()
         # 2. Financial Performance 标题
         st.markdown(f"### 💰 Financial Performance (Q{CURRENT_QUARTER})")
@@ -461,11 +462,11 @@ def main():
 
             # 简历统计
             sent_curr = \
-            rec_stats_df[(rec_stats_df['Consultant'] == c_name) & (rec_stats_df['Month'].isin(curr_q_months))][
-                'Sent'].sum()
+                rec_stats_df[(rec_stats_df['Consultant'] == c_name) & (rec_stats_df['Month'].isin(curr_q_months))][
+                    'Sent'].sum()
             sent_hist = \
-            rec_stats_df[(rec_stats_df['Consultant'] == c_name) & (rec_stats_df['Month'].isin(prev_q_months))][
-                'Sent'].sum()
+                rec_stats_df[(rec_stats_df['Consultant'] == c_name) & (rec_stats_df['Month'].isin(prev_q_months))][
+                    'Sent'].sum()
             rec_pct_curr = (sent_curr / CV_TARGET_QUARTERLY * 100) if CV_TARGET_QUARTERLY > 0 else 0
             rec_pct_hist = (sent_hist / CV_TARGET_QUARTERLY * 100) if CV_TARGET_QUARTERLY > 0 else 0
 
@@ -538,7 +539,7 @@ def main():
             # 主管津贴 (Overrides)
             if is_team_lead and is_target_met_curr and not sales_df_2q.empty:
                 ov_mask = (sales_df_2q['Status'] == 'Paid') & (sales_df_2q['Consultant'] != c_name) & (
-                            sales_df_2q['Consultant'] != "Estela Peng")
+                        sales_df_2q['Consultant'] != "Estela Peng")
                 for _, row in sales_df_2q[ov_mask].iterrows():
                     p_date = get_commission_pay_date(row['Payment Date Obj'])
                     if p_date and p_date <= datetime.now() + timedelta(days=20):
