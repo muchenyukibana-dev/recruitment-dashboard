@@ -36,6 +36,8 @@ quanbu = prev_q_months + curr_q_months
 CV_TARGET_QUARTERLY = 87
 SALES_SHEET_ID = '1jniQ-GpeMINjQMebniJ_J1eLVLQIR1NGbSjTtOFP9Q8'
 SALES_TAB_NAME = 'Positions'
+COMMISSION_SHEET_ID = '1A3K3RLlVNzCSCI-AkXAh8-K99gDSpCM7L9oNOCY0Obs'
+COMMISSION_TAB_NAME = 'Commission Detail' # 专门存结果的标签页
 
 TEAM_CONFIG = [
     {"name": "Raul Solis", "id": "1vQuN-iNBRUug5J6gBMX-52jp6oogbA77SaeAf9j_zYs", "keyword": "Name",
@@ -365,7 +367,7 @@ def main():
     sales_df_2q = all_sales_df[
         all_sales_df['Quarter'].isin([CURRENT_Q_STR, PREV_Q_STR])].copy() if not all_sales_df.empty else pd.DataFrame()
 
-    tab_dash, tab_details = st.tabs(["📊 DASHBOARD", "📝 DETAILS"])
+    tab_dash, tab_details, tab_sync = st.tabs(["📊 DASHBOARD", "📝 DETAILS", "🚀 SYNC TO GAME" ])
 
     with tab_dash:
         def get_role_target(c_name):
@@ -570,6 +572,7 @@ def main():
         final_sales_df = pd.concat(updated_sales_records) if updated_sales_records else pd.DataFrame()
         override_df = pd.DataFrame(team_lead_overrides)
 
+
         # 1. 定义统一的列配置映射
         common_config = {
             "Consultant": st.column_config.TextColumn("Consultant", width=150),
@@ -665,6 +668,70 @@ def main():
         else:
             st.warning("Financial summary data is not available to display details.")
 
+    with tab_sync:
+        st.markdown("### 🚀 Data Sync Center")
+        st.info("Sync the calculated monthly commission data to the Game Dashboard.")
 
+        # 1. Calculation Logic
+        target_month_prefix = datetime.now().strftime("%Y-%m")
+        current_month_key = datetime.now().strftime("%Y%m")
+        export_rows = []
+
+        # Preview calculation (so management can check before syncing)
+        for conf in dynamic_team_config:
+            c_name = conf['name']
+            amt = 0.0
+            # Personal Commissions (Scanning all records in final_sales_df)
+            if not final_sales_df.empty:
+                amt += final_sales_df[
+                    (final_sales_df['Consultant'] == c_name) &
+                    (final_sales_df['Commission Day'].str.startswith(target_month_prefix, na=False))
+                    ]['Final Comm'].sum()
+
+            # Team Overrides
+            if not override_df.empty:
+                amt += override_df[
+                    (override_df['Leader'] == c_name) &
+                    (override_df['Date'].str.startswith(target_month_prefix, na=False))
+                    ]['Bonus'].sum()
+
+            export_rows.append({
+                "Consultant": c_name,
+                "Month": current_month_key,
+                "Total_Commission": round(amt, 2)
+            })
+
+        # 2. Display Preview Table
+        preview_df = pd.DataFrame(export_rows)
+        st.write(f"**📅 Estimated Sync Data ({target_month_prefix})**")
+        st.dataframe(preview_df, use_container_width=True, hide_index=True)
+
+        # 3. Sync Button
+        st.divider()
+        if st.button("🌟 Confirm Sync to Google Sheets", type="primary", use_container_width=True):
+            try:
+                # Prepare list for gspread
+                data_to_save = []
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+                for _, row in preview_df.iterrows():
+                    data_to_save.append([row['Consultant'], row['Month'], row['Total_Commission'], now_str])
+
+                # Connect to Sheet
+                sum_sheet = client.open_by_key(COMMISSION_SHEET_ID)
+                try:
+                    ws_summary = sum_sheet.worksheet(COMMISSION_TAB_NAME)
+                except:
+                    ws_summary = sum_sheet.add_worksheet(title=COMMISSION_TAB_NAME, rows="100", cols="5")
+
+                # Update Sheet
+                ws_summary.clear()
+                ws_summary.update('A1', [['Consultant', 'Month', 'Final_Commission', 'Last_Updated']])
+                ws_summary.update('A2', data_to_save)
+
+                st.success(f"✨ Sync Successful! Data has been updated to Google Sheet.")
+                st.balloons()
+            except Exception as e:
+                st.error(f"❌ An error occurred during sync: {e}")
+                
 if __name__ == "__main__":
     main()
