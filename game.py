@@ -13,6 +13,8 @@ import unicodedata
 # ==========================================
 SALES_SHEET_ID = '1jniQ-GpeMINjQMebniJ_J1eLVLQIR1NGbSjTtOFP9Q8'
 SALES_TAB_NAME = 'Positions'
+COMMISSION_SUMMARY_ID = '1A3K3RLlVNzCSCI-AkXAh8-K99gDSpCM7L9oNOCY0Obs'
+COMMISSION_TAB_NAME = 'Commission Detail'
 
 # 基础配置
 TEAM_CONFIG_TEMPLATE = [
@@ -462,6 +464,7 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
                     if comm_pay_obj <= (datetime.now() + timedelta(days=20)):
                         total_comm += 1000
 
+
     # --- 3. 最终判定 (Gate Check) ---
     # 佣金发放条件：达到标准 (Qualified) 并且 客户已付款
     if not is_qualified:
@@ -675,6 +678,24 @@ def fetch_financial_df(client, start_m, end_m, year):
         return pd.DataFrame()
 
 
+def get_monthly_commission(client, consultant_name, month_key):
+    """从汇总表中提取 supervisor 算好的佣金"""
+    try:
+        sheet = client.open_by_key('1A3K3RLlVNzCSCI-AkXAh8-K99gDSpCM7L9oNOCY0Obs')
+        ws = sheet.worksheet('Commission Detail')
+        df = pd.DataFrame(ws.get_all_records())
+
+        if df.empty: return 0.0
+
+        c_norm = normalize_text(consultant_name)
+        # 匹配名字和月份
+        match = df[(df['Consultant'].apply(normalize_text) == c_norm) &
+                   (df['Month'].astype(str) == month_key)]
+
+        return float(match.iloc[0]['Final_Commission']) if not match.empty else 0.0
+    except:
+        return 0.0
+
 # --- RENDER UI COMPONENTS ---
 
 def render_bar(current_total, goal, color_class, label_text, is_monthly_boss=False):
@@ -703,14 +724,14 @@ def render_bar(current_total, goal, color_class, label_text, is_monthly_boss=Fal
     """, unsafe_allow_html=True)
 
 
-def render_player_card(conf, fin_summary, quarter_cv_count, card_index):
+def render_player_card(conf, fin_summary, quarter_cv_count, card_index, monthly_commission=0.0):
     name = conf['name']
     role = conf.get('role', 'Full-Time')
     is_team_lead = conf.get('is_team_lead', False)
     is_intern = (role == 'Intern')
 
-    is_qualified = fin_summary.get("Is Qualified", False)
-    est_comm = fin_summary.get("Est. Commission", 0.0)
+    # 这里修正：判断逻辑改为根据传入的 monthly_commission
+    is_qualified = monthly_commission > 0
 
     # Financial Targets
     booked_gp = fin_summary.get("Booked GP", 0)
@@ -761,15 +782,13 @@ def render_player_card(conf, fin_summary, quarter_cv_count, card_index):
         st.markdown(f"""<div class="comm-locked" style="background:#eee; color:#aaa;">INTERNSHIP TRACK</div>""",
                     unsafe_allow_html=True)
     else:
-        if est_comm > 0:
-            st.markdown(f"""<div class="comm-unlocked">💰 UNLOCKED: ${est_comm:,.0f}</div>""", unsafe_allow_html=True)
+        if monthly_commission > 0:
+            # 只要这个值大于 0，就显示解锁，金额保留两位小数
+            st.markdown(f"""<div class="comm-unlocked">💰 UNLOCKED: ${monthly_commission:,.2f}</div>""",
+                        unsafe_allow_html=True)
         else:
-            msg = "LOCKED"
-            if not is_qualified:
-                msg = "🔒 LOCKED (TARGET NOT MET)"
-            elif fin_summary.get("Paid GP", 0) == 0:
-                msg = "🔒 LOCKED (WAITING PAY)"
-            st.markdown(f"""<div class="comm-locked">{msg}</div>""", unsafe_allow_html=True)
+            # 否则统一显示锁定
+            st.markdown(f"""<div class="comm-locked">🔒 LOCKED (TARGET NOT MET)</div>""", unsafe_allow_html=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -831,18 +850,6 @@ def main():
 
             # 2. Second, Fetch Financials & Determine Qualification
             sales_df = fetch_financial_df(client, start_m, end_m, year)
-
-            for conf in active_team_config:
-                q_cvs = consultant_cv_counts.get(conf['name'], 0)
-                summary = calculate_consultant_performance(
-                    sales_df,
-                    conf['name'],
-                    conf['base_salary'],
-                    q_cvs,
-                    conf.get('role', 'Full-Time'),
-                    conf.get('is_team_lead', False)
-                )
-                financial_summaries[conf['name']] = summary
 
         time.sleep(0.5)
 
@@ -913,11 +920,19 @@ def main():
 
         for idx, conf in enumerate(active_team_config):
             c_name = conf['name']
-            fin_sum = financial_summaries.get(c_name, {})
             c_cvs = consultant_cv_counts.get(c_name, 0)
 
+            # --- 新增：调用计算逻辑生成 fin_summary ---
+            perf_summary = calculate_consultant_performance(
+                sales_df, c_name, conf['base_salary'], c_cvs, conf['role'], conf['is_team_lead']
+            )
+
+            current_month_key = datetime.now().strftime("%Y%m")
+            monthly_commission = get_monthly_commission(client, c_name, current_month_key)
+
             with all_cols[idx]:
-                render_player_card(conf, fin_sum, c_cvs, idx)
+                # --- 修改：参数必须与定义一致 (conf, fin_summary, quarter_cv_count, card_index, monthly_commission) ---
+                render_player_card(conf, perf_summary, c_cvs, idx, monthly_commission)
 
         # --- LOGS ---
         if all_month_details:
@@ -948,4 +963,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
