@@ -367,7 +367,7 @@ def main():
     sales_df_2q = all_sales_df[
         all_sales_df['Quarter'].isin([CURRENT_Q_STR, PREV_Q_STR])].copy() if not all_sales_df.empty else pd.DataFrame()
 
-    tab_dash, tab_details = st.tabs(["📊 DASHBOARD", "📝 DETAILS"])
+    tab_dash, tab_details, tab_sync = st.tabs(["📊 DASHBOARD", "📝 DETAILS", "🚀 SYNC TO GAME" ])
 
     with tab_dash:
         def get_role_target(c_name):
@@ -572,42 +572,6 @@ def main():
         final_sales_df = pd.concat(updated_sales_records) if updated_sales_records else pd.DataFrame()
         override_df = pd.DataFrame(team_lead_overrides)
 
-        # ==========================================
-        # 🚀 新增：导出佣金结果到 Google Sheets
-        # ==========================================
-        if st.sidebar.button("📤 同步结果到游戏看板"):
-            try:
-                # 1. 准备要导出的简易数据
-                # 只提取名字、月份和最终算的佣金 Est. Commission
-                export_data = []
-                current_month_key = datetime.now().strftime("%Y%m")
-
-                for item in financial_curr:
-                    export_data.append([
-                        item['Consultant'],
-                        current_month_key,
-                        item['Est. Commission'],
-                        datetime.now().strftime("%Y-%m-%d %H:%M")  # 时间戳
-                    ])
-
-                # 2. 连接并写入表格
-                sum_sheet = client.open_by_key(COMMISSION_SHEET_ID)
-
-                # 检查 Tab 是否存在，不存在就建一个
-                try:
-                    ws_summary = sum_sheet.worksheet(COMMISSION_TAB_NAME)
-                except:
-                    ws_summary = sum_sheet.add_worksheet(title=COMMISSION_TAB_NAME, rows="100", cols="5")
-
-                # 3. 写入表头和数据 (这里建议先清空再写入，保证数据唯一)
-                ws_summary.clear()
-                ws_summary.update('A1', [['Consultant', 'Month', 'Final_Commission', 'Last_Updated']])
-                ws_summary.update('A2', export_data)
-
-                st.sidebar.success("✅ 数据已同步！")
-            except Exception as e:
-                st.sidebar.error(f"❌ 同步失败: {e}")
-        # ==========================================
 
         # 1. 定义统一的列配置映射
         common_config = {
@@ -704,6 +668,65 @@ def main():
         else:
             st.warning("Financial summary data is not available to display details.")
 
+    with tab_sync:
+        st.markdown("### 🚀 数据同步中心")
+        st.info("在此页面将计算好的本月发薪数据同步到游戏看板 (Game App)。")
+
+        # 1. 准备统计逻辑
+        target_month_prefix = datetime.now().strftime("%Y-%m")
+        current_month_key = datetime.now().strftime("%Y%m")
+        export_rows = []
+
+        # 预计算预览数据（为了让管理人员点按钮前心里有数）
+        for conf in dynamic_team_config:
+            c_name = conf['name']
+            amt = 0.0
+            # 个人提成
+            if not final_sales_df.empty:
+                amt += final_sales_df[
+                    (final_sales_df['Consultant'] == c_name) &
+                    (final_sales_df['Commission Day'].str.startswith(target_month_prefix, na=False))
+                    ]['Final Comm'].sum()
+            # 主管津贴
+            if not override_df.empty:
+                amt += override_df[
+                    (override_df['Leader'] == c_name) &
+                    (override_df['Date'].str.startswith(target_month_prefix, na=False))
+                    ]['Bonus'].sum()
+
+            export_rows.append({"Consultant": c_name, "Month": current_month_key, "Total_Commission": round(amt, 2)})
+
+        # 2. 显示预览表格
+        preview_df = pd.DataFrame(export_rows)
+        st.write(f"**📅 预估同步数据 ({target_month_prefix})**")
+        st.dataframe(preview_df, use_container_width=True, hide_index=True)
+
+        # 3. 同步按钮
+        st.divider()
+        if st.button("🌟 确认同步到 Google Sheets", type="primary", use_container_width=True):
+            try:
+                # 转换成 list 格式用于 gspread
+                data_to_save = []
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+                for _, row in preview_df.iterrows():
+                    data_to_save.append([row['Consultant'], row['Month'], row['Total_Commission'], now_str])
+
+                # 连接表格
+                sum_sheet = client.open_by_key(COMMISSION_SHEET_ID)
+                try:
+                    ws_summary = sum_sheet.worksheet(COMMISSION_TAB_NAME)
+                except:
+                    ws_summary = sum_sheet.add_worksheet(title=COMMISSION_TAB_NAME, rows="100", cols="5")
+
+                # 写入
+                ws_summary.clear()
+                ws_summary.update('A1', [['Consultant', 'Month', 'Final_Commission', 'Last_Updated']])
+                ws_summary.update('A2', data_to_save)
+
+                st.success(f"✨ 同步成功！数据已更新至 Google Sheet。")
+                st.balloons()
+            except Exception as e:
+                st.error(f"❌ 同步过程中发生错误: {e}")
 
 if __name__ == "__main__":
     main()
