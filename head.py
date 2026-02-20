@@ -682,7 +682,7 @@ def get_monthly_commission(client, consultant_name, month_key):
     """从汇总表中提取 supervisor 算好的佣金"""
     try:
         sheet = client.open_by_key('1A3K3RLlVNzCSCI-AkXAh8-K99gDSpCM7L9oNOCY0Obs')
-        ws = sheet.worksheet('Results_Summary')
+        ws = sheet.worksheet('Commission Detail')
         df = pd.DataFrame(ws.get_all_records())
 
         if df.empty: return 0.0
