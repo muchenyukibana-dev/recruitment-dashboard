@@ -730,8 +730,8 @@ def render_player_card(conf, fin_summary, quarter_cv_count, card_index, monthly_
     is_team_lead = conf.get('is_team_lead', False)
     is_intern = (role == 'Intern')
 
+    # 这里修正：判断逻辑改为根据传入的 monthly_commission
     is_qualified = monthly_commission > 0
-
 
     # Financial Targets
     booked_gp = fin_summary.get("Booked GP", 0)
@@ -851,18 +851,6 @@ def main():
             # 2. Second, Fetch Financials & Determine Qualification
             sales_df = fetch_financial_df(client, start_m, end_m, year)
 
-            for conf in active_team_config:
-                q_cvs = consultant_cv_counts.get(conf['name'], 0)
-                summary = calculate_consultant_performance(
-                    sales_df,
-                    conf['name'],
-                    conf['base_salary'],
-                    q_cvs,
-                    conf.get('role', 'Full-Time'),
-                    conf.get('is_team_lead', False)
-                )
-                financial_summaries[conf['name']] = summary
-
         time.sleep(0.5)
 
         # --- BOSS BAR 1: MONTHLY AGGREGATE ---
@@ -934,16 +922,17 @@ def main():
             c_name = conf['name']
             c_cvs = consultant_cv_counts.get(c_name, 0)
 
+            # --- 新增：调用计算逻辑生成 fin_summary ---
+            perf_summary = calculate_consultant_performance(
+                sales_df, c_name, conf['base_salary'], c_cvs, conf['role'], conf['is_team_lead']
+            )
 
-            # 1.在这里添加：获取本月同步过来的佣金金额
-            # current_month_key 是你在 main 开头定义的，比如 "202602"
             current_month_key = datetime.now().strftime("%Y%m")
             monthly_commission = get_monthly_commission(client, c_name, current_month_key)
 
             with all_cols[idx]:
-                # 2.在这里修改：把 monthly_commission 传给渲染函数
-                # 注意：确保你的 render_player_card 函数定义里也接收这个参数
-                render_player_card(conf, c_cvs, idx, monthly_commission)
+                # --- 修改：参数必须与定义一致 (conf, fin_summary, quarter_cv_count, card_index, monthly_commission) ---
+                render_player_card(conf, perf_summary, c_cvs, idx, monthly_commission)
 
         # --- LOGS ---
         if all_month_details:
