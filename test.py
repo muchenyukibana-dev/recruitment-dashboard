@@ -669,64 +669,69 @@ def main():
             st.warning("Financial summary data is not available to display details.")
 
     with tab_sync:
-        st.markdown("### 🚀 数据同步中心")
-        st.info("在此页面将计算好的本月发薪数据同步到游戏看板 (Game App)。")
+        st.markdown("### 🚀 Data Sync Center")
+        st.info("Sync the calculated monthly commission data to the Game Dashboard.")
 
-        # 1. 准备统计逻辑
+        # 1. Calculation Logic
         target_month_prefix = datetime.now().strftime("%Y-%m")
         current_month_key = datetime.now().strftime("%Y%m")
         export_rows = []
 
-        # 预计算预览数据（为了让管理人员点按钮前心里有数）
+        # Preview calculation (so management can check before syncing)
         for conf in dynamic_team_config:
             c_name = conf['name']
             amt = 0.0
-            # 个人提成
+            # Personal Commissions (Scanning all records in final_sales_df)
             if not final_sales_df.empty:
                 amt += final_sales_df[
                     (final_sales_df['Consultant'] == c_name) &
                     (final_sales_df['Commission Day'].str.startswith(target_month_prefix, na=False))
                     ]['Final Comm'].sum()
-            # 主管津贴
+
+            # Team Overrides
             if not override_df.empty:
                 amt += override_df[
                     (override_df['Leader'] == c_name) &
                     (override_df['Date'].str.startswith(target_month_prefix, na=False))
                     ]['Bonus'].sum()
 
-            export_rows.append({"Consultant": c_name, "Month": current_month_key, "Total_Commission": round(amt, 2)})
+            export_rows.append({
+                "Consultant": c_name,
+                "Month": current_month_key,
+                "Total_Commission": round(amt, 2)
+            })
 
-        # 2. 显示预览表格
+        # 2. Display Preview Table
         preview_df = pd.DataFrame(export_rows)
-        st.write(f"**📅 预估同步数据 ({target_month_prefix})**")
+        st.write(f"**📅 Estimated Sync Data ({target_month_prefix})**")
         st.dataframe(preview_df, use_container_width=True, hide_index=True)
 
-        # 3. 同步按钮
+        # 3. Sync Button
         st.divider()
-        if st.button("🌟 确认同步到 Google Sheets", type="primary", use_container_width=True):
+        if st.button("🌟 Confirm Sync to Google Sheets", type="primary", use_container_width=True):
             try:
-                # 转换成 list 格式用于 gspread
+                # Prepare list for gspread
                 data_to_save = []
                 now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
                 for _, row in preview_df.iterrows():
                     data_to_save.append([row['Consultant'], row['Month'], row['Total_Commission'], now_str])
 
-                # 连接表格
+                # Connect to Sheet
                 sum_sheet = client.open_by_key(COMMISSION_SHEET_ID)
                 try:
                     ws_summary = sum_sheet.worksheet(COMMISSION_TAB_NAME)
                 except:
                     ws_summary = sum_sheet.add_worksheet(title=COMMISSION_TAB_NAME, rows="100", cols="5")
 
-                # 写入
+                # Update Sheet
                 ws_summary.clear()
                 ws_summary.update('A1', [['Consultant', 'Month', 'Final_Commission', 'Last_Updated']])
                 ws_summary.update('A2', data_to_save)
 
-                st.success(f"✨ 同步成功！数据已更新至 Google Sheet。")
+                st.success(f"✨ Sync Successful! Data has been updated to Google Sheet.")
                 st.balloons()
             except Exception as e:
-                st.error(f"❌ 同步过程中发生错误: {e}")
-
+                st.error(f"❌ An error occurred during sync: {e}")
+                
 if __name__ == "__main__":
     main()
