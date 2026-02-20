@@ -730,8 +730,8 @@ def render_player_card(conf, fin_summary, quarter_cv_count, card_index, monthly_
     is_team_lead = conf.get('is_team_lead', False)
     is_intern = (role == 'Intern')
 
-    is_qualified = fin_summary.get("Is Qualified", False)
-    est_comm = fin_summary.get("Est. Commission", 0.0)
+    is_qualified = monthly_commission > 0
+
 
     # Financial Targets
     booked_gp = fin_summary.get("Booked GP", 0)
@@ -932,7 +932,6 @@ def main():
 
         for idx, conf in enumerate(active_team_config):
             c_name = conf['name']
-            fin_sum = financial_summaries.get(c_name, {})
             c_cvs = consultant_cv_counts.get(c_name, 0)
 
 
