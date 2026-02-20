@@ -724,7 +724,7 @@ def render_bar(current_total, goal, color_class, label_text, is_monthly_boss=Fal
     """, unsafe_allow_html=True)
 
 
-def render_player_card(conf, fin_summary, quarter_cv_count, card_index):
+def render_player_card(conf, fin_summary, quarter_cv_count, card_index, monthly_commission=0.0):
     name = conf['name']
     role = conf.get('role', 'Full-Time')
     is_team_lead = conf.get('is_team_lead', False)
@@ -938,7 +938,7 @@ def main():
 
             # 1.在这里添加：获取本月同步过来的佣金金额
             # current_month_key 是你在 main 开头定义的，比如 "202602"
-            current_month_key = datetime.now().strftime("%Y%m") 
+            current_month_key = datetime.now().strftime("%Y%m")
             monthly_commission = get_monthly_commission(client, c_name, current_month_key)
 
             with all_cols[idx]:
