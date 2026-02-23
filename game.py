@@ -434,7 +434,7 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
                         pending_indices = []
 
                 paid_gp = running_paid_gp
-                current_level, _ = calculate_commission_tier(running_paid_gp, base_salary, is_team_lead)
+                current_level, _ = calculate_commission_tier(booked_gp, base_salary, is_team_lead)
 
                 # 检查付款日期是否到期
                 limit_date = datetime.now() + timedelta(days=20)
@@ -724,12 +724,12 @@ def render_bar(current_total, goal, color_class, label_text, is_monthly_boss=Fal
     """, unsafe_allow_html=True)
 
 
-def render_player_card(conf, fin_summary, quarter_cv_count, card_index, monthly_commission=0.0):
+def render_player_card(conf, fin_summary, quarterly_cv_count, card_index, monthly_commission=0.0):
     name = conf['name']
     role = conf.get('role', 'Full-Time')
     is_team_lead = conf.get('is_team_lead', False)
     is_intern = (role == 'Intern')
-
+    base_salary = conf.get('base_salary', 0)
     # 这里修正：判断逻辑改为根据传入的 monthly_commission
     is_qualified = monthly_commission > 0
 
@@ -740,33 +740,45 @@ def render_player_card(conf, fin_summary, quarter_cv_count, card_index, monthly_
     crown = "👑" if is_team_lead else ""
     role_tag = "🎓 INTERN" if is_intern else "💼 FULL-TIME"
     title_display = conf.get('title_display', role_tag)
+    current_level, _ = calculate_commission_tier(booked_gp, base_salary, is_team_lead)
 
-    # Status Badge
-    status_html = ""
-    if is_qualified:
-        status_html = '<span class="status-badge-pass">LEVEL UP! 🌟</span>'
+    if current_level > 0:
+        status_text = f"LEVEL {current_level}! 🌟"
+        badge_class = "status-badge-pass"
+    elif quarterly_cv_count >= 87:
+        status_text = "TARGET MET! 🎯"
+        badge_class = "status-badge-pass"
     else:
-        status_html = '<span class="status-badge-loading">LOADING... 🚀</span>'
+        status_text = "HUNTING... 🚀"
+        badge_class = "status-badge-loading"
 
     # Rotate through border colors
     border_class = f"card-border-{(card_index % 4) + 1}"
-
     st.markdown(f"""
     <div class="player-card {border_class}">
         <div class="player-header">
-            <div>
-                <span class="player-name">{name} {crown}</span><br>
-                <span style="font-size: 0.7em; color: #999;">{title_display}</span>
-            </div>
-            {status_html}
+            <div class="player-name">{name}</div>
+            <span class="{badge_class}">{status_text}</span>
         </div>
     """, unsafe_allow_html=True)
+    # border_class = f"card-border-{(card_index % 4) + 1}"
+    #
+    # st.markdown(f"""
+    # <div class="player-card {border_class}">
+    #     <div class="player-header">
+    #         <div>
+    #             <span class="player-name">{name} {crown}</span><br>
+    #             <span style="font-size: 0.7em; color: #999;">{title_display}</span>
+    #         </div>
+    #         {status_text}
+    #     </div>
+    # """, unsafe_allow_html=True)
 
     # --- PROGRESS BARS ---
 
     if is_intern:
         # Intern Only shows Recruitment Bar (Target 87)
-        render_bar(quarter_cv_count, QUARTERLY_GOAL_INTERN, "cv-fill", "Q. CVs")
+        render_bar(quarterly_cv_count, QUARTERLY_GOAL_INTERN, "cv-fill", "Q. CVs")
     else:
         # Full-time / Team Lead Shows Both
         render_bar(booked_gp, target_gp, "money-fill", "GP TARGET")
@@ -774,7 +786,7 @@ def render_player_card(conf, fin_summary, quarter_cv_count, card_index, monthly_
         # Always show CV bar (Target 87)
         st.markdown(f'<div style="font-size:0.6em; color:#666; margin-top:5px;">AND/OR RECRUITMENT GOAL:</div>',
                     unsafe_allow_html=True)
-        render_bar(quarter_cv_count, QUARTERLY_INDIVIDUAL_GOAL, "cv-fill", "Q. CVs")
+        render_bar(quarterly_cv_count, QUARTERLY_INDIVIDUAL_GOAL, "cv-fill", "Q. CVs")
 
     # --- COMMISSION BOX ---
 
@@ -937,6 +949,8 @@ def main():
         # --- LOGS ---
         if all_month_details:
             st.markdown("---")
+
+            # 1. 第一个折叠框：按顾问查看
             with st.expander(f"📜 MISSION LOGS ({current_month_tab})", expanded=False):
                 df_all = pd.DataFrame(all_month_details)
                 tab_names = [c['name'] for c in active_team_config]
@@ -950,16 +964,36 @@ def main():
                             df_agg = df_agg.sort_values(by='Count', ascending=False)
                             df_agg['Count'] = df_agg['Count'].astype(str)
                             st.dataframe(df_agg, use_container_width=True, hide_index=True,
-                                         column_config={"Company": st.column_config.TextColumn("TARGET COMPANY"),
-                                                        "Position": st.column_config.TextColumn("TARGET ROLE"),
-                                                        "Count": st.column_config.TextColumn("CVs")})
+                                         column_config={
+                                             "Company": st.column_config.TextColumn("TARGET COMPANY"),
+                                             "Position": st.column_config.TextColumn("TARGET ROLE"),
+                                             "Count": st.column_config.TextColumn("CVs")})
                         else:
                             st.info(f"NO DATA FOR {current_consultant}")
+
+            # 2. 第二个折叠框：全团队按岗位统计
+            with st.expander("📊 CV SUMMARY BY POSITIONS", expanded=False):
+                df_total = pd.DataFrame(all_month_details)
+                summary_agg = df_total.groupby(['Company', 'Position'])['Count'].sum().reset_index()
+                summary_agg = summary_agg.sort_values(by='Count', ascending=False)
+                summary_agg.columns = ['CLIENT/COMPANY', 'TARGET ROLE', 'TOTAL CVs']
+
+                st.dataframe(
+                    summary_agg,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "TOTAL CVs": st.column_config.NumberColumn(
+                            "TOTAL CVs",
+                            help="Total number of CVs across the whole team",
+                            format="%d ⭐"
+                        )
+                    }
+                )  # <--- 这里之前漏掉了一个括号，现在补上了
 
         elif monthly_total == 0:
             st.markdown("---")
             st.info("NO DATA FOUND FOR THIS MONTH YET.")
-
 
 if __name__ == "__main__":
     main()
