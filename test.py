@@ -762,7 +762,7 @@ def render_player_card(conf, fin_summary, quarterly_cv_count, card_index, monthl
         </div>
     """, unsafe_allow_html=True)
     # border_class = f"card-border-{(card_index % 4) + 1}"
-    # 
+    #
     # st.markdown(f"""
     # <div class="player-card {border_class}">
     #     <div class="player-header">
@@ -947,31 +947,54 @@ def main():
                 render_player_card(conf, perf_summary, c_cvs, idx, monthly_commission)
 
         # --- LOGS ---
-        if all_month_details:
-            st.markdown("---")
-            with st.expander(f"📜 MISSION LOGS ({current_month_tab})", expanded=False):
-                df_all = pd.DataFrame(all_month_details)
-                tab_names = [c['name'] for c in active_team_config]
-                tabs = st.tabs(tab_names)
-                for idx, tab in enumerate(tabs):
-                    with tab:
-                        current_consultant = tab_names[idx]
-                        df_c = df_all[df_all['Consultant'] == current_consultant]
-                        if not df_c.empty:
-                            df_agg = df_c.groupby(['Company', 'Position'])['Count'].sum().reset_index()
-                            df_agg = df_agg.sort_values(by='Count', ascending=False)
-                            df_agg['Count'] = df_agg['Count'].astype(str)
-                            st.dataframe(df_agg, use_container_width=True, hide_index=True,
-                                         column_config={"Company": st.column_config.TextColumn("TARGET COMPANY"),
-                                                        "Position": st.column_config.TextColumn("TARGET ROLE"),
-                                                        "Count": st.column_config.TextColumn("CVs")})
-                        else:
-                            st.info(f"NO DATA FOR {current_consultant}")
+                # --- LOGS ---
+                if all_month_details:
+                    st.markdown("---")
 
-        elif monthly_total == 0:
-            st.markdown("---")
-            st.info("NO DATA FOUND FOR THIS MONTH YET.")
+                    # 1. 第一个折叠框：按顾问查看
+                    with st.expander(f"📜 MISSION LOGS ({current_month_tab})", expanded=False):
+                        df_all = pd.DataFrame(all_month_details)
+                        tab_names = [c['name'] for c in active_team_config]
+                        tabs = st.tabs(tab_names)
+                        for idx, tab in enumerate(tabs):
+                            with tab:
+                                current_consultant = tab_names[idx]
+                                df_c = df_all[df_all['Consultant'] == current_consultant]
+                                if not df_c.empty:
+                                    df_agg = df_c.groupby(['Company', 'Position'])['Count'].sum().reset_index()
+                                    df_agg = df_agg.sort_values(by='Count', ascending=False)
+                                    df_agg['Count'] = df_agg['Count'].astype(str)
+                                    st.dataframe(df_agg, use_container_width=True, hide_index=True,
+                                                 column_config={
+                                                     "Company": st.column_config.TextColumn("TARGET COMPANY"),
+                                                     "Position": st.column_config.TextColumn("TARGET ROLE"),
+                                                     "Count": st.column_config.TextColumn("CVs")})
+                                else:
+                                    st.info(f"NO DATA FOR {current_consultant}")
 
+                    # 2. 第二个折叠框：全团队按岗位统计
+                    with st.expander("📊 CV SUMMARY BY POSITIONS", expanded=False):
+                        df_total = pd.DataFrame(all_month_details)
+                        summary_agg = df_total.groupby(['Company', 'Position'])['Count'].sum().reset_index()
+                        summary_agg = summary_agg.sort_values(by='Count', ascending=False)
+                        summary_agg.columns = ['CLIENT/COMPANY', 'TARGET ROLE', 'TOTAL CVs']
+
+                        st.dataframe(
+                            summary_agg,
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                "TOTAL CVs": st.column_config.NumberColumn(
+                                    "TOTAL CVs",
+                                    help="Total number of CVs across the whole team",
+                                    format="%d ⭐"
+                                )
+                            }
+                        )  # <--- 这里之前漏掉了一个括号，现在补上了
+
+                elif monthly_total == 0:
+                    st.markdown("---")
+                    st.info("NO DATA FOUND FOR THIS MONTH YET.")
 
 if __name__ == "__main__":
     main()
