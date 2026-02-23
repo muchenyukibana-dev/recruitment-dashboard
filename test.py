@@ -754,17 +754,25 @@ def render_player_card(conf, fin_summary, quarterly_cv_count, card_index, monthl
 
     # Rotate through border colors
     border_class = f"card-border-{(card_index % 4) + 1}"
-
     st.markdown(f"""
     <div class="player-card {border_class}">
         <div class="player-header">
-            <div>
-                <span class="player-name">{name} {crown}</span><br>
-                <span style="font-size: 0.7em; color: #999;">{title_display}</span>
-            </div>
-            {status_text}
+            <div class="player-name">{name}</div>
+            <span class="{badge_class}">{status_text}</span>
         </div>
     """, unsafe_allow_html=True)
+    # border_class = f"card-border-{(card_index % 4) + 1}"
+    # 
+    # st.markdown(f"""
+    # <div class="player-card {border_class}">
+    #     <div class="player-header">
+    #         <div>
+    #             <span class="player-name">{name} {crown}</span><br>
+    #             <span style="font-size: 0.7em; color: #999;">{title_display}</span>
+    #         </div>
+    #         {status_text}
+    #     </div>
+    # """, unsafe_allow_html=True)
 
     # --- PROGRESS BARS ---
 
