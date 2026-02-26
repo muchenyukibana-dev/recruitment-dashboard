@@ -848,6 +848,12 @@ def main():
                 m_count, m_details = fetch_consultant_data(client, consultant, current_month_tab)
                 all_month_details.extend(m_details)
 
+                # ⬇️ 新增：把其他季度月份的数据也加进来
+                for q_tab in quarter_tabs:
+                    if q_tab != current_month_tab:
+                        _, extra_details = fetch_consultant_data(client, consultant, q_tab)
+                        all_month_details.extend(extra_details)
+
                 q_count = 0
                 for q_tab in quarter_tabs:
                     if q_tab == current_month_tab:
