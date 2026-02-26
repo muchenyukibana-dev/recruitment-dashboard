@@ -731,7 +731,7 @@ def render_player_card(conf, fin_summary, quarterly_cv_count, card_index, monthl
     is_intern = (role == 'Intern')
     base_salary = conf.get('base_salary', 0)
     # 这里修正：判断逻辑改为根据传入的 monthly_commission
-    is_qualified = fin_summary.get("Is Qualified", False)
+    is_qualified = monthly_commission > 0
 
     # Financial Targets
     booked_gp = fin_summary.get("Booked GP", 0)
@@ -838,37 +838,28 @@ def main():
         quarterly_results = []
         all_month_details = []
         financial_summaries = {}
-
         consultant_cv_counts = {}
+        all_history_details = []  # 🚀 新增：用于存储所有月份的历史总和
 
-        with st.spinner(f"🛰️ SCANNING SECTOR Q{quarter_num}..."):
-            # --- 新增：历史数据抓取逻辑 ---
-            all_history_details = []
-
-            # 定义需要扫描的历史月份范围（从202510到当前月份）
-            history_start_dt = datetime(2025, 10, 1)
-            history_end_dt = datetime.now()
-            target_history_months = []
-            curr_dt = history_start_dt
-            while curr_dt <= history_end_dt:
-                target_history_months.append(curr_dt.strftime("%Y%m"))
-                if curr_dt.month == 12:
-                    curr_dt = datetime(curr_dt.year + 1, 1, 1)
-                else:
-                    curr_dt = datetime(curr_dt.year, curr_dt.month + 1, 1)
-
-            with st.spinner("⏳ SCANNING FULL HISTORY (FROM 2025-10)..."):
-                for consultant in active_team_config:
-                    for h_tab in target_history_months:
-                        # 复用你已有的抓取函数
-                        _, h_details = fetch_consultant_data(client, consultant, h_tab)
-                        all_history_details.extend(h_details)
+        with st.spinner(f"🛰️ SCANNING ALL HISTORICAL DATA..."):
+            # 我们只需要从其中一个人的表格里获取标签页列表作为参考
+            ref_sheet = client.open_by_key(active_team_config[0]['id'])
+            # 获取所有标签名，过滤出纯数字（月份）的标签
+            all_worksheets = [ws.title for ws in ref_sheet.worksheets() if ws.title.isdigit()]
 
             # 1. First, Fetch Recruitment Data
             for consultant in active_team_config:
                 m_count, m_details = fetch_consultant_data(client, consultant, current_month_tab)
                 all_month_details.extend(m_details)
 
+            # 2. 🚀 抓取该顾问在所有月份 Tab 里的明细
+            for tab_name in all_worksheets:
+                # 如果是当前月，直接用上面抓好的，避免重复请求
+                if tab_name == current_month_tab:
+                    all_history_details.extend(m_details)
+                else:
+                    _, hist_details = fetch_consultant_data(client, consultant, tab_name)
+                    all_history_details.extend(hist_details)
                 q_count = 0
                 for q_tab in quarter_tabs:
                     if q_tab == current_month_tab:
@@ -968,58 +959,51 @@ def main():
                 render_player_card(conf, perf_summary, c_cvs, idx, monthly_commission)
 
         # --- LOGS ---
-        # 只要抓取到了历史数据或本月数据，就显示日志区域
-        if all_history_details or all_month_details:
+        if all_month_details:
             st.markdown("---")
 
-            # 1. 第一个折叠框：仅查看【本月】按顾问拆分的情况 (保持现状)
-            with st.expander(f"📜 MISSION LOGS (CURRENT: {current_month_tab})", expanded=False):
-                if all_month_details:
-                    df_all = pd.DataFrame(all_month_details)
-                    tab_names = [c['name'] for c in active_team_config]
-                    tabs = st.tabs(tab_names)
-                    for idx, tab in enumerate(tabs):
-                        with tab:
-                            current_consultant = tab_names[idx]
-                            df_c = df_all[df_all['Consultant'] == current_consultant]
-                            if not df_c.empty:
-                                df_agg = df_c.groupby(['Company', 'Position'])['Count'].sum().reset_index()
-                                df_agg = df_agg.sort_values(by='Count', ascending=False)
-                                st.dataframe(df_agg, use_container_width=True, hide_index=True,
-                                             column_config={
-                                                 "Company": st.column_config.TextColumn("TARGET COMPANY"),
-                                                 "Position": st.column_config.TextColumn("TARGET ROLE"),
-                                                 "Count": st.column_config.TextColumn("CVs")})
-                            else:
-                                st.info(f"NO DATA FOR {current_consultant} THIS MONTH.")
-                else:
-                    st.info("NO DATA FOUND FOR THIS MONTH.")
+            # 1. 第一个折叠框：按顾问查看
+            with st.expander(f"📜 MISSION LOGS ({current_month_tab})", expanded=False):
+                df_all = pd.DataFrame(all_month_details)
+                tab_names = [c['name'] for c in active_team_config]
+                tabs = st.tabs(tab_names)
+                for idx, tab in enumerate(tabs):
+                    with tab:
+                        current_consultant = tab_names[idx]
+                        df_c = df_all[df_all['Consultant'] == current_consultant]
+                        if not df_c.empty:
+                            df_agg = df_c.groupby(['Company', 'Position'])['Count'].sum().reset_index()
+                            df_agg = df_agg.sort_values(by='Count', ascending=False)
+                            df_agg['Count'] = df_agg['Count'].astype(str)
+                            st.dataframe(df_agg, use_container_width=True, hide_index=True,
+                                         column_config={
+                                             "Company": st.column_config.TextColumn("TARGET COMPANY"),
+                                             "Position": st.column_config.TextColumn("TARGET ROLE"),
+                                             "Count": st.column_config.TextColumn("CVs")})
+                        else:
+                            st.info(f"NO DATA FOR {current_consultant}")
 
-            # 2. 第二个折叠框：【全历史记录】全团队按岗位统计 (202510 - 至今)
-            with st.expander("CV SUMMARY BY POSITIONS", expanded=False):
-                if all_history_details:
-                    # --- 注意这里使用的是 all_history_details ---
-                    df_total = pd.DataFrame(all_history_details)
 
-                    # 汇总所有月份的历史数据
-                    summary_agg = df_total.groupby(['Company', 'Position'])['Count'].sum().reset_index()
-                    summary_agg = summary_agg.sort_values(by='Count', ascending=False)
-                    summary_agg.columns = ['CLIENT/COMPANY', 'TARGET ROLE', 'TOTAL CVs']
+        # 2. 第二个折叠框：全团队按岗位统计
+        if all_history_details:
+            with st.expander("📊 CV SUMMARY BY POSITIONS", expanded=False):
+                df_total = pd.DataFrame(all_history_details)
+                summary_agg = df_total.groupby(['Company', 'Position'])['Count'].sum().reset_index()
+                summary_agg = summary_agg.sort_values(by='Count', ascending=False)
+                summary_agg.columns = ['CLIENT/COMPANY', 'TARGET ROLE', 'TOTAL CVs']
 
-                    st.dataframe(
-                        summary_agg,
-                        use_container_width=True,
-                        hide_index=True,
-                        column_config={
-                            "TOTAL CVs": st.column_config.NumberColumn(
-                                "TOTAL CVs",
-                                help="Accumulated CVs from October 2025 to Present",
-                                format="%d ⭐"
-                            )
-                        }
-                    )
-                else:
-                    st.warning("NO HISTORICAL DATA LOADED. PLEASE CHECK CONNECTION.")
+                st.dataframe(
+                    summary_agg,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "TOTAL CVs": st.column_config.NumberColumn(
+                            "TOTAL CVs",
+                            help="Total number of CVs across the whole team",
+                            format="%d ⭐"
+                        )
+                    }
+                )  # <--- 这里之前漏掉了一个括号，现在补上了
 
         elif monthly_total == 0:
             st.markdown("---")
