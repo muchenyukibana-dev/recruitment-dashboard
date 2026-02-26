@@ -868,6 +868,9 @@ def main():
 
             # 2. Second, Fetch Financials & Determine Qualification
             sales_df = fetch_financial_df(client, start_m, end_m, year)
+            sales_df = fetch_financial_df(client, start_m, end_m, year)
+            print("sales_df shape:", sales_df.shape)
+            print("sales_df columns:", sales_df.columns.tolist())
 
         time.sleep(0.5)
 
@@ -941,9 +944,16 @@ def main():
             c_cvs = consultant_cv_counts.get(c_name, 0)
 
             # --- 新增：调用计算逻辑生成 fin_summary ---
-            perf_summary = calculate_consultant_performance(
-                sales_df, c_name, conf['base_salary'], c_cvs, conf['role'], conf['is_team_lead']
-            )
+            # perf_summary = calculate_consultant_performance(
+            #     sales_df, c_name, conf['base_salary'], c_cvs, conf['role'], conf['is_team_lead']
+            # )
+            if sales_df.empty:
+                perf_summary = {"Booked GP": 0, "Paid GP": 0, "Level": 0, "Target Achieved": 0, "Is Qualified": False,
+                                "Est. Commission": 0}
+            else:
+                perf_summary = calculate_consultant_performance(
+                    sales_df, c_name, conf['base_salary'], c_cvs, conf['role'], conf['is_team_lead']
+                )
 
             current_month_key = datetime.now().strftime("%Y%m")
             monthly_commission = get_monthly_commission(client, c_name, current_month_key)
