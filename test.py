@@ -731,7 +731,7 @@ def render_player_card(conf, fin_summary, quarterly_cv_count, card_index, monthl
     is_intern = (role == 'Intern')
     base_salary = conf.get('base_salary', 0)
     # 这里修正：判断逻辑改为根据传入的 monthly_commission
-    is_qualified = monthly_commission > 0
+    is_qualified = fin_summary.get("Is Qualified", False)
 
     # Financial Targets
     booked_gp = fin_summary.get("Booked GP", 0)
@@ -996,7 +996,7 @@ def main():
                     st.info("NO DATA FOUND FOR THIS MONTH.")
 
             # 2. 第二个折叠框：【全历史记录】全团队按岗位统计 (202510 - 至今)
-            with st.expander("🌎 ALL-TIME HISTORICAL SUMMARY (SINCE 2025-10)", expanded=False):
+            with st.expander("CV SUMMARY BY POSITIONS", expanded=False):
                 if all_history_details:
                     # --- 注意这里使用的是 all_history_details ---
                     df_total = pd.DataFrame(all_history_details)
