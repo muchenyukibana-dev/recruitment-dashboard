@@ -724,23 +724,20 @@ def render_bar(current_total, goal, color_class, label_text, is_monthly_boss=Fal
     """, unsafe_allow_html=True)
 
 
-def render_player_card(conf, fin_summary, quarterly_cv_count, card_index, monthly_commission=0.0):
+def render_player_card(conf, quarterly_cv_count, card_index, monthly_commission=0.0, booked_gp=0.0):
     name = conf['name']
     role = conf.get('role', 'Full-Time')
     is_team_lead = conf.get('is_team_lead', False)
     is_intern = (role == 'Intern')
     base_salary = conf.get('base_salary', 0)
-    # 这里修正：判断逻辑改为根据传入的 monthly_commission
-    is_qualified = monthly_commission > 0
 
     # Financial Targets
-    booked_gp = fin_summary.get("Booked GP", 0)
     target_gp = conf['base_salary'] * (4.5 if is_team_lead else 9.0)
 
     crown = "👑" if is_team_lead else ""
     role_tag = "🎓 INTERN" if is_intern else "💼 FULL-TIME"
     title_display = conf.get('title_display', role_tag)
-    current_level, _ = calculate_commission_tier(booked_gp, base_salary, is_team_lead)
+    current_level, _ = calculate_commission_tier(booked_gp, conf['base_salary'], is_team_lead)
 
     if current_level > 0:
         status_text = f"LEVEL {current_level}! 🌟"
@@ -878,23 +875,6 @@ def main():
                 quarterly_results.append({"name": consultant['name'], "count": q_count})
                 consultant_cv_counts[consultant['name']] = q_count
 
-            # for consultant in active_team_config:
-            #     m_count, m_details = fetch_consultant_data(client, consultant, current_month_tab)
-            #     all_month_details.extend(m_details)
-            #
-            #     q_count = 0
-            #     for q_tab in quarter_tabs:
-            #         if q_tab == current_month_tab:
-            #             q_count += m_count
-            #         else:
-            #             c, _ = fetch_consultant_data(client, consultant, q_tab)
-            #             q_count += c
-            #
-            #     monthly_results.append({"name": consultant['name'], "count": m_count})
-            #     quarterly_results.append({"name": consultant['name'], "count": q_count})
-            #     consultant_cv_counts[consultant['name']] = q_count
-
-            # 2. Second, Fetch Financials & Determine Qualification
             sales_df = fetch_financial_df(client, start_m, end_m, year)
 
         time.sleep(0.5)
@@ -956,29 +936,34 @@ def main():
 
         # --- PLAYER HUB ---
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown(
-            f'<div class="header-bordered" style="border-color: #48dbfb;">❄️ PLAYER STATS (Q{quarter_num})</div>',
-            unsafe_allow_html=True)
+        st.markdown(f'<div class="header-bordered" style="border-color: #48dbfb;">❄️ PLAYER STATS</div>',
+                    unsafe_allow_html=True)
 
         row1 = st.columns(2)
         row2 = st.columns(2)
         all_cols = row1 + row2
 
+        # 确定月份 KEY
+        current_month_key = datetime.now().strftime("%Y%m")
+
         for idx, conf in enumerate(active_team_config):
             c_name = conf['name']
             c_cvs = consultant_cv_counts.get(c_name, 0)
 
-            # --- 新增：调用计算逻辑生成 fin_summary ---
-            perf_summary = calculate_consultant_performance(
-                sales_df, c_name, conf['base_salary'], c_cvs, conf['role'], conf['is_team_lead']
-            )
-
-            current_month_key = datetime.now().strftime("%Y%m")
+            # 🚀 1. 直接获取同步过来的佣金 (不计算，只读取)
             monthly_commission = get_monthly_commission(client, c_name, current_month_key)
+            booked_gp = sales_df[sales_df['Consultant'] == c_name]['GP'].sum()
+
+            # 🚀 2. 获取 GP 进度条数据 (加了 try/except 防止 'Consultant' 列不存在导致崩溃)
+            try:
+                if 'Consultant' in sales_df.columns:
+                    booked_gp = sales_df[sales_df['Consultant'] == c_name]['GP'].sum()
+            except:
+                booked_gp = 0.0
 
             with all_cols[idx]:
-                # --- 修改：参数必须与定义一致 (conf, fin_summary, quarter_cv_count, card_index, monthly_commission) ---
-                render_player_card(conf, perf_summary, c_cvs, idx, monthly_commission)
+                # 🚀 3. 调用渲染函数 (注意：这里不再传递那个报错的 perf_summary)
+                render_player_card(conf, c_cvs, idx, monthly_commission, booked_gp)
 
         # --- LOGS ---
         if all_month_details:
