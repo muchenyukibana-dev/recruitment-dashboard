@@ -950,19 +950,19 @@ def main():
             c_name = conf['name']
             c_cvs = consultant_cv_counts.get(c_name, 0)
 
-            # 🚀 1. 直接获取同步过来的佣金 (不计算，只读取)
+            # 🚀 1. 直接获取同步过来的佣金 (只读结果，不计算)
             monthly_commission = get_monthly_commission(client, c_name, current_month_key)
-            booked_gp = sales_df[sales_df['Consultant'] == c_name]['GP'].sum()
 
-            # 🚀 2. 获取 GP 进度条数据 (加了 try/except 防止 'Consultant' 列不存在导致崩溃)
-            try:
-                if 'Consultant' in sales_df.columns:
+            # 🚀 2. 安全地获取 GP 总额 (删掉之前那两遍重复且报错的代码)
+            booked_gp = 0.0
+            if not sales_df.empty and 'Consultant' in sales_df.columns:
+                try:
                     booked_gp = sales_df[sales_df['Consultant'] == c_name]['GP'].sum()
-            except:
-                booked_gp = 0.0
+                except:
+                    booked_gp = 0.0
 
             with all_cols[idx]:
-                # 🚀 3. 调用渲染函数 (注意：这里不再传递那个报错的 perf_summary)
+                # 🚀 3. 调用渲染函数
                 render_player_card(conf, c_cvs, idx, monthly_commission, booked_gp)
 
         # --- LOGS ---
