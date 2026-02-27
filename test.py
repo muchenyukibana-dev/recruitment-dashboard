@@ -724,20 +724,23 @@ def render_bar(current_total, goal, color_class, label_text, is_monthly_boss=Fal
     """, unsafe_allow_html=True)
 
 
-def render_player_card(conf, quarterly_cv_count, card_index, monthly_commission=0.0, booked_gp=0.0):
+def render_player_card(conf, fin_summary, quarterly_cv_count, card_index, monthly_commission=0.0):
     name = conf['name']
     role = conf.get('role', 'Full-Time')
     is_team_lead = conf.get('is_team_lead', False)
     is_intern = (role == 'Intern')
     base_salary = conf.get('base_salary', 0)
+    # 这里修正：判断逻辑改为根据传入的 monthly_commission
+    is_qualified = monthly_commission > 0
 
     # Financial Targets
+    booked_gp = fin_summary.get("Booked GP", 0)
     target_gp = conf['base_salary'] * (4.5 if is_team_lead else 9.0)
 
     crown = "👑" if is_team_lead else ""
     role_tag = "🎓 INTERN" if is_intern else "💼 FULL-TIME"
     title_display = conf.get('title_display', role_tag)
-    current_level, _ = calculate_commission_tier(booked_gp, conf['base_salary'], is_team_lead)
+    current_level, _ = calculate_commission_tier(booked_gp, base_salary, is_team_lead)
 
     if current_level > 0:
         status_text = f"LEVEL {current_level}! 🌟"
@@ -834,23 +837,32 @@ def main():
         monthly_results = []
         quarterly_results = []
         all_month_details = []
-        all_history_details = []  # 🚀 新增：存放所有月份的明细
+        financial_summaries = {}
+
         consultant_cv_counts = {}
 
         with st.spinner(f"🛰️ SCANNING SECTOR Q{quarter_num}..."):
 
             # 1. First, Fetch Recruitment Data
-            # A. 先获取表格里到底有多少个“月份”标签页
-            # 我们拿第一个顾问的表格做参考
-            ref_sheet = client.open_by_key(active_team_config[0]['id'])
-            all_tabs = [ws.title for ws in ref_sheet.worksheets() if ws.title.isdigit()]
-
             for consultant in active_team_config:
-                # 1. 抓取当月 (用于 MISSION LOGS)
                 m_count, m_details = fetch_consultant_data(client, consultant, current_month_tab)
                 all_month_details.extend(m_details)
+                all_history_details = []
 
-                # 2. 抓取本季度 (用于卡片进度条)
+                consultant_cv_counts = {}
+
+                with st.spinner(f"🛰️ SCANNING ALL SECTORS..."):
+                    # A. 先获取表格里到底有多少个“月份”标签页（全量扫描）
+                    ref_sheet = client.open_by_key(active_team_config[0]['id'])
+                    all_tabs_in_sheet = [ws.title for ws in ref_sheet.worksheets() if ws.title.isdigit()]
+
+                    # 1. First, Fetch Recruitment Data
+                    for consultant in active_team_config:
+                        # --- 抓取当月 (用于 MISSION LOGS) ---
+                        m_count, m_details = fetch_consultant_data(client, consultant, current_month_tab)
+                        all_month_details.extend(m_details)
+
+                        # --- 抓取本季度 (用于卡片进度条，保持原样) ---
                 q_count = 0
                 for q_tab in quarter_tabs:
                     if q_tab == current_month_tab:
@@ -859,22 +871,21 @@ def main():
                         c, _ = fetch_consultant_data(client, consultant, q_tab)
                         q_count += c
 
-                # 3. 🚀 抓取【所有月份】(用于每岗总简历统计)
-                t_count = 0
-                for tab_name in all_tabs:
+                # --- 🚀 抓取【所有历史月份】(用于每岗总简历统计) ---
+                for tab_name in all_tabs_in_sheet:
                     if tab_name == current_month_tab:
-                        t_count += m_count
                         all_history_details.extend(m_details)
                     else:
-                        c_hist, d_hist = fetch_consultant_data(client, consultant, tab_name)
-                        t_count += c_hist
-                        all_history_details.extend(d_hist)  # 把所有历史明细存入
+                        _, hist_d = fetch_consultant_data(client, consultant, tab_name)
+                        all_history_details.extend(hist_d)
 
-                # 存储结果
+                # 存储卡片所需结果
                 monthly_results.append({"name": consultant['name'], "count": m_count})
                 quarterly_results.append({"name": consultant['name'], "count": q_count})
                 consultant_cv_counts[consultant['name']] = q_count
+                
 
+            # 2. Second, Fetch Financials & Determine Qualification
             sales_df = fetch_financial_df(client, start_m, end_m, year)
 
         time.sleep(0.5)
@@ -936,34 +947,29 @@ def main():
 
         # --- PLAYER HUB ---
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown(f'<div class="header-bordered" style="border-color: #48dbfb;">❄️ PLAYER STATS</div>',
-                    unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="header-bordered" style="border-color: #48dbfb;">❄️ PLAYER STATS (Q{quarter_num})</div>',
+            unsafe_allow_html=True)
 
         row1 = st.columns(2)
         row2 = st.columns(2)
         all_cols = row1 + row2
 
-        # 确定月份 KEY
-        current_month_key = datetime.now().strftime("%Y%m")
-
         for idx, conf in enumerate(active_team_config):
             c_name = conf['name']
             c_cvs = consultant_cv_counts.get(c_name, 0)
 
-            # 🚀 1. 直接获取同步过来的佣金 (只读结果，不计算)
+            # --- 新增：调用计算逻辑生成 fin_summary ---
+            perf_summary = calculate_consultant_performance(
+                sales_df, c_name, conf['base_salary'], c_cvs, conf['role'], conf['is_team_lead']
+            )
+
+            current_month_key = datetime.now().strftime("%Y%m")
             monthly_commission = get_monthly_commission(client, c_name, current_month_key)
 
-            # 🚀 2. 安全地获取 GP 总额 (删掉之前那两遍重复且报错的代码)
-            booked_gp = 0.0
-            if not sales_df.empty and 'Consultant' in sales_df.columns:
-                try:
-                    booked_gp = sales_df[sales_df['Consultant'] == c_name]['GP'].sum()
-                except:
-                    booked_gp = 0.0
-
             with all_cols[idx]:
-                # 🚀 3. 调用渲染函数
-                render_player_card(conf, c_cvs, idx, monthly_commission, booked_gp)
+                # --- 修改：参数必须与定义一致 (conf, fin_summary, quarter_cv_count, card_index, monthly_commission) ---
+                render_player_card(conf, perf_summary, c_cvs, idx, monthly_commission)
 
         # --- LOGS ---
         if all_month_details:
