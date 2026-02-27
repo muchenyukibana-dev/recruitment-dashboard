@@ -837,29 +837,23 @@ def main():
         monthly_results = []
         quarterly_results = []
         all_month_details = []
-        financial_summaries = {}
+        all_history_details = []  # 🚀 新增：存放所有月份的明细
         consultant_cv_counts = {}
-        all_history_details = []  # 🚀 新增：用于存储所有月份的历史总和
 
-        with st.spinner(f"🛰️ SCANNING ALL HISTORICAL DATA..."):
-            # 我们只需要从其中一个人的表格里获取标签页列表作为参考
-            ref_sheet = client.open_by_key(active_team_config[0]['id'])
-            # 获取所有标签名，过滤出纯数字（月份）的标签
-            all_worksheets = [ws.title for ws in ref_sheet.worksheets() if ws.title.isdigit()]
+        with st.spinner(f"🛰️ SCANNING SECTOR Q{quarter_num}..."):
 
             # 1. First, Fetch Recruitment Data
+            # A. 先获取表格里到底有多少个“月份”标签页
+            # 我们拿第一个顾问的表格做参考
+            ref_sheet = client.open_by_key(active_team_config[0]['id'])
+            all_tabs = [ws.title for ws in ref_sheet.worksheets() if ws.title.isdigit()]
+
             for consultant in active_team_config:
+                # 1. 抓取当月 (用于 MISSION LOGS)
                 m_count, m_details = fetch_consultant_data(client, consultant, current_month_tab)
                 all_month_details.extend(m_details)
 
-            # 2. 🚀 抓取该顾问在所有月份 Tab 里的明细
-            for tab_name in all_worksheets:
-                # 如果是当前月，直接用上面抓好的，避免重复请求
-                if tab_name == current_month_tab:
-                    all_history_details.extend(m_details)
-                else:
-                    _, hist_details = fetch_consultant_data(client, consultant, tab_name)
-                    all_history_details.extend(hist_details)
+                # 2. 抓取本季度 (用于卡片进度条)
                 q_count = 0
                 for q_tab in quarter_tabs:
                     if q_tab == current_month_tab:
@@ -868,9 +862,37 @@ def main():
                         c, _ = fetch_consultant_data(client, consultant, q_tab)
                         q_count += c
 
+                # 3. 🚀 抓取【所有月份】(用于每岗总简历统计)
+                t_count = 0
+                for tab_name in all_tabs:
+                    if tab_name == current_month_tab:
+                        t_count += m_count
+                        all_history_details.extend(m_details)
+                    else:
+                        c_hist, d_hist = fetch_consultant_data(client, consultant, tab_name)
+                        t_count += c_hist
+                        all_history_details.extend(d_hist)  # 把所有历史明细存入
+
+                # 存储结果
                 monthly_results.append({"name": consultant['name'], "count": m_count})
                 quarterly_results.append({"name": consultant['name'], "count": q_count})
                 consultant_cv_counts[consultant['name']] = q_count
+
+            # for consultant in active_team_config:
+            #     m_count, m_details = fetch_consultant_data(client, consultant, current_month_tab)
+            #     all_month_details.extend(m_details)
+            #
+            #     q_count = 0
+            #     for q_tab in quarter_tabs:
+            #         if q_tab == current_month_tab:
+            #             q_count += m_count
+            #         else:
+            #             c, _ = fetch_consultant_data(client, consultant, q_tab)
+            #             q_count += c
+            #
+            #     monthly_results.append({"name": consultant['name'], "count": m_count})
+            #     quarterly_results.append({"name": consultant['name'], "count": q_count})
+            #     consultant_cv_counts[consultant['name']] = q_count
 
             # 2. Second, Fetch Financials & Determine Qualification
             sales_df = fetch_financial_df(client, start_m, end_m, year)
@@ -983,9 +1005,7 @@ def main():
                         else:
                             st.info(f"NO DATA FOR {current_consultant}")
 
-
-        # 2. 第二个折叠框：全团队按岗位统计
-        if all_history_details:
+            # 2. 第二个折叠框：全团队按岗位统计
             with st.expander("📊 CV SUMMARY BY POSITIONS", expanded=False):
                 df_total = pd.DataFrame(all_history_details)
                 summary_agg = df_total.groupby(['Company', 'Position'])['Count'].sum().reset_index()
