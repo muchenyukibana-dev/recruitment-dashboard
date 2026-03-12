@@ -1,15 +1,3 @@
-### 代码整体功能解读
-这段代码是一个基于 Streamlit 开发的**招聘团队绩效可视化应用**（主题为游戏化风格 "Fill The Pit"），核心功能是：
-1. 连接 Google Sheets 读取团队成员的招聘数据（CV 数量）和财务数据（GP/佣金）
-2. 计算团队/个人的月度/季度招聘目标完成率
-3. 按规则计算顾问的佣金资格和金额
-4. 以游戏化的进度条、卡片等视觉形式展示绩效数据
-
-### 关键问题与优化建议
-以下是代码中需要修复的问题和可以优化的点：
-
-#### 1. 紧急修复项（影响运行）
-```python
 import streamlit as st
 import streamlit.components.v1 as components
 import gspread
