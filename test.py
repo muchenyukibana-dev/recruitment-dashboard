@@ -72,8 +72,11 @@ st.markdown("""
         font-size: 3.5em !important;
         -webkit-text-stroke: 2px #000;
     }
-    .stButton {
-        display: flex; justify-content: center; width: 100%;
+    .start-button-container {
+        display: flex;
+        justify-content: center;
+        margin: 20px 0;
+        width: 100%;
     }
     .stButton>button {
         background-color: #FF4757; color: white; border: 4px solid #000;
@@ -120,6 +123,11 @@ st.markdown("""
         background-size: 50px 50px; animation: barberpole 3s linear infinite;
         height: 100%; display: flex; align-items: center; justify-content: flex-end;
     }
+    .gp-fill {
+        background-image: linear-gradient(45deg, #ffa502 25%, #ffc048 25%, #ffc048 50%, #ffa502 50%, #ffa502 75%, #ffc048 75%, #ffc048 100%);
+        background-size: 50px 50px; animation: barberpole 3s linear infinite;
+        height: 100%; display: flex; align-items: center; justify-content: flex-end;
+    }
     .cat-squad {
         margin-right: 10px; font-size: 24px;
         filter: drop-shadow(2px 2px 0px rgba(0,0,0,0.5));
@@ -155,6 +163,11 @@ st.markdown("""
         font-family: 'Fredoka One', sans-serif; font-size: 0.8em;
         color: #FFFFFF; margin-bottom: 5px; text-transform: uppercase;
         letter-spacing: 1px; text-shadow: 1px 1px 0px #000;
+    }
+    .level-badge {
+        background-color: #3742fa; color: white; padding: 5px 10px;
+        border-radius: 10px; border: 2px solid #000; font-size: 0.7em;
+        display: inline-block; margin-left: 10px;
     }
     .comm-unlocked {
         background-color: #fff4e6; border: 2px solid #ff9f43; border-radius: 10px;
@@ -210,15 +223,6 @@ def normalize_text(text):
     return ''.join(c for c in unicodedata.normalize('NFD', str(text))
                    if unicodedata.category(c) != 'Mn').lower()
 
-def get_payout_date_from_month_key(month_key):
-    try:
-        dt = datetime.strptime(str(month_key), "%Y-%m")
-        year = dt.year + (dt.month // 12)
-        month = (dt.month % 12) + 1
-        return datetime(year, month, 15)
-    except:
-        return None
-
 def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
     if is_team_lead:
         t1, t2, t3 = 4.5, 6.75, 11.25
@@ -232,19 +236,6 @@ def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
         return 2, 2
     else:
         return 3, 3
-
-def calculate_single_deal_commission(candidate_salary, multiplier):
-    if multiplier == 0:
-        return 0
-    if candidate_salary < 20000:
-        base = 1000
-    elif candidate_salary < 30000:
-        base = candidate_salary * 0.05
-    elif candidate_salary < 50000:
-        base = candidate_salary * 1.5 * 0.05
-    else:
-        base = candidate_salary * 2.0 * 0.05
-    return base * multiplier
 
 # ==========================================
 # 🔍 核心：按【季度】判断是否达标（历史季度不随本月变化）
@@ -260,82 +251,34 @@ def is_qualified_by_quarter(role, cv_qtr, gp_qtr, base_salary, is_team_lead):
     return fin_ok or rec_ok
 
 # ==========================================
-# 🧮 佣金：按历史季度结算，不看本月
+# 🧮 佣金：直接从指定Sheet读取（不再计算）
 # ==========================================
-def calculate_real_commission_by_deal_quarter(
-    all_sales_df, consultant_name, base_salary, role, is_team_lead, cv_by_quarter
-):
-    sales_df = all_sales_df.copy() if all_sales_df is not None else pd.DataFrame()
-    is_intern = (role == "Intern")
-    if sales_df.empty or "Consultant" not in sales_df.columns:
-        return 0.0, 0.0, 0
-
-    c_sales = sales_df[sales_df["Consultant"] == consultant_name].copy()
-    if c_sales.empty:
-        return 0.0, 0.0, 0
-
-    c_sales["Onboard Date Obj"] = pd.to_datetime(c_sales["Onboard Date"], errors="coerce")
-    c_sales = c_sales.dropna(subset=["Onboard Date Obj"])
-
-    total_paid_gp = 0.0
-    total_comm = 0.0
-    booked_gp = c_sales["GP"].sum()
-    current_level, _ = calculate_commission_tier(booked_gp, base_salary, is_team_lead)
-
-    for _, row in c_sales.iterrows():
-        status = row["Status"]
-        if status != "Paid":
-            continue
-        pay_date_str = row["Payment Date"]
-        pay_obj = pd.to_datetime(pay_date_str, errors="coerce")
-        if pd.isna(pay_obj):
-            continue
-        payout_date = get_payout_date_from_month_key(f"{pay_obj.year}-{pay_obj.month:02d}")
-        if not payout_date or payout_date > datetime.now() + timedelta(days=20):
-            continue
-
-        # 取这笔单所在季度
-        deal_dt = row["Onboard Date Obj"]
-        deal_year = deal_dt.year
-        deal_qtr = (deal_dt.month - 1) // 3 + 1
-        qtr_key = f"{deal_year}Q{deal_qtr}"
-
-        # 该季度的CV & GP
-        cv_q = cv_by_quarter.get(qtr_key, 0)
-        gp_q = 0.0
-        mask_q = (
-            (c_sales["Onboard Date Obj"].dt.year == deal_year) &
-            (c_sales["Onboard Date Obj"].dt.quarter == deal_qtr)
-        )
-        gp_q = c_sales.loc[mask_q, "GP"].sum()
-
-        # 关键：只看【当时季度】是否达标，不看本月
-        q_qualified = is_qualified_by_quarter(role, cv_q, gp_q, base_salary, is_team_lead)
-        if not q_qualified:
-            continue
-
-        level, mul = calculate_commission_tier(gp_q, base_salary, is_team_lead)
-        comm = calculate_single_deal_commission(row["Candidate Salary"], mul) * row["Percentage"]
-        total_comm += comm
-        total_paid_gp += row["GP"]
-
-    # Team Lead 额外
-    if is_team_lead and not is_intern:
-        mask = (
-            (sales_df["Status"] == "Paid") &
-            (sales_df["Consultant"] != consultant_name) &
-            (sales_df["Consultant"] != "Estela Peng")
-        )
-        others = sales_df[mask].copy()
-        others["Payment Date Obj"] = pd.to_datetime(others["Payment Date"], errors="coerce")
-        others = others.dropna(subset=["Payment Date Obj"])
-        for _, r in others.iterrows():
-            pd_obj = r["Payment Date Obj"]
-            payout = datetime(pd_obj.year + (pd_obj.month // 12), (pd_obj.month % 12) + 1, 15)
-            if payout <= datetime.now() + timedelta(days=20):
-                total_comm += 1000
-
-    return total_paid_gp, total_comm, current_level
+def get_commission_from_sheet(client, consultant_name):
+    """直接从 1A3K3RLlVNzCSCI-AkXAh8-K99gDSpCM7L9oNOCY0Obs 读取佣金"""
+    try:
+        sheet = safe_google_api_call(client.open_by_key, COMMISSION_SUMMARY_ID)
+        ws = safe_google_api_call(sheet.worksheet, COMMISSION_TAB_NAME)
+        data = safe_google_api_call(ws.get_all_records)
+        df = pd.DataFrame(data)
+        
+        if df.empty:
+            return 0.0
+        
+        # 模糊匹配顾问姓名
+        n_norm = normalize_text(consultant_name)
+        df["name_norm"] = df["Consultant"].apply(normalize_text)
+        match_row = df[df["name_norm"].str.contains(n_norm) | (df["name_norm"] == n_norm)]
+        
+        if match_row.empty:
+            return 0.0
+        
+        # 取最新的Final_Commission
+        match_row["Month"] = pd.to_datetime(match_row["Month"], errors='coerce')
+        latest_row = match_row.sort_values("Month", ascending=False).iloc[0]
+        return float(latest_row.get("Final_Commission", 0.0))
+    except Exception as e:
+        st.warning(f"读取{consultant_name}佣金失败: {str(e)}")
+        return 0.0
 
 # ==========================================
 # 🔗 Google 连接
@@ -428,7 +371,8 @@ def fetch_cv_one_month(client, cfg, month_tab):
                         "Consultant": cfg["name"],
                         "Company": curr_c,
                         "Position": curr_p,
-                        "Month": month_tab
+                        "Month": month_tab,
+                        "Count": 1  # 修复KeyError：添加Count列
                     })
             except ValueError:
                 if cl and cl[0] in comp:
@@ -528,25 +472,8 @@ def fetch_financial_df(client, year, s, e):
     except:
         return pd.DataFrame()
 
-def get_monthly_commission(client, name, mk):
-    try:
-        sheet = safe_google_api_call(client.open_by_key, COMMISSION_SUMMARY_ID)
-        ws = safe_google_api_call(sheet.worksheet, COMMISSION_TAB_NAME)
-        data = safe_google_api_call(ws.get_all_records)
-        df = pd.DataFrame(data)
-        if df.empty:
-            return 0.0
-        n_norm = normalize_text(name)
-        m = df[
-            (df["Consultant"].apply(normalize_text)==n_norm) &
-            (df["Month"].astype(str)==str(mk))
-        ]
-        return float(m.iloc[0]["Final_Commission"]) if not m.empty else 0.0
-    except:
-        return 0.0
-
 # ==========================================
-# 🎨 UI
+# 🎨 UI 渲染函数
 # ==========================================
 def render_bar(cur, goal, cls, lbl, boss=False):
     pct = (cur/goal)*100 if goal>0 else 0
@@ -564,7 +491,8 @@ def render_bar(cur, goal, cls, lbl, boss=False):
     </div>
     """, unsafe_allow_html=True)
 
-def render_card(conf, qcv, comm, idx):
+def render_card(conf, qcv, gp_actual, gp_target, comm, level, idx):
+    """渲染个人卡片（恢复GP进度条、LEVEL标签）"""
     name = conf["name"]
     role = conf["role"]
     is_lead = conf.get("is_team_lead", False)
@@ -572,16 +500,29 @@ def render_card(conf, qcv, comm, idx):
     base = conf["base_salary"]
     crown = "👑" if is_lead else ""
     border = f"card-border-{(idx%4)+1}"
+    
+    # LEVEL 标签文本
+    level_text = f"LEVEL {level}" if level > 0 else "LEVEL 0"
+    
     st.markdown(f"""
     <div class="player-card {border}">
         <div class="player-header">
             <div class="player-name">{name} {crown}</div>
+            <div class="level-badge">{level_text}</div>
         </div>
     """, unsafe_allow_html=True)
+    
+    # Q.CVs 进度条
     if is_intern:
         render_bar(qcv, QUARTERLY_GOAL_INTERN, "cv-fill", "Q. CVs")
     else:
         render_bar(qcv, QUARTERLY_INDIVIDUAL_GOAL, "cv-fill", "Q. CVs")
+    
+    # GP TARGET 进度条（恢复）
+    if not is_intern:
+        render_bar(gp_actual, gp_target, "gp-fill", "GP TARGET")
+    
+    # 佣金显示
     if is_intern:
         st.markdown("""<div class="comm-locked">INTERNSHIP TRACK</div>""", unsafe_allow_html=True)
     else:
@@ -589,19 +530,22 @@ def render_card(conf, qcv, comm, idx):
             st.markdown(f"""<div class="comm-unlocked">💰 UNLOCKED: ${comm:,.2f}</div>""", unsafe_allow_html=True)
         else:
             st.markdown("""<div class="comm-locked">🔒 LOCKED</div>""", unsafe_allow_html=True)
+    
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ==========================================
-# 🚀 主程序（完全按你要求重写）
+# 🚀 主程序（完全重写，修复所有问题）
 # ==========================================
 def main():
     qtr_tabs, q_num, s_m, e_m, year = get_quarter_info()
     curr_mm = datetime.now().strftime("%Y%m")
 
     st.title("👾 FILL THE PIT 👾")
-    c1,c2,c3 = st.columns([1,3,1])
-    with c2:
-        go = st.button("🚩 PRESS START")
+    
+    # 修复：PRESS START 按钮居中
+    st.markdown('<div class="start-button-container">', unsafe_allow_html=True)
+    go = st.button("🚩 PRESS START")
+    st.markdown('</div>', unsafe_allow_html=True)
 
     if not go:
         return
@@ -618,7 +562,7 @@ def main():
         team.append({**t, "role": role, "is_team_lead": lead, "title": title})
     status.empty()
 
-    # 全局明细
+    # 全局明细（修复Count列）
     all_details = []
 
     # 1）当月 CV
@@ -631,17 +575,11 @@ def main():
     for p in team:
         qtr_cv[p["name"]] = 0
 
-    # 3）按季度统计CV（用于佣金判断历史季度是否达标）
-    cv_by_qtr_all = {}
-    for p in team:
-        cv_by_qtr_all[p["name"]] = {}
-
     with st.spinner("📥 读取所有简历数据..."):
         for p in team:
             all_mons = get_all_month_tabs(client, p)
             p_month = 0
             p_qtr = 0
-            qcv = {}
             for m in all_mons:
                 cnt, det = fetch_cv_one_month(client, p, m)
                 all_details.extend(det)
@@ -651,23 +589,13 @@ def main():
                 # 本季度
                 if m in qtr_tabs:
                     p_qtr += cnt
-                # 按季度汇总
-                try:
-                    y = int(m[:4])
-                    mo = int(m[4:6])
-                    q = (mo-1)//3 +1
-                    qk = f"{y}Q{q}"
-                    qcv[qk] = qcv.get(qk,0) + cnt
-                except:
-                    pass
             monthly_cv[p["name"]] = p_month
             qtr_cv[p["name"]] = p_qtr
-            cv_by_qtr_all[p["name"]] = qcv
 
-    # 财务
+    # 财务数据（用于计算GP TARGET和LEVEL）
     df_sales = fetch_financial_df(client, year, s_m, e_m)
 
-    # 月度团队
+    # 月度团队目标
     mt = sum(monthly_cv.values())
     st.markdown(f'<div class="header-bordered" style="border-color:#feca57;">🏆 TEAM MONTHLY GOAL ({curr_mm})</div>', unsafe_allow_html=True)
     ph_m = st.empty()
@@ -693,7 +621,7 @@ def main():
         st.balloons()
         time.sleep(1)
 
-    # 季度团队
+    # 季度团队目标
     qt = sum(qtr_cv.values())
     st.markdown(f'<div class="header-bordered" style="border-color:#54a0ff;margin-top:20px;">🌊 TEAM QUARTERLY GOAL (Q{q_num})</div>', unsafe_allow_html=True)
     ph_q = st.empty()
@@ -709,7 +637,7 @@ def main():
         """, unsafe_allow_html=True)
         time.sleep(0.01)
 
-    # 个人卡片：Q.CVs = 季度，佣金 = 历史达标结算，与本月无关
+    # 个人卡片：恢复GP TARGET、LEVEL，佣金从指定Sheet读取
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown(f'<div class="header-bordered" style="border-color:#48dbfb;">❄️ PLAYER STATS (Q{q_num})</div>', unsafe_allow_html=True)
     r1 = st.columns(2)
@@ -719,14 +647,25 @@ def main():
     for i, p in enumerate(team):
         name = p["name"]
         qcv = qtr_cv[name]
-        cv_q = cv_by_qtr_all[name]
-        _, comm, _ = calculate_real_commission_by_deal_quarter(
-            df_sales, name, p["base_salary"], p["role"], p["is_team_lead"], cv_q
-        )
+        base_salary = p["base_salary"]
+        is_lead = p["is_team_lead"]
+        is_intern = (p["role"] == "Intern")
+        
+        # 计算GP相关
+        gp_actual = df_sales[df_sales["Consultant"] == name]["GP"].sum() if not df_sales.empty else 0
+        gp_target_multi = 4.5 if is_lead else 9.0
+        gp_target = base_salary * gp_target_multi
+        
+        # 计算LEVEL
+        level, _ = calculate_commission_tier(gp_actual, base_salary, is_lead)
+        
+        # 读取佣金（从指定Sheet）
+        comm = get_commission_from_sheet(client, name) if not is_intern else 0
+        
         with cols[i]:
-            render_card(p, qcv, comm, i)
+            render_card(p, qcv, gp_actual, gp_target, comm, level, i)
 
-    # 日志
+    # 日志（修复Count列KeyError）
     if all_details:
         st.markdown("---")
         with st.expander(f"📜 MISSION LOGS ({curr_mm})", expanded=False):
@@ -739,6 +678,7 @@ def main():
                     if sub.empty:
                         st.info("NO DATA")
                     else:
+                        # 修复：groupby后sum Count列
                         agg = sub.groupby(["Company","Position"])["Count"].sum().reset_index()
                         agg = agg.sort_values("Count", ascending=False)
                         agg["Count"] = agg["Count"].astype(str)
