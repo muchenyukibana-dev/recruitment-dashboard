@@ -635,7 +635,7 @@ def render_card(conf, qcv, gp_actual, gp_target, comm, level, idx):
 
     # GP TARGET 进度条（恢复）
     if not is_intern:
-        render_bar(gp_actual, gp_target, "money-fill", f"GP TARGET (${gp_actual:,.0f}/${gp_target:,.0f})")
+        render_bar(gp_actual, gp_target, "money-fill", "GP TARGET")
 
     # 佣金显示
     if is_intern:
