@@ -598,7 +598,7 @@ def render_bar(cur, goal, cls, lbl, boss=False):
     <div style="margin-bottom:5px;">
         <div class="sub-label">{lbl} ({pct:.1f}%)</div>
         <div class="pit-container {h}">
-            <div class="{cls}" style="width:{dp}%;">
+            <div class="{cls}" style="width:{dp}%; height:100%;">
                 <div class="cat-squad" style="top:{'15px' if boss else '5px'}">{cat}</div>
             </div>
         </div>
@@ -635,7 +635,7 @@ def render_card(conf, qcv, gp_actual, gp_target, comm, level, idx):
 
     # GP TARGET 进度条（恢复）
     if not is_intern:
-        render_bar(gp_actual, gp_target, "gp-fill", "GP TARGET")
+        render_bar(gp_actual, gp_target, "money-fill", f"GP TARGET (${gp_actual:,.0f}/${gp_target:,.0f})")
 
     # 佣金显示
     if is_intern:
