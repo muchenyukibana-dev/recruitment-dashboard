@@ -514,6 +514,28 @@ def get_quarter_info():
     return tabs, quarter, start_month, end_month, year
 
 
+# 2. 新增：定义获取所有历史月份标签的函数（放在这里）
+import re  # 如果文件开头没导入re，需要在这里加，或统一放在文件顶部
+
+
+def get_all_month_tabs(client, consultant_config):
+    """获取顾问工作表中所有有效月份标签（格式：YYYYMM）"""
+    try:
+        sheet = client.open_by_key(consultant_config['id'])
+        all_tabs = [ws.title for ws in sheet.worksheets()]
+
+        # 筛选出 YYYYMM 格式的月份标签（正则匹配）
+        month_pattern = re.compile(r'^\d{6}$')  # 匹配 6 位数字（202603 这种格式）
+        valid_month_tabs = [tab for tab in all_tabs if month_pattern.match(tab)]
+
+        # 按时间排序（旧→新）
+        valid_month_tabs.sort()
+        return valid_month_tabs
+    except Exception as e:
+        st.error(f"获取 {consultant_config['name']} 的所有月份标签失败: {e}")
+        return []
+
+
 def fetch_role_from_personal_sheet(client, sheet_id):
     """从个人表格获取角色信息（实习生/全职/主管）"""
     try:
@@ -880,30 +902,40 @@ def main():
         consultant_cv_counts = {}
 
         # 加载数据
-        with st.spinner(f"🛰️ SCANNING SECTOR Q{quarter_num}..."):
-            # 1. 获取招聘数据（CV数）- 修改核心逻辑
+        with st.spinner(f"🛰️ SCANNING ALL HISTORICAL DATA..."):
+            # 1. 获取招聘数据（CV数）- 修改为遍历所有历史月份
             for consultant in active_team_config:
-                q_count = 0
-                q_details = []  # 存储该顾问全季度的明细
+                total_count = 0  # 所有历史月份总CV数
+                all_details = []  # 所有历史月份明细
                 m_count = 0  # 当月数量
 
-                # 遍历季度内所有月份
-                for q_tab in quarter_tabs:
-                    c_count, c_details = fetch_consultant_data(client, consultant, q_tab)
-                    q_count += c_count
-                    q_details.extend(c_details)  # 收集该月份的明细
+                # 获取该顾问的所有有效月份标签
+                all_month_tabs = get_all_month_tabs(client, consultant)
+                if not all_month_tabs:
+                    st.warning(f"{consultant['name']} 无有效月份数据")
+                    monthly_results.append({"name": consultant['name'], "count": 0})
+                    quarterly_results.append({"name": consultant['name'], "count": 0})
+                    consultant_cv_counts[consultant['name']] = 0
+                    continue
+
+                # 遍历所有历史月份
+                for month_tab in all_month_tabs:
+                    c_count, c_details = fetch_consultant_data(client, consultant, month_tab)
+                    total_count += c_count
+                    all_details.extend(c_details)  # 收集所有历史明细
 
                     # 记录当月数量
-                    if q_tab == current_month_tab:
+                    if month_tab == current_month_tab:
                         m_count = c_count
 
                 # 汇总到全局容器
                 monthly_results.append({"name": consultant['name'], "count": m_count})
-                quarterly_results.append({"name": consultant['name'], "count": q_count})
-                consultant_cv_counts[consultant['name']] = q_count
-                all_month_details.extend(q_details)  # 加入全季度明细
+                # quarterly_results 改为存储全历史总数（保留变量名避免报错）
+                quarterly_results.append({"name": consultant['name'], "count": total_count})
+                consultant_cv_counts[consultant['name']] = total_count
+                all_month_details.extend(all_details)  # 加入所有历史明细
 
-            # 2. 获取财务数据
+            # 2. 获取财务数据（这部分完全不变）
             sales_df = fetch_financial_df(client, start_m, end_m, year)
 
         time.sleep(0.5)
@@ -998,17 +1030,17 @@ def main():
         if all_month_details:
             st.markdown("---")
 
-            # 按顾问查看明细（当月）
+            # 按顾问查看明细（仅当月）
             with st.expander(f"📜 MISSION LOGS ({current_month_tab})", expanded=False):
                 df_all = pd.DataFrame(all_month_details)
-                # 筛选当月数据显示
+                df_month = df_all[df_all['Month'] == current_month_tab]  # 仅当月数据
                 tab_names = [c['name'] for c in active_team_config]
                 tabs = st.tabs(tab_names)
 
                 for idx, tab in enumerate(tabs):
                     with tab:
                         current_consultant = tab_names[idx]
-                        df_c = df_all[df_all['Consultant'] == current_consultant]
+                        df_c = df_month[df_month['Consultant'] == current_consultant]
                         if not df_c.empty:
                             df_agg = df_c.groupby(['Company', 'Position'])['Count'].sum().reset_index()
                             df_agg = df_agg.sort_values(by='Count', ascending=False)
@@ -1026,21 +1058,21 @@ def main():
                         else:
                             st.info(f"NO DATA FOR {current_consultant}")
 
-            # 团队岗位汇总（全季度）
-            with st.expander("📊 CV SUMMARY BY POSITIONS (Q{quarter_num} TOTAL)", expanded=False):
+            # 团队岗位汇总（所有历史月份）
+            with st.expander("📊 CV SUMMARY BY POSITIONS", expanded=False):
                 df_total = pd.DataFrame(all_month_details)
                 summary_agg = df_total.groupby(['Company', 'Position'])['Count'].sum().reset_index()
                 summary_agg = summary_agg.sort_values(by='Count', ascending=False)
-                summary_agg.columns = ['CLIENT/COMPANY', 'TARGET ROLE', 'TOTAL CVs (Q{quarter_num})']
+                summary_agg.columns = ['CLIENT/COMPANY', 'TARGET ROLE', 'TOTAL CVs']
 
                 st.dataframe(
                     summary_agg,
                     use_container_width=True,
                     hide_index=True,
                     column_config={
-                        "TOTAL CVs (Q{quarter_num})": st.column_config.NumberColumn(
-                            f"TOTAL CVs (Q{quarter_num})",
-                            help="Total number of CVs across the whole team (Quarter {quarter_num})",
+                        "TOTAL CVs": st.column_config.NumberColumn(
+                            "TOTAL CVs",
+                            help="Total number of CVs across the whole team (All Historical Months)",
                             format="%d ⭐"
                         )
                     }
@@ -1048,7 +1080,7 @@ def main():
 
         elif monthly_total == 0:
             st.markdown("---")
-            st.info("NO DATA FOUND FOR THIS QUARTER YET.")
+            st.info("NO DATA FOUND IN HISTORICAL RECORDS.")
 
 
 if __name__ == "__main__":
