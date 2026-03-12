@@ -1,956 +1,1174 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Google Sheets 佣金数据查询系统
-功能：批量查询员工月度佣金数据，处理API限流，支持缓存、日志、重试、配置管理
-解决核心问题：APIError: [429] Quota exceeded（请求频率超限）
-"""
-
-import os
-import sys
+import streamlit as st
+import streamlit.components.v1 as components
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+import pandas as pd
+import re
 import time
-import json
-import random
-import logging
-import configparser
-import threading
 from datetime import datetime, timedelta
+import unicodedata
+import random
 from typing import Dict, List, Optional, Tuple, Any
-from pathlib import Path
 
-# 第三方库导入
-try:
-    from googleapiclient.discovery import build
-    from googleapiclient.errors import HttpError
-    from google.oauth2.service_account import Credentials
-    from google.api_core import retry as google_retry
-except ImportError as e:
-    print(f"缺少依赖库，请执行安装：pip install google-api-python-client google-auth google-api-core")
-    sys.exit(1)
+# ==========================================
+# 🔧 配置区域
+# ==========================================
+SALES_SHEET_ID = '1jniQ-GpeMINjQMebniJ_J1eLVLQIR1NGbSjTtOFP9Q8'
+SALES_TAB_NAME = 'Positions'
+COMMISSION_SUMMARY_ID = '1A3K3RLlVNzCSCI-AkXAh8-K99gDSpCM7L9oNOCY0Obs'
+COMMISSION_TAB_NAME = 'Commission Detail'
 
-# -----------------------------------------------------------------------------
-# 1. 全局配置与常量定义 (约100行)
-# -----------------------------------------------------------------------------
-# 项目根目录
-PROJECT_ROOT = Path(__file__).parent.absolute()
+# 基础配置
+TEAM_CONFIG_TEMPLATE = [
+    {
+        "name": "Raul Solis",
+        "id": "1vQuN-iNBRUug5J6gBMX-52jp6oogbA77SaeAf9j_zYs",
+        "keyword": "Name",
+        "base_salary": 11000
+    },
+    {
+        "name": "Estela Peng",
+        "id": "1sUkffAXzWnpzhhmklqBuwtoQylpR1U18zqBQ-lsp7Z4",
+        "keyword": "姓名",
+        "base_salary": 20800
+    },
+    {
+        "name": "Ana Cruz",
+        "id": "1VMVw5YCV12eI8I-VQSXEKg86J2IVZJEgjPJT7ggAFD0",
+        "keyword": "Name",
+        "base_salary": 13000
+    },
+    {
+        "name": "Karina Albarran",
+        "id": "1zc4ghvfjIxH0eJ2aXfopOWHqiyTDlD8yFNjBzpH07D8",
+        "keyword": "Name",
+        "base_salary": 15000
+    },
+]
 
-# 配置文件路径
-CONFIG_FILE = PROJECT_ROOT / "config.ini"
-# 服务账号密钥路径（可在config.ini中配置）
-DEFAULT_SERVICE_ACCOUNT_FILE = PROJECT_ROOT / "credentials.json"
-# 缓存目录
-CACHE_DIR = PROJECT_ROOT / "cache"
-# 日志目录
-LOG_DIR = PROJECT_ROOT / "logs"
-# 确保目录存在
-for dir_path in [CACHE_DIR, LOG_DIR]:
-    dir_path.mkdir(exist_ok=True)
+# 🎯 Recruitment Goals
+# Individual Goal: 29 per month * 3 = 87 per Quarter
+QUARTERLY_INDIVIDUAL_GOAL = 87
+QUARTERLY_GOAL_INTERN = 87
 
-# API限流相关常量
-BASE_DELAY = 1.5  # 基础请求延迟（秒）
-MAX_RETRIES = 8   # 最大重试次数
-MAX_CONCURRENT_THREADS = 3  # 最大并发线程数
-QUOTA_REFRESH_INTERVAL = 60  # 配额刷新间隔（分钟）
+# Team Goals
+# Monthly: 29 * 4 = 116
+MONTHLY_GOAL = 116
+# Quarterly Team: 87 * 4 = 348
+QUARTERLY_TEAM_GOAL = 348
 
-# 表格数据列映射（可在config.ini中配置）
-COLUMN_MAPPING = {
-    "name": 0,      # 员工姓名列
-    "commission": 1,# 佣金金额列
-    "department": 2,# 部门列
-    "date": 3,      # 日期列
-    "status": 4     # 状态列
-}
+# 限流配置
+API_DELAY_BASE = 0.5  # 基础延迟
+API_DELAY_JITTER = 0.3  # 随机抖动
+MAX_RETRIES = 5  # 最大重试次数
 
-# -----------------------------------------------------------------------------
-# 2. 日志系统配置 (约80行)
-# -----------------------------------------------------------------------------
-def setup_logger() -> logging.Logger:
-    """配置日志系统，同时输出到控制台和文件"""
-    logger = logging.getLogger("SheetsCommissionSystem")
-    logger.setLevel(logging.DEBUG)
-    
-    # 避免重复添加处理器
-    if logger.handlers:
-        return logger
-    
-    # 日志格式
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(threadName)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    
-    # 控制台处理器
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(formatter)
-    
-    # 文件处理器（按日期滚动）
-    log_file = LOG_DIR / f"commission_system_{datetime.now().strftime('%Y%m%d')}.log"
-    file_handler = logging.FileHandler(log_file, encoding='utf-8')
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(formatter)
-    
-    # 添加处理器
-    logger.addHandler(console_handler)
-    logger.addHandler(file_handler)
-    
-    return logger
+# ==========================================
 
-# 初始化日志器
-logger = setup_logger()
+st.set_page_config(page_title="Fill The Pit", page_icon="🎮", layout="wide")
 
-# -----------------------------------------------------------------------------
-# 3. 配置文件管理 (约120行)
-# -----------------------------------------------------------------------------
-class ConfigManager:
-    """配置文件管理类，支持从ini文件读取配置"""
-    
-    def __init__(self, config_path: Path = CONFIG_FILE):
-        self.config_path = config_path
-        self.config = configparser.ConfigParser()
-        self._load_config()
-        self._validate_config()
-    
-    def _load_config(self) -> None:
-        """加载配置文件，不存在则创建默认配置"""
-        if self.config_path.exists():
-            self.config.read(self.config_path, encoding='utf-8')
-            logger.info(f"成功加载配置文件: {self.config_path}")
-        else:
-            logger.warning(f"配置文件不存在，创建默认配置: {self.config_path}")
-            self._create_default_config()
-    
-    def _create_default_config(self) -> None:
-        """创建默认配置文件"""
-        # API配置
-        self.config['API'] = {
-            'spreadsheet_id': 'your_spreadsheet_id_here',
-            'service_account_file': str(DEFAULT_SERVICE_ACCOUNT_FILE),
-            'base_delay': str(BASE_DELAY),
-            'max_retries': str(MAX_RETRIES),
-            'max_concurrent_threads': str(MAX_CONCURRENT_THREADS),
-            'quota_refresh_interval': str(QUOTA_REFRESH_INTERVAL)
-        }
-        
-        # 数据配置
-        self.config['DATA'] = {
-            'column_name': str(COLUMN_MAPPING['name']),
-            'column_commission': str(COLUMN_MAPPING['commission']),
-            'column_department': str(COLUMN_MAPPING['department']),
-            'column_date': str(COLUMN_MAPPING['date']),
-            'column_status': str(COLUMN_MAPPING['status']),
-            'default_sheet_prefix': '2025',
-            'cache_ttl': '3600'  # 缓存有效期（秒）
-        }
-        
-        # 保存配置文件
-        with open(self.config_path, 'w', encoding='utf-8') as f:
-            self.config.write(f)
-    
-    def _validate_config(self) -> None:
-        """验证配置的有效性"""
-        required_sections = ['API', 'DATA']
-        for section in required_sections:
-            if section not in self.config:
-                logger.error(f"配置文件缺少必要章节: {section}")
-                sys.exit(1)
-        
-        # 验证API配置
-        api_keys = ['spreadsheet_id', 'service_account_file']
-        for key in api_keys:
-            if not self.config['API'].get(key):
-                logger.error(f"API配置缺少必要项: {key}")
-                sys.exit(1)
-        
-        # 验证文件路径
-        sa_file = Path(self.config['API']['service_account_file'])
-        if not sa_file.exists() and sa_file != DEFAULT_SERVICE_ACCOUNT_FILE:
-            logger.warning(f"服务账号密钥文件不存在: {sa_file}")
-    
-    def get_api_config(self) -> Dict[str, Any]:
-        """获取API相关配置"""
-        return {
-            'spreadsheet_id': self.config['API']['spreadsheet_id'],
-            'service_account_file': Path(self.config['API']['service_account_file']),
-            'base_delay': float(self.config['API'].get('base_delay', BASE_DELAY)),
-            'max_retries': int(self.config['API'].get('max_retries', MAX_RETRIES)),
-            'max_concurrent_threads': int(self.config['API'].get('max_concurrent_threads', MAX_CONCURRENT_THREADS)),
-            'quota_refresh_interval': int(self.config['API'].get('quota_refresh_interval', QUOTA_REFRESH_INTERVAL))
-        }
-    
-    def get_data_config(self) -> Dict[str, Any]:
-        """获取数据相关配置"""
-        return {
-            'column_mapping': {
-                'name': int(self.config['DATA']['column_name']),
-                'commission': int(self.config['DATA']['column_commission']),
-                'department': int(self.config['DATA']['column_department']),
-                'date': int(self.config['DATA']['column_date']),
-                'status': int(self.config['DATA']['column_status'])
-            },
-            'default_sheet_prefix': self.config['DATA']['default_sheet_prefix'],
-            'cache_ttl': int(self.config['DATA']['cache_ttl'])
-        }
-    
-    def update_config(self, section: str, key: str, value: Any) -> None:
-        """更新配置并保存"""
-        if section not in self.config:
-            self.config[section] = {}
-        self.config[section][key] = str(value)
-        with open(self.config_path, 'w', encoding='utf-8') as f:
-            self.config.write(f)
-        logger.info(f"更新配置: {section}.{key} = {value}")
+# --- 🎨 PLAYFUL CSS STYLING ---
+st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap');
 
-# -----------------------------------------------------------------------------
-# 4. 缓存管理系统 (约100行)
-# -----------------------------------------------------------------------------
-class CacheManager:
-    """缓存管理器，用于减少重复的API请求"""
-    
-    def __init__(self, cache_dir: Path = CACHE_DIR, ttl: int = 3600):
-        self.cache_dir = cache_dir
-        self.ttl = ttl
-        self.lock = threading.Lock()
-    
-    def _get_cache_filename(self, key: str) -> Path:
-        """生成缓存文件名"""
-        safe_key = key.replace('/', '_').replace(':', '_').replace(' ', '_')
-        return self.cache_dir / f"{safe_key}.json"
-    
-    def is_cache_valid(self, key: str) -> bool:
-        """检查缓存是否有效"""
-        cache_file = self._get_cache_filename(key)
-        if not cache_file.exists():
-            return False
-        
-        # 检查缓存时间
-        file_mtime = datetime.fromtimestamp(cache_file.stat().st_mtime)
-        now = datetime.now()
-        if (now - file_mtime).total_seconds() > self.ttl:
-            return False
-        
-        return True
-    
-    def get_cache(self, key: str) -> Optional[Any]:
-        """获取缓存数据"""
-        with self.lock:
-            cache_file = self._get_cache_filename(key)
-            if not self.is_cache_valid(key):
-                return None
-            
-            try:
-                with open(cache_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                logger.debug(f"成功加载缓存: {key}")
-                return data
-            except Exception as e:
-                logger.error(f"读取缓存失败 {key}: {str(e)}")
-                return None
-    
-    def set_cache(self, key: str, data: Any) -> None:
-        """设置缓存数据"""
-        with self.lock:
-            cache_file = self._get_cache_filename(key)
-            try:
-                with open(cache_file, 'w', encoding='utf-8') as f:
-                    json.dump({
-                        'data': data,
-                        'timestamp': datetime.now().isoformat()
-                    }, f, ensure_ascii=False, indent=2)
-                logger.debug(f"成功保存缓存: {key}")
-            except Exception as e:
-                logger.error(f"保存缓存失败 {key}: {str(e)}")
-    
-    def clear_cache(self, key: Optional[str] = None) -> None:
-        """清除缓存，key为None时清除所有缓存"""
-        with self.lock:
-            if key:
-                cache_file = self._get_cache_filename(key)
-                if cache_file.exists():
-                    cache_file.unlink()
-                    logger.info(f"清除缓存: {key}")
-            else:
-                for cache_file in self.cache_dir.glob("*.json"):
-                    cache_file.unlink()
-                logger.info("清除所有缓存")
+    .stApp {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        font-family: 'Press Start 2P', monospace;
+    }
 
-# -----------------------------------------------------------------------------
-# 5. Google Sheets API 客户端 (约200行)
-# -----------------------------------------------------------------------------
-class SheetsAPIClient:
-    """Google Sheets API客户端，处理认证、请求、限流"""
-    
-    def __init__(self, config: Dict[str, Any]):
-        self.spreadsheet_id = config['spreadsheet_id']
-        self.service_account_file = config['service_account_file']
-        self.base_delay = config['base_delay']
-        self.max_retries = config['max_retries']
-        self.quota_refresh_interval = config['quota_refresh_interval']
-        
-        # 配额监控
-        self.request_count = 0
-        self.last_quota_reset = datetime.now()
-        self.lock = threading.Lock()
-        
-        # 初始化服务
-        self.service = self._authenticate()
-    
-    def _authenticate(self) -> Optional[Any]:
-        """认证并创建Sheets服务实例"""
+    h1 {
+        text-shadow: 4px 4px 0px #000000;
+        color: #FFD700 !important;
+        text-align: center;
+        font-size: 3.5em !important;
+        margin-bottom: 20px;
+        -webkit-text-stroke: 2px #000;
+    }
+
+     .stButton {
+        display: flex;
+        justify-content: center;
+        width: 100%;
+        margin-left: 200px; 
+    }
+    .stButton>button {
+        background-color: #FF4757;
+        color: white;
+        border: 4px solid #000;
+        border-radius: 15px;
+        font-family: 'Press Start 2P', monospace;
+        font-size: 24px !important; 
+        padding: 20px 40px !important; 
+        box-shadow: 0px 8px 0px #a71c2a;
+        transition: all 0.1s;
+        width: 100%;
+    }
+    .stButton>button:hover {
+        transform: translateY(4px);
+        box-shadow: 0px 4px 0px #a71c2a;
+        background-color: #ff6b81;
+        color: #FFF;
+        border-color: #000;
+    }
+    .stButton>button:active {
+        transform: translateY(8px);
+        box-shadow: 0px 0px 0px #a71c2a;
+    }
+
+    /* --- PROGRESS BARS --- */
+    .pit-container {
+        background-color: #eee;
+        border: 3px solid #000;
+        border-radius: 12px;
+        width: 100%;
+        position: relative;
+        margin-bottom: 12px;
+        box-shadow: 4px 4px 0px rgba(0,0,0,0.2);
+        overflow: hidden;
+    }
+
+    .pit-height-std { height: 25px; }
+    .pit-height-boss { height: 60px; border-width: 4px; }
+
+    @keyframes barberpole {
+        from { background-position: 0 0; }
+        to { background-position: 50px 50px; }
+    }
+
+    @keyframes rainbow-move {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+
+    .pit-fill-boss {
+        background: linear-gradient(270deg, #ff6b6b, #feca57, #48dbfb, #ff9ff3, #54a0ff);
+        background-size: 400% 400%;
+        animation: rainbow-move 6s ease infinite;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+    }
+
+    .pit-fill-season { 
+        background-image: linear-gradient(45deg, #3742fa 25%, #5352ed 25%, #5352ed 50%, #3742fa 50%, #3742fa 75%, #5352ed 75%, #5352ed 100%);
+        background-size: 50px 50px;
+        animation: barberpole 3s linear infinite;
+        height: 100%; 
+        display: flex; 
+        align-items: center; 
+        justify-content: flex-end; 
+    }
+
+    .money-fill { 
+        background-image: linear-gradient(45deg, #2ed573 25%, #7bed9f 25%, #7bed9f 50%, #2ed573 50%, #2ed573 75%, #7bed9f 75%, #7bed9f 100%);
+        background-size: 50px 50px;
+        animation: barberpole 4s linear infinite;
+        height: 100%; 
+        display: flex; 
+        align-items: center; 
+        justify-content: flex-end; 
+    }
+
+    .cv-fill {
+        background-image: linear-gradient(45deg, #ff9ff3 25%, #f368e0 25%, #f368e0 50%, #ff9ff3 50%, #ff9ff3 75%, #f368e0 75%, #f368e0 100%);
+        background-size: 50px 50px;
+        animation: barberpole 3s linear infinite;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+    }
+
+    .cat-squad {
+        margin-right: 10px;
+        font-size: 24px;
+        filter: drop-shadow(2px 2px 0px rgba(0,0,0,0.5));
+    }
+
+    /* --- CARDS --- */
+    .player-card {
+        background-color: #FFFFFF;
+        border: 4px solid #000;
+        border-radius: 15px;
+        padding: 20px;
+        margin-bottom: 30px;
+        color: #333;
+        box-shadow: 8px 8px 0px rgba(0,0,0,0.2);
+        transition: transform 0.2s;
+    }
+    .player-card:hover {
+        transform: translateY(-2px);
+    }
+
+    .card-border-1 { border-bottom: 6px solid #ff6b6b; }
+    .card-border-2 { border-bottom: 6px solid #feca57; }
+    .card-border-3 { border-bottom: 6px solid #48dbfb; }
+    .card-border-4 { border-bottom: 6px solid #ff9ff3; }
+
+    .player-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+        border-bottom: 2px dashed #ddd;
+        padding-bottom: 10px;
+    }
+    .player-name {
+        font-size: 1.1em;
+        font-weight: bold;
+        color: #2d3436;
+    }
+
+    .status-badge-pass {
+        background-color: #2ed573;
+        color: white;
+        padding: 8px 12px;
+        border-radius: 20px;
+        border: 2px solid #000;
+        font-size: 0.6em;
+        box-shadow: 2px 2px 0px #000;
+        animation: bounce 1s infinite alternate;
+    }
+    @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-2px); } }
+
+    .status-badge-loading {
+        background-color: #feca57;
+        color: #000;
+        padding: 8px 12px;
+        border-radius: 20px;
+        border: 2px solid #000;
+        font-size: 0.6em;
+        box-shadow: 2px 2px 0px #000;
+    }
+
+    .sub-label {
+        font-family: 'Fredoka One', sans-serif;
+        font-size: 0.8em;
+        color: #FFFFFF;
+        margin-bottom: 5px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        text-shadow: 1px 1px 0px #000;
+    }
+
+    .comm-unlocked {
+        background-color: #fff4e6;
+        border: 2px solid #ff9f43;
+        border-radius: 10px;
+        color: #e67e22;
+        text-align: center;
+        padding: 10px;
+        margin-top: 15px;
+        font-weight: bold;
+        font-size: 0.9em;
+        box-shadow: inset 0 0 10px #ffeaa7;
+    }
+    .comm-locked {
+        background-color: #f1f2f6;
+        border: 2px solid #ced6e0;
+        border-radius: 10px;
+        color: #a4b0be;
+        text-align: center;
+        padding: 10px;
+        margin-top: 15px;
+        font-size: 0.8em;
+    }
+
+    .header-bordered {
+        background-color: #FFFFFF;
+        border: 4px solid #000;
+        border-radius: 15px;
+        box-shadow: 6px 6px 0px #000000;
+        padding: 20px;
+        text-align: center;
+        margin-bottom: 25px;
+        color: #2d3436;
+        font-size: 1.2em;
+    }
+
+    .stat-card {
+        background-color: #fff;
+        border: 3px solid #000;
+        border-radius: 10px;
+        padding: 10px;
+        text-align: center;
+        box-shadow: 4px 4px 0px rgba(0,0,0,0.1);
+    }
+    .stat-val { color: #000; font-size: 1.2em; font-weight: bold; }
+    .stat-name { color: #555; font-size: 0.8em; }
+
+    .dataframe { font-family: 'Press Start 2P', monospace !important; font-size: 0.8em !important; }
+    </style>
+    """, unsafe_allow_html=True)
+
+
+# ==========================================
+# 🧮 工具函数
+# ==========================================
+def exponential_backoff(retry_count: int) -> float:
+    """指数退避算法计算延迟"""
+    delay = (2 ** retry_count) * API_DELAY_BASE + random.uniform(0, API_DELAY_JITTER)
+    return min(delay, 10)  # 最大延迟10秒
+
+def safe_google_api_call(func, *args, **kwargs) -> Any:
+    """安全调用Google API，处理限流和重试"""
+    for retry in range(MAX_RETRIES):
         try:
-            if not self.service_account_file.exists():
-                logger.error(f"服务账号密钥文件不存在: {self.service_account_file}")
-                return None
-            
-            creds = Credentials.from_service_account_file(
-                str(self.service_account_file),
-                scopes=[
-                    'https://www.googleapis.com/auth/spreadsheets.readonly',
-                    'https://www.googleapis.com/auth/drive.readonly'
-                ]
-            )
-            
-            service = build('sheets', 'v4', credentials=creds, cache_discovery=False)
-            logger.info("成功创建Google Sheets API服务实例")
-            return service
-        
+            # 添加随机延迟避免限流
+            time.sleep(API_DELAY_BASE + random.uniform(0, API_DELAY_JITTER))
+            return func(*args, **kwargs)
         except Exception as e:
-            logger.error(f"认证失败: {str(e)}")
-            return None
-    
-    def _update_request_count(self) -> None:
-        """更新请求计数，定期重置"""
-        with self.lock:
-            now = datetime.now()
-            if (now - self.last_quota_reset).total_seconds() > self.quota_refresh_interval * 60:
-                self.request_count = 0
-                self.last_quota_reset = now
-                logger.info(f"重置请求计数，配额周期已刷新")
-            
-            self.request_count += 1
-            logger.debug(f"当前请求计数: {self.request_count}")
-    
-    def _exponential_backoff(self, retry_count: int) -> float:
-        """指数退避算法，计算重试延迟"""
-        # 基础延迟: 2^retry_count + 随机抖动
-        backoff_time = (2 ** min(retry_count, 8)) + random.uniform(0, 1)
-        # 添加基础延迟
-        backoff_time += self.base_delay
-        # 限制最大延迟为60秒
-        return min(backoff_time, 60)
-    
-    @google_retry.Retry(
-        predicate=google_retry.if_exception_type(HttpError),
-        deadline=300,
-        on_error=lambda retry_state: logger.warning(f"API请求重试 {retry_state}")
-    )
-    def _make_request(self, request_func, *args, **kwargs) -> Optional[Dict[str, Any]]:
-        """执行API请求，处理限流和重试"""
-        retry_count = 0
-        
-        while retry_count < self.max_retries:
-            try:
-                # 更新请求计数
-                self._update_request_count()
-                
-                # 请求前延迟，避免触发限流
-                delay = self.base_delay + random.uniform(0, 0.5)
-                time.sleep(delay)
-                
-                # 执行请求
-                response = request_func(*args, **kwargs).execute()
-                logger.debug(f"API请求成功，延迟: {delay:.2f}秒")
-                return response
-            
-            except HttpError as error:
-                error_code = error.resp.status
-                error_details = error.error_details[0] if error.error_details else {}
-                error_message = error_details.get('message', str(error))
-                
-                # 处理429限流错误
-                if error_code == 429:
-                    retry_count += 1
-                    backoff_time = self._exponential_backoff(retry_count)
-                    
-                    logger.warning(
-                        f"API限流错误 (429) - 重试 {retry_count}/{self.max_retries}, "
-                        f"延迟 {backoff_time:.2f}秒, 原因: {error_message}"
-                    )
-                    
-                    # 等待后重试
-                    time.sleep(backoff_time)
-                    continue
-                
-                # 处理404错误（资源不存在）
-                elif error_code == 404:
-                    logger.error(f"资源不存在: {error_message}")
-                    return None
-                
-                # 处理其他HTTP错误
-                else:
-                    logger.error(f"API请求失败 [{error_code}]: {error_message}")
-                    return None
-            
-            except Exception as e:
-                logger.error(f"请求执行异常: {str(e)}")
-                retry_count += 1
-                if retry_count < self.max_retries:
-                    time.sleep(self._exponential_backoff(retry_count))
-                    continue
-                return None
-        
-        logger.error(f"达到最大重试次数 ({self.max_retries})，请求失败")
-        return None
-    
-    def get_sheet_data(self, sheet_name: str, range_str: str = "A:ZZ") -> Optional[List[List[str]]]:
-        """
-        获取指定工作表的数据
-        :param sheet_name: 工作表名称
-        :param range_str: 数据范围，默认A:ZZ（全部数据）
-        :return: 二维列表格式的数据
-        """
-        if not self.service:
-            logger.error("API服务未初始化，无法获取数据")
-            return None
-        
-        full_range = f"{sheet_name}!{range_str}"
-        logger.info(f"开始获取数据: {full_range}")
-        
-        try:
-            request = self.service.spreadsheets().values().get(
-                spreadsheetId=self.spreadsheet_id,
-                range=full_range,
-                valueRenderOption='FORMATTED_VALUE'
-            )
-            
-            response = self._make_request(request)
-            
-            if response and 'values' in response:
-                data = response['values']
-                logger.info(f"成功获取「{sheet_name}」数据，共{len(data)}行")
-                return data
-            else:
-                logger.warning(f"「{sheet_name}」无数据或响应为空")
-                return None
-        
-        except Exception as e:
-            logger.error(f"获取工作表数据失败 {sheet_name}: {str(e)}")
-            return None
-    
-    def list_sheets(self) -> Optional[List[str]]:
-        """列出所有工作表名称"""
-        if not self.service:
-            logger.error("API服务未初始化，无法列出工作表")
-            return None
-        
-        try:
-            request = self.service.spreadsheets().get(spreadsheetId=self.spreadsheet_id)
-            response = self._make_request(request)
-            
-            if not response:
-                return None
-            
-            sheets = []
-            for sheet in response.get('sheets', []):
-                sheet_name = sheet.get('properties', {}).get('title', '')
-                if sheet_name:
-                    sheets.append(sheet_name)
-            
-            logger.info(f"找到{len(sheets)}个工作表: {sheets}")
-            return sheets
-        
-        except Exception as e:
-            logger.error(f"列出工作表失败: {str(e)}")
-            return None
-
-# -----------------------------------------------------------------------------
-# 6. 佣金数据处理器 (约150行)
-# -----------------------------------------------------------------------------
-class CommissionDataProcessor:
-    """佣金数据处理类，负责解析和查询员工佣金数据"""
-    
-    def __init__(self, sheets_client: SheetsAPIClient, cache_manager: CacheManager, data_config: Dict[str, Any]):
-        self.sheets_client = sheets_client
-        self.cache_manager = cache_manager
-        self.column_mapping = data_config['column_mapping']
-        self.default_sheet_prefix = data_config['default_sheet_prefix']
-        self.cache_ttl = data_config['cache_ttl']
-    
-    def _get_sheet_cache_key(self, sheet_name: str) -> str:
-        """生成工作表缓存键"""
-        return f"sheet_data_{sheet_name}"
-    
-    def get_sheet_data_with_cache(self, sheet_name: str) -> Optional[List[List[str]]]:
-        """获取工作表数据（优先使用缓存）"""
-        # 生成缓存键
-        cache_key = self._get_sheet_cache_key(sheet_name)
-        
-        # 尝试从缓存获取
-        cached_data = self.cache_manager.get_cache(cache_key)
-        if cached_data:
-            return cached_data.get('data')
-        
-        # 缓存未命中，从API获取
-        sheet_data = self.sheets_client.get_sheet_data(sheet_name)
-        
-        # 保存到缓存
-        if sheet_data:
-            self.cache_manager.set_cache(cache_key, sheet_data)
-        
-        return sheet_data
-    
-    def parse_employee_data(self, row: List[str], row_num: int) -> Dict[str, Any]:
-        """解析单行员工数据"""
-        parsed_data = {
-            'row_number': row_num,
-            'name': '',
-            'commission': '',
-            'department': '',
-            'date': '',
-            'status': '',
-            'is_valid': False
-        }
-        
-        try:
-            # 按列映射解析数据
-            for key, col_idx in self.column_mapping.items():
-                if len(row) > col_idx:
-                    parsed_data[key] = row[col_idx].strip()
-            
-            # 验证必要字段
-            if parsed_data['name'] and parsed_data['commission']:
-                parsed_data['is_valid'] = True
-            
-            return parsed_data
-        
-        except Exception as e:
-            logger.error(f"解析行数据失败 (行{row_num}): {str(e)}")
-            return parsed_data
-    
-    def get_employee_commission(self, sheet_name: str, employee_name: str) -> Dict[str, Any]:
-        """
-        获取指定员工的佣金数据
-        :param sheet_name: 工作表名称
-        :param employee_name: 员工姓名
-        :return: 员工佣金数据字典
-        """
-        logger.info(f"查询员工「{employee_name}」在「{sheet_name}」的佣金数据")
-        
-        # 结果模板
-        result = {
-            'employee_name': employee_name,
-            'sheet_name': sheet_name,
-            'found': False,
-            'data': {},
-            'error': ''
-        }
-        
-        try:
-            # 获取工作表数据
-            sheet_data = self.get_sheet_data_with_cache(sheet_name)
-            if not sheet_data:
-                result['error'] = f"工作表「{sheet_name}」数据为空或不存在"
-                logger.warning(result['error'])
-                return result
-            
-            # 遍历查找员工数据（跳过表头行）
-            for row_num, row in enumerate(sheet_data, start=1):
-                # 跳过空行
-                if not row or len(row) == 0:
-                    continue
-                
-                # 解析行数据
-                parsed_row = self.parse_employee_data(row, row_num)
-                
-                # 匹配员工姓名
-                if parsed_row['is_valid'] and parsed_row['name'] == employee_name:
-                    result['found'] = True
-                    result['data'] = parsed_row
-                    logger.info(f"找到员工「{employee_name}」数据 (行{row_num})")
-                    break
-            
-            if not result['found']:
-                result['error'] = f"未找到员工「{employee_name}」的佣金数据"
-                logger.warning(result['error'])
-            
-            return result
-        
-        except Exception as e:
-            error_msg = f"查询员工佣金数据失败: {str(e)}"
-            logger.error(error_msg)
-            result['error'] = error_msg
-            return result
-    
-    def batch_get_commission_data(self, sheet_name: str, employee_names: List[str]) -> Dict[str, Dict[str, Any]]:
-        """
-        批量获取多个员工的佣金数据
-        :param sheet_name: 工作表名称
-        :param employee_names: 员工姓名列表
-        :return: 员工姓名到佣金数据的映射
-        """
-        logger.info(f"批量查询{len(employee_names)}名员工在「{sheet_name}」的佣金数据")
-        
-        results = {}
-        sheet_data = self.get_sheet_data_with_cache(sheet_name)
-        
-        if not sheet_data:
-            error_msg = f"工作表「{sheet_name}」数据为空或不存在"
-            for emp_name in employee_names:
-                results[emp_name] = {
-                    'employee_name': emp_name,
-                    'sheet_name': sheet_name,
-                    'found': False,
-                    'data': {},
-                    'error': error_msg
-                }
-            return results
-        
-        # 构建员工姓名索引，提高查询效率
-        employee_index = {name: None for name in employee_names}
-        
-        # 遍历所有行，一次性匹配所有员工
-        for row_num, row in enumerate(sheet_data, start=1):
-            if not row or len(row) == 0:
+            if "429" in str(e) or "quota" in str(e).lower() or "limit" in str(e).lower():
+                wait_time = exponential_backoff(retry)
+                st.warning(f"API限流，{wait_time:.1f}秒后重试 (第{retry+1}/{MAX_RETRIES}次)")
+                time.sleep(wait_time)
                 continue
-            
-            parsed_row = self.parse_employee_data(row, row_num)
-            if not parsed_row['is_valid']:
-                continue
-            
-            emp_name = parsed_row['name']
-            if emp_name in employee_index and employee_index[emp_name] is None:
-                employee_index[emp_name] = parsed_row
-        
-        # 构建结果
-        for emp_name in employee_names:
-            parsed_data = employee_index[emp_name]
-            if parsed_data:
-                results[emp_name] = {
-                    'employee_name': emp_name,
-                    'sheet_name': sheet_name,
-                    'found': True,
-                    'data': parsed_data,
-                    'error': ''
-                }
             else:
-                results[emp_name] = {
-                    'employee_name': emp_name,
-                    'sheet_name': sheet_name,
-                    'found': False,
-                    'data': {},
-                    'error': f"未找到员工「{emp_name}」的佣金数据"
-                }
-        
-        logger.info(f"批量查询完成，找到{sum(1 for r in results.values() if r['found'])}名员工的数据")
-        return results
+                st.error(f"API调用失败: {str(e)}")
+                return None
+    st.error(f"达到最大重试次数 ({MAX_RETRIES})，API调用失败")
+    return None
 
-# -----------------------------------------------------------------------------
-# 7. 多线程任务管理器 (约100行)
-# -----------------------------------------------------------------------------
-class ThreadedTaskManager:
-    """多线程任务管理器，控制并发请求数量"""
-    
-    def __init__(self, max_concurrent: int = 3):
-        self.max_concurrent = max_concurrent
-        self.semaphore = threading.Semaphore(max_concurrent)
-        self.results = {}
-        self.lock = threading.Lock()
-    
-    def _task_wrapper(self, func, task_id: str, *args, **kwargs) -> None:
-        """任务包装器，处理信号量和结果收集"""
-        with self.semaphore:
-            try:
-                result = func(*args, **kwargs)
-                with self.lock:
-                    self.results[task_id] = {
-                        'success': True,
-                        'data': result,
-                        'error': ''
-                    }
-            except Exception as e:
-                error_msg = f"任务执行失败: {str(e)}"
-                logger.error(f"任务 {task_id}: {error_msg}")
-                with self.lock:
-                    self.results[task_id] = {
-                        'success': False,
-                        'data': None,
-                        'error': error_msg
-                    }
-    
-    def submit_task(self, func, task_id: str, *args, **kwargs) -> threading.Thread:
-        """提交任务到线程池"""
-        thread = threading.Thread(
-            target=self._task_wrapper,
-            args=(func, task_id) + args,
-            kwargs=kwargs,
-            name=f"Task-{task_id}"
-        )
-        thread.start()
-        logger.debug(f"提交任务 {task_id}，当前并发数: {self.max_concurrent - self.semaphore._value}")
-        return thread
-    
-    def wait_for_all_tasks(self) -> None:
-        """等待所有任务完成"""
-        main_thread = threading.current_thread()
-        for thread in threading.enumerate():
-            if thread is not main_thread and thread.name.startswith("Task-"):
-                thread.join()
-        logger.info("所有任务执行完成")
-    
-    def get_task_results(self) -> Dict[str, Dict[str, Any]]:
-        """获取所有任务结果"""
-        return self.results.copy()
+# ==========================================
+# 🧮 逻辑函数
+# ==========================================
 
-# -----------------------------------------------------------------------------
-# 8. 主应用程序类 (约120行)
-# -----------------------------------------------------------------------------
-class CommissionQueryApp:
-    """佣金查询应用主类"""
-    
-    def __init__(self):
-        # 初始化配置
-        self.config_manager = ConfigManager()
-        self.api_config = self.config_manager.get_api_config()
-        self.data_config = self.config_manager.get_data_config()
-        
-        # 初始化缓存
-        self.cache_manager = CacheManager(ttl=self.data_config['cache_ttl'])
-        
-        # 初始化Sheets客户端
-        self.sheets_client = SheetsAPIClient(self.api_config)
-        
-        # 初始化数据处理器
-        self.data_processor = CommissionDataProcessor(
-            self.sheets_client,
-            self.cache_manager,
-            self.data_config
-        )
-        
-        # 初始化任务管理器
-        self.task_manager = ThreadedTaskManager(
-            max_concurrent=self.api_config['max_concurrent_threads']
-        )
-    
-    def validate_sheet_exists(self, sheet_name: str) -> bool:
-        """验证工作表是否存在"""
-        sheets = self.sheets_client.list_sheets()
-        if not sheets:
-            return False
-        return sheet_name in sheets
-    
-    def run_single_query(self, sheet_name: str, employee_name: str) -> None:
-        """运行单个员工的佣金查询"""
-        logger.info("="*60)
-        logger.info(f"开始单员工查询: {employee_name} @ {sheet_name}")
-        logger.info("="*60)
-        
-        # 验证工作表
-        if not self.validate_sheet_exists(sheet_name):
-            logger.error(f"工作表「{sheet_name}」不存在")
-            return
-        
-        # 执行查询
-        result = self.data_processor.get_employee_commission(sheet_name, employee_name)
-        
-        # 输出结果
-        self._print_query_result(result)
-    
-    def run_batch_query(self, sheet_name: str, employee_names: List[str]) -> None:
-        """运行批量员工佣金查询"""
-        logger.info("="*60)
-        logger.info(f"开始批量查询: {len(employee_names)}名员工 @ {sheet_name}")
-        logger.info("="*60)
-        
-        # 验证工作表
-        if not self.validate_sheet_exists(sheet_name):
-            logger.error(f"工作表「{sheet_name}」不存在")
-            return
-        
-        # 执行批量查询
-        results = self.data_processor.batch_get_commission_data(sheet_name, employee_names)
-        
-        # 输出结果
-        self._print_batch_results(results)
-    
-    def run_threaded_batch_query(self, sheet_name: str, employee_names: List[str]) -> None:
-        """使用多线程运行批量查询"""
-        logger.info("="*60)
-        logger.info(f"开始多线程批量查询: {len(employee_names)}名员工 @ {sheet_name}")
-        logger.info("="*60)
-        
-        # 验证工作表
-        if not self.validate_sheet_exists(sheet_name):
-            logger.error(f"工作表「{sheet_name}」不存在")
-            return
-        
-        # 提交任务
-        for emp_name in employee_names:
-            self.task_manager.submit_task(
-                self.data_processor.get_employee_commission,
-                f"{sheet_name}_{emp_name}",
-                sheet_name,
-                emp_name
-            )
-        
-        # 等待任务完成
-        self.task_manager.wait_for_all_tasks()
-        
-        # 获取并输出结果
-        results = self.task_manager.get_task_results()
-        self._print_threaded_results(results)
-    
-    def _print_query_result(self, result: Dict[str, Any]) -> None:
-        """打印单个查询结果"""
-        print("\n" + "-"*50)
-        print(f"查询结果: {result['employee_name']} @ {result['sheet_name']}")
-        print("-"*50)
-        
-        if result['found']:
-            data = result['data']
-            print(f"行号: {data['row_number']}")
-            print(f"员工姓名: {data['name']}")
-            print(f"佣金金额: {data['commission']}")
-            print(f"部门: {data.get('department', 'N/A')}")
-            print(f"日期: {data.get('date', 'N/A')}")
-            print(f"状态: {data.get('status', 'N/A')}")
-        else:
-            print(f"错误: {result['error']}")
-        print("-"*50 + "\n")
-    
-    def _print_batch_results(self, results: Dict[str, Dict[str, Any]]) -> None:
-        """打印批量查询结果"""
-        print("\n" + "="*60)
-        print("批量查询结果汇总")
-        print("="*60)
-        
-        found_count = 0
-        for emp_name, result in results.items():
-            print(f"\n🔍 {emp_name}:")
-            if result['found']:
-                found_count += 1
-                data = result['data']
-                print(f"  ✅ 找到数据 (行{data['row_number']})")
-                print(f"     佣金: {data['commission']}")
-                print(f"     部门: {data.get('department', 'N/A')}")
-            else:
-                print(f"  ❌ {result['error']}")
-        
-        print(f"\n📊 汇总: 共查询{len(results)}名员工，找到{found_count}名员工的数据")
-        print("="*60 + "\n")
-    
-    def _print_threaded_results(self, results: Dict[str, Dict[str, Any]]) -> None:
-        """打印多线程查询结果"""
-        print("\n" + "="*60)
-        print("多线程查询结果汇总")
-        print("="*60)
-        
-        success_count = 0
-        found_count = 0
-        
-        for task_id, result in results.items():
-            emp_name = task_id.split("_")[-1]
-            print(f"\n🔍 {emp_name}:")
-            
-            if not result['success']:
-                print(f"  ❌ 任务执行失败: {result['error']}")
-                continue
-            
-            success_count += 1
-            query_result = result['data']
-            
-            if query_result['found']:
-                found_count += 1
-                data = query_result['data']
-                print(f"  ✅ 找到数据 (行{data['row_number']})")
-                print(f"     佣金: {data['commission']}")
-            else:
-                print(f"  ❌ {query_result['error']}")
-        
-        print(f"\n📊 汇总: 共提交{len(results)}个任务，成功{success_count}个，找到{found_count}名员工的数据")
-        print("="*60 + "\n")
-    
-    def export_results_to_json(self, results: Dict[str, Any], output_file: Path) -> None:
-        """导出查询结果到JSON文件"""
-        try:
-            with open(output_file, 'w', encoding='utf-8') as f:
-                json.dump({
-                    'export_time': datetime.now().isoformat(),
-                    'results': results
-                }, f, ensure_ascii=False, indent=2)
-            logger.info(f"结果已导出到: {output_file}")
-        except Exception as e:
-            logger.error(f"导出结果失败: {str(e)}")
+def normalize_text(text):
+    """标准化文本（去除重音符号、转小写）"""
+    if pd.isna(text):
+        return ""
+    return ''.join(c for c in unicodedata.normalize('NFD', str(text)) if unicodedata.category(c) != 'Mn').lower()
 
-# -----------------------------------------------------------------------------
-# 9. 命令行交互与主入口 (约80行)
-# -----------------------------------------------------------------------------
-def print_welcome_banner() -> None:
-    """打印欢迎横幅"""
-    banner = f"""
-{'='*70}
-欢迎使用 Google Sheets 佣金数据查询系统
-当前时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-项目目录: {PROJECT_ROOT}
-功能说明:
-  1. 解决API 429限流问题（请求频率超限）
-  2. 支持单员工/批量员工佣金查询
-  3. 支持多线程并发查询（可控）
-  4. 内置缓存机制，减少重复API请求
-  5. 完整的日志记录和错误处理
-{'='*70}
-"""
-    print(banner)
 
-def main():
-    """主函数"""
+def get_payout_date_from_month_key(month_key):
+    """从月份标识（YYYY-MM）获取佣金发放日期（次月15号）"""
     try:
-        # 打印欢迎信息
-        print_welcome_banner()
-        
-        # 初始化应用
-        app = CommissionQueryApp()
-        
-        # 示例配置 - 请根据实际需求修改
-        TARGET_SHEET = "202512"  # 目标工作表
-        TARGET_EMPLOYEES = [     # 目标员工列表
-            "Ana Cruz",
-            "Karina Albarran",
-            "Maria Garcia",
-            "Juan Rodriguez",
-            "Luis Martinez"
-        ]
-        
-        # 执行查询（可选三种模式）
-        # 模式1: 单员工查询
-        # app.run_single_query(TARGET_SHEET, TARGET_EMPLOYEES[0])
-        
-        # 模式2: 批量查询（单线程）
-        # results = app.data_processor.batch_get_commission_data(TARGET_SHEET, TARGET_EMPLOYEES)
-        # app._print_batch_results(results)
-        # app.export_results_to_json(results, PROJECT_ROOT / "batch_results.json")
-        
-        # 模式3: 多线程批量查询（推荐，效率更高且可控）
-        app.run_threaded_batch_query(TARGET_SHEET, TARGET_EMPLOYEES)
-        
-        # 导出多线程结果
-        threaded_results = app.task_manager.get_task_results()
-        app.export_results_to_json(threaded_results, PROJECT_ROOT / "threaded_results.json")
-        
-        logger.info("程序执行完成！")
-        
-    except KeyboardInterrupt:
-        logger.info("用户中断程序执行")
-        sys.exit(0)
+        dt = datetime.strptime(str(month_key), "%Y-%m")
+        year = dt.year + (dt.month // 12)
+        month = (dt.month % 12) + 1
+        return datetime(year, month, 15)
     except Exception as e:
-        logger.error(f"程序执行出错: {str(e)}", exc_info=True)
-        sys.exit(1)
+        st.warning(f"解析月份 {month_key} 失败: {e}")
+        return None
 
-# -----------------------------------------------------------------------------
-# 10. 模块入口
-# -----------------------------------------------------------------------------
-if __name__ == "__main__":
-    # 设置Python递归深度（防止多线程场景下栈溢出）
-    sys.setrecursionlimit(10000)
+
+def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
+    """计算佣金层级"""
+    if is_team_lead:
+        t1, t2, t3 = 4.5, 6.75, 11.25  # Team Lead 门槛更低
+    else:
+        t1, t2, t3 = 9.0, 13.5, 22.5  # 普通顾问门槛
+
+    if total_gp < t1 * base_salary:
+        return 0, 0  # 0级：无佣金
+    elif total_gp < t2 * base_salary:
+        return 1, 1  # 1级：1倍佣金
+    elif total_gp < t3 * base_salary:
+        return 2, 2  # 2级：2倍佣金
+    else:
+        return 3, 3  # 3级：3倍佣金
+
+
+def calculate_single_deal_commission(candidate_salary, multiplier):
+    """计算单笔交易佣金"""
+    if multiplier == 0:
+        return 0
+
+    # 基础佣金计算规则
+    if candidate_salary < 20000:
+        base_comm = 1000
+    elif candidate_salary < 30000:
+        base_comm = candidate_salary * 0.05
+    elif candidate_salary < 50000:
+        base_comm = candidate_salary * 1.5 * 0.05
+    else:
+        base_comm = candidate_salary * 2.0 * 0.05
+
+    return base_comm * multiplier
+
+
+def calculate_consultant_performance(all_sales_df, consultant_name, base_salary, quarterly_cv_count, role,
+                                     is_team_lead=False):
+    """计算顾问绩效（修复原代码bug）"""
+    # 修复：原代码使用了未定义的sales_df变量
+    sales_df = all_sales_df.copy() if all_sales_df is not None else pd.DataFrame()
     
-    # 运行主程序
+    # 1. 先检查关键列是否存在
+    if sales_df.empty or 'Consultant' not in sales_df.columns:
+        return {
+            "Consultant": consultant_name,
+            "Booked GP": 0,
+            "Paid GP": 0,
+            "Level": 0,
+            "Target Achieved": 0.0,
+            "Is Qualified": False,
+            "Est. Commission": 0
+        }
+    
+    # 1. 基础参数
+    is_intern = (role == "Intern")
+    target_multiplier = 4.5 if is_team_lead else 9.0
+    financial_target = base_salary * target_multiplier
+
+    # 2. 获取该顾问的销售数据
+    c_sales = sales_df[sales_df['Consultant'] == consultant_name].copy()
+    booked_gp = c_sales['GP'].sum() if not c_sales.empty else 0
+
+    # 3. 达标判断
+    is_qualified = False
+    target_achieved_pct = 0.0
+
+    if is_intern:
+        # 实习生只看CV数量
+        if quarterly_cv_count >= QUARTERLY_GOAL_INTERN:
+            is_qualified = True
+            target_achieved_pct = 100.0
+        else:
+            target_achieved_pct = (quarterly_cv_count / QUARTERLY_GOAL_INTERN) * 100
+    else:
+        # 全职/主管：GP或CV任一达标即可
+        financial_pct = (booked_gp / financial_target * 100) if financial_target > 0 else 0
+        recruitment_pct = (quarterly_cv_count / QUARTERLY_INDIVIDUAL_GOAL * 100)
+
+        if financial_pct >= 100 or recruitment_pct >= 100:
+            is_qualified = True
+            target_achieved_pct = max(financial_pct, recruitment_pct)
+        else:
+            target_achieved_pct = max(financial_pct, recruitment_pct)
+
+    # 4. 佣金计算
+    paid_gp = 0
+    total_comm = 0
+    current_level = 0
+
+    if not is_intern:  # 实习生无佣金
+        if not c_sales.empty:
+            c_sales['Final Comm'] = 0.0
+            c_sales['Commission Day Obj'] = pd.NaT
+
+            # 筛选已付款的交易
+            paid_sales = c_sales[c_sales['Status'] == 'Paid'].copy()
+
+            if not paid_sales.empty:
+                # 处理付款日期
+                paid_sales['Payment Date Obj'] = pd.to_datetime(paid_sales['Payment Date'], errors='coerce')
+                paid_sales = paid_sales.dropna(subset=['Payment Date Obj']).sort_values(by='Payment Date Obj')
+                paid_sales['Pay_Month_Key'] = paid_sales['Payment Date Obj'].dt.to_period('M')
+                unique_months = sorted(paid_sales['Pay_Month_Key'].unique())
+
+                running_paid_gp = 0
+                pending_indices = []
+
+                # 按月份累计计算佣金层级
+                for month_key in unique_months:
+                    month_deals = paid_sales[paid_sales['Pay_Month_Key'] == month_key]
+                    month_new_gp = month_deals['GP'].sum()
+                    running_paid_gp += month_new_gp
+                    pending_indices.extend(month_deals.index.tolist())
+
+                    # 计算当前层级
+                    level, multiplier = calculate_commission_tier(running_paid_gp, base_salary, is_team_lead)
+
+                    if level > 0:
+                        payout_date = get_payout_date_from_month_key(str(month_key))
+                        # 计算每笔交易的最终佣金
+                        for idx in pending_indices:
+                            row = paid_sales.loc[idx]
+                            deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * row[
+                                'Percentage']
+                            paid_sales.at[idx, 'Final Comm'] = deal_comm
+                            paid_sales.at[idx, 'Commission Day Obj'] = payout_date
+                        pending_indices = []
+
+                paid_gp = running_paid_gp
+                current_level, _ = calculate_commission_tier(booked_gp, base_salary, is_team_lead)
+
+                # 只计算已到发放日期的佣金
+                limit_date = datetime.now() + timedelta(days=20)
+                for idx, row in paid_sales.iterrows():
+                    comm_date = row['Commission Day Obj']
+                    if pd.notnull(comm_date) and comm_date <= limit_date:
+                        total_comm += row['Final Comm']
+
+            # 团队主管额外佣金
+            if is_team_lead and not sales_df.empty:
+                mask = (sales_df['Status'] == 'Paid') & \
+                       (sales_df['Consultant'] != consultant_name) & \
+                       (sales_df['Consultant'] != "Estela Peng")
+
+                pot_overrides = sales_df[mask].copy()
+                pot_overrides['Payment Date Obj'] = pd.to_datetime(pot_overrides['Payment Date'], errors='coerce')
+
+                for _, row in pot_overrides.iterrows():
+                    pay_date = row['Payment Date Obj']
+                    if pd.isna(pay_date):
+                        continue
+                    comm_pay_obj = datetime(
+                        pay_date.year + (pay_date.month // 12),
+                        (pay_date.month % 12) + 1,
+                        15
+                    )
+                    if comm_pay_obj <= (datetime.now() + timedelta(days=20)):
+                        total_comm += 1000
+
+    # 5. 最终佣金：未达标则清零
+    if not is_qualified:
+        total_comm = 0
+
+    return {
+        "Consultant": consultant_name,
+        "Booked GP": booked_gp,
+        "Paid GP": paid_gp,
+        "Level": current_level,
+        "Target Achieved": target_achieved_pct,
+        "Is Qualified": is_qualified,
+        "Est. Commission": total_comm
+    }
+
+
+# --- 🔗 数据获取 ---
+def connect_to_google():
+    """连接Google Sheets（增加重试和错误处理）"""
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    try:
+        if "gcp_service_account" in st.secrets:
+            creds_dict = dict(st.secrets["gcp_service_account"])
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+            # 使用安全调用包装
+            client = safe_google_api_call(gspread.authorize, creds)
+            return client
+        else:
+            st.error("未配置GCP服务账号密钥")
+            return None
+    except Exception as e:
+        st.error(f"Google连接失败: {str(e)}")
+        return None
+
+
+def get_quarter_info():
+    """获取当前季度信息"""
+    today = datetime.now()
+    year = today.year
+    month = today.month
+    quarter = (month - 1) // 3 + 1
+    start_month = (quarter - 1) * 3 + 1
+    end_month = start_month + 2
+    tabs = [f"{year}{m:02d}" for m in range(start_month, end_month + 1)]
+    return tabs, quarter, start_month, end_month, year
+
+
+def get_all_month_tabs(client, consultant_config):
+    """获取顾问工作表中所有有效月份标签（格式：YYYYMM）"""
+    try:
+        # 使用安全调用包装
+        sheet = safe_google_api_call(client.open_by_key, consultant_config['id'])
+        if not sheet:
+            return []
+            
+        all_tabs = safe_google_api_call(lambda: [ws.title for ws in sheet.worksheets()])
+        
+        if not all_tabs:
+            return []
+
+        # 筛选出 YYYYMM 格式的月份标签（正则匹配）
+        month_pattern = re.compile(r'^\d{6}$')  # 匹配 6 位数字（202603 这种格式）
+        valid_month_tabs = [tab for tab in all_tabs if month_pattern.match(tab)]
+
+        # 按时间排序（旧→新）
+        valid_month_tabs.sort()
+        return valid_month_tabs
+    except Exception as e:
+        st.error(f"获取 {consultant_config['name']} 的所有月份标签失败: {e}")
+        return []
+
+
+def fetch_role_from_personal_sheet(client, sheet_id):
+    """从个人表格获取角色信息（实习生/全职/主管）"""
+    try:
+        # 使用安全调用包装
+        sheet = safe_google_api_call(client.open_by_key, sheet_id)
+        if not sheet:
+            return "Full-Time", False, "Consultant"
+            
+        # 优先找Credentials工作表，否则用第一个
+        try:
+            ws = safe_google_api_call(sheet.worksheet, 'Credentials')
+        except:
+            ws = safe_google_api_call(sheet.get_worksheet, 0)
+        
+        if not ws:
+            return "Full-Time", False, "Consultant"
+
+        # 读取标题行
+        header_vals = safe_google_api_call(ws.range, 'A1:B1')
+        if not header_vals:
+            return "Full-Time", False, "Consultant"
+            
+        a1_val = header_vals[0].value.strip().lower()
+        b1_val = header_vals[1].value.strip()
+
+        title_text = "Consultant"
+        if "title" in a1_val:
+            title_text = b1_val
+
+        # 判断角色类型
+        is_intern = "intern" in title_text.lower()
+        is_lead = "team lead" in title_text.lower() or "manager" in title_text.lower()
+
+        role = "Intern" if is_intern else "Full-Time"
+        return role, is_lead, title_text.title()
+
+    except Exception as e:
+        st.warning(f"获取角色信息失败: {str(e)}")
+        return "Full-Time", False, "Consultant"
+
+
+def fetch_consultant_data(client, consultant_config, target_tab):
+    """获取顾问的CV数据（增加错误处理和月份信息）"""
+    sheet_id = consultant_config['id']
+    target_key = consultant_config.get('keyword', 'Name').strip()
+    COMPANY_KEYS = ["Company", "Client", "Cliente", "公司名称", "客户"]
+    POSITION_KEYS = ["Position", "Role", "Posición", "职位", "岗位"]
+
+    try:
+        # 使用安全调用包装
+        sheet = safe_google_api_call(client.open_by_key, sheet_id)
+        if not sheet:
+            return 0, []
+            
+        worksheet = safe_google_api_call(sheet.worksheet, target_tab)
+        if not worksheet:
+            st.warning(f"工作表 {target_tab} 不存在")
+            return 0, []
+
+        rows = safe_google_api_call(worksheet.get_all_values)
+        if not rows:
+            return 0, []
+            
+        count = 0
+        details = []
+        current_company = "Unknown"
+        current_position = "Unknown"
+
+        for row in rows:
+            if not row:
+                continue
+
+            cleaned_row = [str(x).strip() for x in row]
+
+            # 查找关键字列（如Name/姓名）
+            try:
+                key_index = cleaned_row.index(target_key)
+                # 统计关键字右侧非空单元格数量（CV数）
+                candidates = [x for x in cleaned_row[key_index + 1:] if x]
+                count += len(candidates)
+
+                # 记录明细（增加月份信息）
+                for _ in range(len(candidates)):
+                    details.append({
+                        "Consultant": consultant_config['name'],
+                        "Company": current_company,
+                        "Position": current_position,
+                        "Count": 1,
+                        "Month": target_tab  # 增加月份字段
+                    })
+
+            except ValueError:
+                # 非关键字行，更新公司/职位信息
+                first_cell = cleaned_row[0] if len(cleaned_row) > 0 else ""
+                if first_cell in COMPANY_KEYS:
+                    current_company = cleaned_row[1] if len(cleaned_row) > 1 else "Unknown"
+                elif first_cell in POSITION_KEYS:
+                    current_position = cleaned_row[1] if len(cleaned_row) > 1 else "Unknown"
+
+        return count, details
+    except Exception as e:
+        st.error(f"获取 {consultant_config['name']} 数据失败: {e}")
+        return 0, []
+
+
+def fetch_financial_df(client, start_m, end_m, year):
+    """获取财务数据（GP/薪资/佣金）"""
+    try:
+        # 使用安全调用包装
+        sheet = safe_google_api_call(client.open_by_key, SALES_SHEET_ID)
+        if not sheet:
+            return pd.DataFrame()
+            
+        try:
+            ws = safe_google_api_call(sheet.worksheet, SALES_TAB_NAME)
+        except:
+            ws = safe_google_api_call(sheet.get_worksheet, 0)
+        
+        if not ws:
+            return pd.DataFrame()
+
+        rows = safe_google_api_call(ws.get_all_values)
+        if not rows:
+            return pd.DataFrame()
+            
+        # 列索引初始化
+        col_cons = -1
+        col_onboard = -1
+        col_pay = -1
+        col_sal = -1
+        col_pct = -1
+        found_header = False
+        records = []
+
+        for row in rows:
+            if not any(cell.strip() for cell in row):
+                continue
+
+            row_lower = [str(x).strip().lower() for x in row]
+
+            # 查找表头行
+            if not found_header:
+                if any("linkeazi" in c for c in row_lower) and any("onboarding" in c for c in row_lower):
+                    for idx, cell in enumerate(row_lower):
+                        if "linkeazi" in cell and "consultant" in cell:
+                            col_cons = idx
+                        if "onboarding" in cell and "date" in cell:
+                            col_onboard = idx
+                        if "candidate" in cell and "salary" in cell:
+                            col_sal = idx
+                        if "payment" in cell and "onboard" not in cell:
+                            col_pay = idx
+                        if "percentage" in cell or "pct" in cell or cell == "%":
+                            col_pct = idx
+                    found_header = True
+                    continue
+            else:
+                # 数据行处理
+                row_upper = " ".join(row_lower).upper()
+                if "POSITION" in row_upper and "PLACED" not in row_upper:
+                    break
+                if len(row) <= max(col_cons, col_onboard, col_sal):
+                    continue
+
+                # 顾问姓名匹配
+                consultant_name = row[col_cons].strip()
+                if not consultant_name:
+                    continue
+
+                # 入职日期解析
+                onboard_str = row[col_onboard].strip()
+                onboard_date = None
+                for fmt in ["%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%m/%d/%Y", "%d-%b-%y"]:
+                    try:
+                        onboard_date = datetime.strptime(onboard_str, fmt)
+                        break
+                    except:
+                        pass
+                if not onboard_date:
+                    continue
+
+                # 筛选本季度数据
+                if not (onboard_date.year == year and start_m <= onboard_date.month <= end_m):
+                    continue
+
+                # 标准化姓名匹配
+                matched = "Unknown"
+                c_norm = normalize_text(consultant_name)
+                for conf in TEAM_CONFIG_TEMPLATE:
+                    conf_norm = normalize_text(conf['name'])
+                    if conf_norm in c_norm or c_norm in conf_norm:
+                        matched = conf['name']
+                        break
+                    if conf_norm.split()[0] in c_norm:
+                        matched = conf['name']
+                        break
+                if matched == "Unknown":
+                    continue
+
+                # 薪资处理
+                salary_raw = str(row[col_sal]).replace(',', '').replace('$', '').replace('MXN', '').strip()
+                try:
+                    salary = float(salary_raw)
+                except:
+                    salary = 0
+
+                # 百分比处理
+                pct_val = 1.0
+                if col_pct != -1 and len(row) > col_pct:
+                    p_str = str(row[col_pct]).replace('%', '').strip()
+                    try:
+                        p_float = float(p_str)
+                        pct_val = p_float / 100.0 if p_float > 1.0 else p_float
+                    except:
+                        pct_val = 1.0
+
+                # GP计算
+                base_gp_factor = 1.0 if salary < 20000 else 1.5
+                calc_gp = salary * base_gp_factor * pct_val
+
+                # 付款状态
+                pay_date_str = row[col_pay].strip() if (col_pay != -1 and len(row) > col_pay) else ""
+                status = "Paid" if len(pay_date_str) > 5 else "Pending"
+
+                records.append({
+                    "Consultant": matched,
+                    "GP": calc_gp,
+                    "Candidate Salary": salary,
+                    "Percentage": pct_val,
+                    "Onboard Date": onboard_date,
+                    "Payment Date": pay_date_str,
+                    "Status": status
+                })
+
+        return pd.DataFrame(records)
+    except Exception as e:
+        st.error(f"财务数据获取失败: {e}")
+        return pd.DataFrame()
+
+
+def get_monthly_commission(client, consultant_name, month_key):
+    """从汇总表获取月度佣金"""
+    try:
+        # 使用安全调用包装
+        sheet = safe_google_api_call(client.open_by_key, COMMISSION_SUMMARY_ID)
+        if not sheet:
+            return 0.0
+            
+        ws = safe_google_api_call(sheet.worksheet, COMMISSION_TAB_NAME)
+        if not ws:
+            return 0.0
+            
+        data = safe_google_api_call(ws.get_all_records)
+        if not data:
+            return 0.0
+            
+        df = pd.DataFrame(data)
+
+        if df.empty:
+            return 0.0
+
+        # 标准化匹配
+        c_norm = normalize_text(consultant_name)
+        match = df[
+            (df['Consultant'].apply(normalize_text) == c_norm) &
+            (df['Month'].astype(str) == month_key)
+            ]
+
+        return float(match.iloc[0]['Final_Commission']) if not match.empty else 0.0
+    except Exception as e:
+        st.warning(f"获取月度佣金失败: {e}")
+        return 0.0
+
+
+# --- UI渲染函数 ---
+def render_bar(current_total, goal, color_class, label_text, is_monthly_boss=False):
+    """渲染进度条"""
+    percent = (current_total / goal) * 100 if goal > 0 else 0
+    display_pct = min(percent, 100)
+    container_cls = "pit-container"
+    height_cls = "pit-height-boss" if is_monthly_boss else "pit-height-std"
+    cats = "🎉" if percent >= 100 else ""
+
+    st.markdown(f"""
+    <div style="margin-bottom: 5px;">
+        <div class="sub-label">{label_text}  ({percent:.1f}%)</div>
+        <div class="{container_cls} {height_cls}">
+            <div class="{color_class}" style="width: {display_pct}%;">
+                <div class="cat-squad" style="top: {'15px' if is_monthly_boss else '5px'}">{cats}</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def render_player_card(conf, fin_summary, quarterly_cv_count, card_index, monthly_commission=0.0):
+    """渲染玩家卡片（顾问绩效）"""
+    name = conf['name']
+    role = conf.get('role', 'Full-Time')
+    is_team_lead = conf.get('is_team_lead', False)
+    is_intern = (role == 'Intern')
+    base_salary = conf.get('base_salary', 0)
+    is_qualified = monthly_commission > 0
+
+    # 财务数据
+    booked_gp = fin_summary.get("Booked GP", 0)
+    target_gp = base_salary * (4.5 if is_team_lead else 9.0)
+
+    # 状态文本
+    crown = "👑" if is_team_lead else ""
+    role_tag = "🎓 INTERN" if is_intern else "💼 FULL-TIME"
+    title_display = conf.get('title_display', role_tag)
+    current_level, _ = calculate_commission_tier(booked_gp, base_salary, is_team_lead)
+
+    if current_level > 0:
+        status_text = f"LEVEL {current_level}! 🌟"
+        badge_class = "status-badge-pass"
+    elif quarterly_cv_count >= 87:
+        status_text = "TARGET MET! 🎯"
+        badge_class = "status-badge-pass"
+    else:
+        status_text = "HUNTING... 🚀"
+        badge_class = "status-badge-loading"
+
+    # 卡片样式
+    border_class = f"card-border-{(card_index % 4) + 1}"
+
+    # 渲染卡片
+    st.markdown(f"""
+    <div class="player-card {border_class}">
+        <div class="player-header">
+            <div class="player-name">{name} {crown}</div>
+            <span class="{badge_class}">{status_text}</span>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # 进度条
+    if is_intern:
+        # 实习生只显示CV进度
+        render_bar(quarterly_cv_count, QUARTERLY_GOAL_INTERN, "cv-fill", "Q. CVs")
+    else:
+        # 全职/主管显示GP和CV进度
+        render_bar(booked_gp, target_gp, "money-fill", "GP TARGET")
+        st.markdown(f'<div style="font-size:0.6em; color:#666; margin-top:5px;">AND/OR RECRUITMENT GOAL:</div>',
+                    unsafe_allow_html=True)
+        render_bar(quarterly_cv_count, QUARTERLY_INDIVIDUAL_GOAL, "cv-fill", "Q. CVs")
+
+    # 佣金显示
+    if is_intern:
+        st.markdown(f"""<div class="comm-locked" style="background:#eee; color:#aaa;">INTERNSHIP TRACK</div>""",
+                    unsafe_allow_html=True)
+    else:
+        if monthly_commission > 0:
+            st.markdown(f"""<div class="comm-unlocked">💰 UNLOCKED: ${monthly_commission:,.2f}</div>""",
+                        unsafe_allow_html=True)
+        else:
+            st.markdown(f"""<div class="comm-locked">🔒 LOCKED (TARGET NOT MET)</div>""",
+                        unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+
+# --- 主程序 ---
+def main():
+    """应用主函数"""
+    # 获取季度信息
+    quarter_tabs, quarter_num, start_m, end_m, year = get_quarter_info()
+    current_month_tab = datetime.now().strftime("%Y%m")
+
+    # 页面标题
+    st.title("👾 FILL THE PIT 👾")
+    col1, col2, col3 = st.columns([1, 3, 1])
+    with col2:
+        start_btn = st.button(f"🚩 PRESS START")
+
+    if start_btn:
+        # 连接Google Sheets
+        client = connect_to_google()
+        if not client:
+            return
+
+        # 加载团队配置（含角色信息）
+        active_team_config = []
+        config_status = st.empty()
+        config_status.info("🔐 CONNECTING TO PLAYER PROFILES...")
+
+        for conf in TEAM_CONFIG_TEMPLATE:
+            new_conf = conf.copy()
+            role, is_lead, raw_title = fetch_role_from_personal_sheet(client, conf['id'])
+            new_conf['role'] = role
+            new_conf['is_team_lead'] = is_lead
+            new_conf['title_display'] = raw_title
+            active_team_config.append(new_conf)
+
+        config_status.empty()
+
+        # 初始化数据容器
+        monthly_results = []
+        quarterly_results = []
+        all_month_details = []  # 实际存储全季度明细（保留原变量名）
+        consultant_cv_counts = {}
+
+        # 加载数据
+        with st.spinner(f"🛰️ SCANNING ALL HISTORICAL DATA..."):
+            # 1. 获取招聘数据（CV数）- 修改为遍历所有历史月份
+            for consultant in active_team_config:
+                total_count = 0  # 所有历史月份总CV数
+                all_details = []  # 所有历史月份明细
+                m_count = 0  # 当月数量
+
+                # 获取该顾问的所有有效月份标签
+                all_month_tabs = get_all_month_tabs(client, consultant)
+                if not all_month_tabs:
+                    st.warning(f"{consultant['name']} 无有效月份数据")
+                    monthly_results.append({"name": consultant['name'], "count": 0})
+                    quarterly_results.append({"name": consultant['name'], "count": 0})
+                    consultant_cv_counts[consultant['name']] = 0
+                    continue
+
+                # 遍历所有历史月份
+                for month_tab in all_month_tabs:
+                    c_count, c_details = fetch_consultant_data(client, consultant, month_tab)
+                    total_count += c_count
+                    all_details.extend(c_details)  # 收集所有历史明细
+
+                    # 记录当月数量
+                    if month_tab == current_month_tab:
+                        m_count = c_count
+
+                # 汇总到全局容器
+                monthly_results.append({"name": consultant['name'], "count": m_count})
+                # quarterly_results 改为存储全历史总数（保留变量名避免报错）
+                quarterly_results.append({"name": consultant['name'], "count": total_count})
+                consultant_cv_counts[consultant['name']] = total_count
+                all_month_details.extend(all_details)  # 加入所有历史明细
+
+            # 2. 获取财务数据（这部分完全不变）
+            sales_df = fetch_financial_df(client, start_m, end_m, year)
+
+        time.sleep(0.5)
+
+        # --- 渲染月度团队目标进度条 ---
+        st.markdown(
+            f'<div class="header-bordered" style="border-color: #feca57; background: #fff;">🏆 TEAM MONTHLY GOAL ({current_month_tab})</div>',
+            unsafe_allow_html=True)
+        pit_month_ph = st.empty()
+        stats_month_ph = st.empty()
+
+        monthly_total = sum([r['count'] for r in monthly_results])
+        steps = 15
+
+        # 进度条动画
+        for step in range(steps + 1):
+            curr_m = (monthly_total / steps) * step
+            render_pit_html = f"""
+            <div class="sub-label" style="font-size: 1.2em; text-align:center;">{int(curr_m)} / {MONTHLY_GOAL} CVs</div>
+            <div class="pit-container pit-height-boss">
+                <div class="pit-fill-boss" style="width: {min((curr_m / MONTHLY_GOAL) * 100, 100)}%;">
+                    <div class="cat-squad" style="font-size: 40px; top: 5px;">🔥</div>
+                </div>
+            </div>
+            """
+            pit_month_ph.markdown(render_pit_html, unsafe_allow_html=True)
+
+            # 最后一步显示团队成员数据
+            if step == steps:
+                cols_m = stats_month_ph.columns(len(monthly_results))
+                for idx, res in enumerate(monthly_results):
+                    with cols_m[idx]:
+                        st.markdown(
+                            f"""<div class="stat-card"><div class="stat-name">{res['name']}</div><div class="stat-val">{res['count']}</div></div>""",
+                            unsafe_allow_html=True)
+            time.sleep(0.01)
+
+        # 目标达成庆祝
+        if monthly_total >= MONTHLY_GOAL:
+            st.balloons()
+            time.sleep(1)
+
+        # --- 渲染季度团队目标进度条 ---
+        quarterly_total = sum([r['count'] for r in quarterly_results])
+        st.markdown(
+            f'<div class="header-bordered" style="border-color: #54a0ff; background: #fff; margin-top: 20px;">🌊 TEAM QUARTERLY GOAL (Q{quarter_num})</div>',
+            unsafe_allow_html=True)
+        pit_quarter_ph = st.empty()
+
+        # 季度进度条动画
+        for step in range(steps + 1):
+            curr_q = (quarterly_total / steps) * step
+            render_q_html = f"""
+            <div class="sub-label" style="font-size: 1.2em; text-align:center;">{int(curr_q)} / {QUARTERLY_TEAM_GOAL} CVs</div>
+            <div class="pit-container pit-height-boss">
+                <div class="pit-fill-season" style="width: {min((curr_q / QUARTERLY_TEAM_GOAL) * 100, 100)}%;">
+                    <div class="cat-squad" style="font-size: 40px; top: 5px;">🌊</div>
+                </div>
+            </div>
+            """
+            pit_quarter_ph.markdown(render_q_html, unsafe_allow_html=True)
+            time.sleep(0.01)
+
+        # --- 渲染个人绩效卡片 ---
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="header-bordered" style="border-color: #48dbfb;">❄️ PLAYER STATS (Q{quarter_num})</div>',
+            unsafe_allow_html=True)
+
+        row1 = st.columns(2)
+        row2 = st.columns(2)
+        all_cols = row1 + row2
+
+        for idx, conf in enumerate(active_team_config):
+            c_name = conf['name']
+            c_cvs = consultant_cv_counts.get(c_name, 0)
+            
+            # 调用绩效计算函数
+            perf_summary = calculate_consultant_performance(
+                sales_df, c_name, conf['base_salary'], c_cvs, conf['role'], conf['is_team_lead']
+            )
+
+            # 获取月度佣金
+            current_month_key = datetime.now().strftime("%Y%m")
+            monthly_commission = get_monthly_commission(client, c_name, current_month_key)
+
+            # 渲染卡片
+            with all_cols[idx]:
+                render_player_card(conf, perf_summary, c_cvs, idx, monthly_commission)
+
+        # --- 渲染数据明细 ---
+        if all_month_details:
+            st.markdown("---")
+
+            # 按顾问查看明细（仅当月）
+            with st.expander(f"📜 MISSION LOGS ({current_month_tab})", expanded=False):
+                df_all = pd.DataFrame(all_month_details)
+                df_month = df_all[df_all['Month'] == current_month_tab]  # 仅当月数据
+                tab_names = [c['name'] for c in active_team_config]
+                tabs = st.tabs(tab_names)
+
+                for idx, tab in enumerate(tabs):
+                    with tab:
+                        current_consultant = tab_names[idx]
+                        df_c = df_month[df_month['Consultant'] == current_consultant]
+                        if not df_c.empty:
+                            df_agg = df_c.groupby(['Company', 'Position'])['Count'].sum().reset_index()
+                            df_agg = df_agg.sort_values(by='Count', ascending=False)
+                            df_agg['Count'] = df_agg['Count'].astype(str)
+                            st.dataframe(
+                                df_agg,
+                                use_container_width=True,
+                                hide_index=True,
+                                column_config={
+                                    "Company": st.column_config.TextColumn("TARGET COMPANY"),
+                                    "Position": st.column_config.TextColumn("TARGET ROLE"),
+                                    "Count": st.column_config.TextColumn("CVs")
+                                }
+                            )
+                        else:
+                            st.info(f"NO DATA FOR {current_consultant}")
+
+            # 团队岗位汇总（所有历史月份）
+            with st.expander("📊 CV SUMMARY BY POSITIONS", expanded=False):
+                df_total = pd.DataFrame(all_month_details)
+                summary_agg = df_total.groupby(['Company', 'Position'])['Count'].sum().reset_index()
+                summary_agg = summary_agg.sort_values(by='Count', ascending=False)
+                summary_agg.columns = ['CLIENT/COMPANY', 'TARGET ROLE', 'TOTAL CVs']
+
+                st.dataframe(
+                    summary_agg,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "TOTAL CVs": st.column_config.NumberColumn(
+                            "TOTAL CVs",
+                            help="Total number of CVs across the whole team (All Historical Months)",
+                            format="%d ⭐"
+                        )
+                    }
+                )
+
+        elif monthly_total == 0:
+            st.markdown("---")
+            st.info("NO DATA FOUND IN HISTORICAL RECORDS.")
+
+
+if __name__ == "__main__":
     main()
