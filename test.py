@@ -3,7 +3,7 @@ import streamlit.components.v1 as components
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
-import os
+import re
 import time
 from datetime import datetime, timedelta
 import unicodedata
@@ -356,24 +356,31 @@ def calculate_single_deal_commission(candidate_salary, multiplier):
     return base_comm * multiplier
 
 
-def calculate_consultant_performance(all_sales_df, consultant_name, base_salary, quarterly_cv_count, role,
+def calculate_consultant_performance(sales_df: pd.DataFrame, consultant_name, base_salary, quarterly_cv_count, role,
                                      is_team_lead=False):
-    """
-    计算顾问绩效和佣金
-    达标规则：
-    - 实习生：CV ≥ 87
-    - 全职/主管：GP达标 OR CV ≥ 87
-    """
-    # 1. 基础参数
+    """计算顾问绩效（修复变量名和KeyError）"""
+    # 1. 先检查关键列是否存在
+    if sales_df.empty or 'Consultant' not in sales_df.columns:
+        return {
+            "Consultant": consultant_name,
+            "Booked GP": 0,
+            "Paid GP": 0,
+            "Level": 0,
+            "Target Achieved": 0.0,
+            "Is Qualified": False,
+            "Est. Commission": 0
+        }
+    
+    # 2. 基础参数
     is_intern = (role == "Intern")
     target_multiplier = 4.5 if is_team_lead else 9.0
     financial_target = base_salary * target_multiplier
 
-    # 2. 获取该顾问的销售数据
-    c_sales = all_sales_df[all_sales_df['Consultant'] == consultant_name].copy()
+    # 3. 获取该顾问的销售数据
+    c_sales = sales_df[sales_df['Consultant'] == consultant_name].copy()
     booked_gp = c_sales['GP'].sum() if not c_sales.empty else 0
 
-    # 3. 达标判断
+    # 4. 达标判断
     is_qualified = False
     target_achieved_pct = 0.0
 
@@ -395,7 +402,7 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
         else:
             target_achieved_pct = max(financial_pct, recruitment_pct)
 
-    # 4. 佣金计算
+    # 5. 佣金计算
     paid_gp = 0
     total_comm = 0
     current_level = 0
@@ -450,12 +457,12 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
                         total_comm += row['Final Comm']
 
             # 团队主管额外佣金
-            if is_team_lead and not all_sales_df.empty:
-                mask = (all_sales_df['Status'] == 'Paid') & \
-                       (all_sales_df['Consultant'] != consultant_name) & \
-                       (all_sales_df['Consultant'] != "Estela Peng")
+            if is_team_lead and not sales_df.empty:
+                mask = (sales_df['Status'] == 'Paid') & \
+                       (sales_df['Consultant'] != consultant_name) & \
+                       (sales_df['Consultant'] != "Estela Peng")
 
-                pot_overrides = all_sales_df[mask].copy()
+                pot_overrides = sales_df[mask].copy()
                 pot_overrides['Payment Date Obj'] = pd.to_datetime(pot_overrides['Payment Date'], errors='coerce')
 
                 for _, row in pot_overrides.iterrows():
@@ -470,7 +477,7 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
                     if comm_pay_obj <= (datetime.now() + timedelta(days=20)):
                         total_comm += 1000
 
-    # 5. 最终佣金：未达标则清零
+    # 6. 最终佣金：未达标则清零
     if not is_qualified:
         total_comm = 0
 
@@ -514,13 +521,10 @@ def get_quarter_info():
     return tabs, quarter, start_month, end_month, year
 
 
-# 2. 新增：定义获取所有历史月份标签的函数（放在这里）
-import re  # 如果文件开头没导入re，需要在这里加，或统一放在文件顶部
-
-
 def get_all_month_tabs(client, consultant_config):
     """获取顾问工作表中所有有效月份标签（格式：YYYYMM）"""
     try:
+        time.sleep(0.5)  # 防429频率限制
         sheet = client.open_by_key(consultant_config['id'])
         all_tabs = [ws.title for ws in sheet.worksheets()]
 
@@ -539,6 +543,7 @@ def get_all_month_tabs(client, consultant_config):
 def fetch_role_from_personal_sheet(client, sheet_id):
     """从个人表格获取角色信息（实习生/全职/主管）"""
     try:
+        time.sleep(0.3)  # 防429频率限制
         sheet = client.open_by_key(sheet_id)
         # 优先找Credentials工作表，否则用第一个
         try:
@@ -575,6 +580,7 @@ def fetch_consultant_data(client, consultant_config, target_tab):
     POSITION_KEYS = ["Position", "Role", "Posición", "职位", "岗位"]
 
     try:
+        time.sleep(0.3)  # 防429延迟
         sheet = client.open_by_key(sheet_id)
         try:
             worksheet = sheet.worksheet(target_tab)
@@ -601,12 +607,13 @@ def fetch_consultant_data(client, consultant_config, target_tab):
                 candidates = [x for x in cleaned_row[key_index + 1:] if x]
                 count += len(candidates)
 
-                # 记录明细
+                # 记录明细（添加Month字段）
                 for _ in range(len(candidates)):
                     details.append({
                         "Consultant": consultant_config['name'],
                         "Company": current_company,
                         "Position": current_position,
+                        "Month": target_tab,  # 新增Month字段用于筛选
                         "Count": 1
                     })
 
@@ -627,6 +634,7 @@ def fetch_consultant_data(client, consultant_config, target_tab):
 def fetch_financial_df(client, start_m, end_m, year):
     """获取财务数据（GP/薪资/佣金）"""
     try:
+        time.sleep(0.3)  # 防429频率限制
         sheet = client.open_by_key(SALES_SHEET_ID)
         try:
             ws = sheet.worksheet(SALES_TAB_NAME)
@@ -752,6 +760,7 @@ def fetch_financial_df(client, start_m, end_m, year):
 def get_monthly_commission(client, consultant_name, month_key):
     """从汇总表获取月度佣金"""
     try:
+        time.sleep(0.3)  # 防429频率限制
         sheet = client.open_by_key(COMMISSION_SUMMARY_ID)
         ws = sheet.worksheet(COMMISSION_TAB_NAME)
         df = pd.DataFrame(ws.get_all_records())
@@ -898,12 +907,12 @@ def main():
         # 初始化数据容器
         monthly_results = []
         quarterly_results = []
-        all_month_details = []  # 实际存储全季度明细（保留原变量名）
+        all_month_details = []  # 存储所有历史月份明细
         consultant_cv_counts = {}
 
         # 加载数据
         with st.spinner(f"🛰️ SCANNING ALL HISTORICAL DATA..."):
-            # 1. 获取招聘数据（CV数）- 修改为遍历所有历史月份
+            # 1. 获取招聘数据（CV数）- 遍历所有历史月份
             for consultant in active_team_config:
                 total_count = 0  # 所有历史月份总CV数
                 all_details = []  # 所有历史月份明细
@@ -930,13 +939,15 @@ def main():
 
                 # 汇总到全局容器
                 monthly_results.append({"name": consultant['name'], "count": m_count})
-                # quarterly_results 改为存储全历史总数（保留变量名避免报错）
                 quarterly_results.append({"name": consultant['name'], "count": total_count})
                 consultant_cv_counts[consultant['name']] = total_count
                 all_month_details.extend(all_details)  # 加入所有历史明细
 
-            # 2. 获取财务数据（这部分完全不变）
+            # 2. 获取财务数据
             sales_df = fetch_financial_df(client, start_m, end_m, year)
+            # 兜底：确保sales_df是DataFrame
+            if sales_df is None:
+                sales_df = pd.DataFrame()
 
         time.sleep(0.5)
 
@@ -1012,11 +1023,22 @@ def main():
         for idx, conf in enumerate(active_team_config):
             c_name = conf['name']
             c_cvs = consultant_cv_counts.get(c_name, 0)
-
-            # 计算绩效
-            perf_summary = calculate_consultant_performance(
-                sales_df, c_name, conf['base_salary'], c_cvs, conf['role'], conf['is_team_lead']
-            )
+            
+            # 计算绩效（只调用一次，避免重复）
+            if sales_df.empty:
+                perf_summary = {
+                    "Consultant": c_name,
+                    "Booked GP": 0,
+                    "Paid GP": 0,
+                    "Level": 0,
+                    "Target Achieved": 0.0,
+                    "Is Qualified": False,
+                    "Est. Commission": 0
+                }
+            else:
+                perf_summary = calculate_consultant_performance(
+                    sales_df, c_name, conf['base_salary'], c_cvs, conf['role'], conf['is_team_lead']
+                )
 
             # 获取月度佣金
             current_month_key = datetime.now().strftime("%Y%m")
@@ -1033,14 +1055,15 @@ def main():
             # 按顾问查看明细（仅当月）
             with st.expander(f"📜 MISSION LOGS ({current_month_tab})", expanded=False):
                 df_all = pd.DataFrame(all_month_details)
-                df_month = df_all[df_all['Month'] == current_month_tab]  # 仅当月数据
+                # 筛选当月数据
+                df_month = df_all[df_all['Month'] == current_month_tab] if 'Month' in df_all.columns else pd.DataFrame()
                 tab_names = [c['name'] for c in active_team_config]
                 tabs = st.tabs(tab_names)
 
                 for idx, tab in enumerate(tabs):
                     with tab:
                         current_consultant = tab_names[idx]
-                        df_c = df_month[df_month['Consultant'] == current_consultant]
+                        df_c = df_month[df_month['Consultant'] == current_consultant] if not df_month.empty else pd.DataFrame()
                         if not df_c.empty:
                             df_agg = df_c.groupby(['Company', 'Position'])['Count'].sum().reset_index()
                             df_agg = df_agg.sort_values(by='Count', ascending=False)
@@ -1061,22 +1084,25 @@ def main():
             # 团队岗位汇总（所有历史月份）
             with st.expander("📊 CV SUMMARY BY POSITIONS", expanded=False):
                 df_total = pd.DataFrame(all_month_details)
-                summary_agg = df_total.groupby(['Company', 'Position'])['Count'].sum().reset_index()
-                summary_agg = summary_agg.sort_values(by='Count', ascending=False)
-                summary_agg.columns = ['CLIENT/COMPANY', 'TARGET ROLE', 'TOTAL CVs']
+                if not df_total.empty:
+                    summary_agg = df_total.groupby(['Company', 'Position'])['Count'].sum().reset_index()
+                    summary_agg = summary_agg.sort_values(by='Count', ascending=False)
+                    summary_agg.columns = ['CLIENT/COMPANY', 'TARGET ROLE', 'TOTAL CVs']
 
-                st.dataframe(
-                    summary_agg,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        "TOTAL CVs": st.column_config.NumberColumn(
-                            "TOTAL CVs",
-                            help="Total number of CVs across the whole team (All Historical Months)",
-                            format="%d ⭐"
-                        )
-                    }
-                )
+                    st.dataframe(
+                        summary_agg,
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "TOTAL CVs": st.column_config.NumberColumn(
+                                "TOTAL CVs",
+                                help="Total number of CVs across the whole team (All Historical Months)",
+                                format="%d ⭐"
+                            )
+                        }
+                    )
+                else:
+                    st.info("NO HISTORICAL DATA TO DISPLAY")
 
         elif monthly_total == 0:
             st.markdown("---")
