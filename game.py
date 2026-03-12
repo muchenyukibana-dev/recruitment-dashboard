@@ -311,13 +311,13 @@ def safe_google_api_call(func, *args, **kwargs):
         except Exception as e:
             if "429" in str(e) or "quota" in str(e).lower() or "limit" in str(e).lower():
                 wait = exponential_backoff(retry)
-                st.warning(f"API限流，{wait:.1f}秒后重试 ({retry + 1}/{MAX_RETRIES})")
+                # st.warning(f"API限流，{wait:.1f}秒后重试 ({retry + 1}/{MAX_RETRIES})")
                 time.sleep(wait)
                 continue
             else:
                 st.error(f"API失败: {str(e)}")
                 return None
-    st.error("达到最大重试次数")
+    # st.error("达到最大重试次数")
     return None
 
 
@@ -598,7 +598,7 @@ def render_bar(cur, goal, cls, lbl, boss=False):
     <div style="margin-bottom:5px;">
         <div class="sub-label">{lbl} ({pct:.1f}%)</div>
         <div class="pit-container {h}">
-            <div class="{cls}" style="width:{dp}%;">
+            <div class="{cls}" style="width:{dp}%; height:100%;">
                 <div class="cat-squad" style="top:{'15px' if boss else '5px'}">{cat}</div>
             </div>
         </div>
@@ -623,7 +623,7 @@ def render_card(conf, qcv, gp_actual, gp_target, comm, level, idx):
     <div class="player-card {border}">
         <div class="player-header">
             <div class="player-name">{name} {crown}</div>
-            <div class="level-badge">{level_text}</div>
+            <div class="status-badge-pass">{level_text}</div>
         </div>
     """, unsafe_allow_html=True)
 
@@ -635,7 +635,7 @@ def render_card(conf, qcv, gp_actual, gp_target, comm, level, idx):
 
     # GP TARGET 进度条（恢复）
     if not is_intern:
-        render_bar(gp_actual, gp_target, "gp-fill", "GP TARGET")
+        render_bar(gp_actual, gp_target, "money-fill", "GP TARGET")
 
     # 佣金显示
     if is_intern:
