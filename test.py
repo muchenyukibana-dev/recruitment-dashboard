@@ -300,45 +300,47 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+
 # ==========================================
 # 🆕 新增：识别 LIVE POSITIONS 岗位
 # ==========================================
 def get_live_positions(client):
     """从 SALES_SHEET_ID 中获取所有 LIVE POSITIONS 岗位列表"""
     try:
-        sheet = safe_google_api_call(client.open_by_key, SALES_SHEET_ID, cache_prefix="live_pos_sheet")
+        sheet = safe_google_api_call(client.open_by_key, SALES_SHEET_ID)
         if not sheet:
             return []
-        
-        ws = safe_google_api_call(sheet.worksheet, SALES_TAB_NAME, cache_prefix="live_pos_ws")
+
+        ws = safe_google_api_call(sheet.worksheet, SALES_TAB_NAME)
         rows = safe_google_api_call(ws.get_all_values, cache_prefix="live_pos_rows")
-        
+
         live_positions = []
         in_live_section = False
-        
+
         # 遍历行，找到 LIVE POSITIONS 部分
         for row in rows:
             row_text = " ".join([str(x).strip().upper() for x in row if x.strip()])
-            
+
             # 标记进入 LIVE POSITIONS 区域
             if "LIVE POSITIONS" in row_text:
                 in_live_section = True
                 continue
-            
+
             # 标记离开 LIVE POSITIONS 区域（遇到其他分类）
             if in_live_section and any(keyword in row_text for keyword in ["FILLED", "ON HOLD", "CLOSED", "ARCHIVED"]):
                 break
-            
+
             # 提取 LIVE 岗位名称
             if in_live_section and len(row) >= 2 and row[1].strip():
                 position_name = row[1].strip()
                 if position_name and position_name.upper() != "POSITION":  # 排除表头
                     live_positions.append(normalize_text(position_name))
-        
+
         return live_positions
     except Exception as e:
         st.error(f"获取 LIVE POSITIONS 失败: {e}")
         return []
+
 
 def is_live_position(position_name, live_positions):
     """判断岗位是否属于 LIVE POSITIONS"""
@@ -347,12 +349,14 @@ def is_live_position(position_name, live_positions):
     norm_pos = normalize_text(position_name)
     return any(norm_pos in live_pos or live_pos in norm_pos for live_pos in live_positions)
 
+
 # ==========================================
 # 🧮 缓存工具函数
 # ==========================================
 def get_cache_key(prefix, *args):
     key_str = f"{prefix}_{'_'.join(map(str, args))}"
     return hashlib.md5(key_str.encode()).hexdigest()
+
 
 def load_from_cache(cache_key):
     CACHE_DIR.mkdir(exist_ok=True)
@@ -370,14 +374,22 @@ def load_from_cache(cache_key):
     except:
         return None
 
+
 def save_to_cache(cache_key, payload):
     CACHE_DIR.mkdir(exist_ok=True)
     cache_file = CACHE_DIR / f"{cache_key}.json"
+    # 新增：检查数据是否可JSON序列化，不可序列化则跳过缓存
+    try:
+        json.dumps(payload)  # 测试序列化
+    except (TypeError, ValueError):
+        st.warning(f"无法缓存数据：{type(payload)} 类型不支持JSON序列化")
+        return
     with open(cache_file, "w", encoding="utf-8") as f:
         json.dump({
             "timestamp": time.time(),
             "payload": payload
         }, f, ensure_ascii=False)
+
 
 # ==========================================
 # 🧮 工具函数
@@ -385,6 +397,7 @@ def save_to_cache(cache_key, payload):
 def exponential_backoff(retry_count):
     delay = (2 ** retry_count) * API_DELAY_BASE + random.uniform(0, API_DELAY_JITTER)
     return min(delay, 10)
+
 
 def safe_google_api_call(func, *args, cache_prefix=None, **kwargs):
     if cache_prefix:
@@ -398,11 +411,15 @@ def safe_google_api_call(func, *args, cache_prefix=None, **kwargs):
             result = func(*args, **kwargs)
             if cache_prefix and result is not None:
                 save_to_cache(cache_key, result)
+                if isinstance(result, (list, dict, str, int, float, bool)):
+                    save_to_cache(cache_key, result)
+                else:
+                    st.warning(f"跳过缓存：{func.__name__} 返回的 {type(result)} 类型不可序列化")
             return result
         except Exception as e:
             if "429" in str(e) or "quota" in str(e).lower() or "limit" in str(e).lower():
                 wait = exponential_backoff(retry)
-                st.warning(f"API限流，{wait:.1f}秒后重试 ({retry+1}/{MAX_RETRIES})")
+                st.warning(f"API限流，{wait:.1f}秒后重试 ({retry + 1}/{MAX_RETRIES})")
                 time.sleep(wait)
                 continue
             else:
@@ -411,11 +428,13 @@ def safe_google_api_call(func, *args, cache_prefix=None, **kwargs):
     st.error("达到最大重试次数")
     return None
 
+
 def normalize_text(text):
     if pd.isna(text):
         return ""
     return ''.join(c for c in unicodedata.normalize('NFD', str(text))
                    if unicodedata.category(c) != 'Mn').lower()
+
 
 def get_payout_date_from_month_key(month_key):
     try:
@@ -425,6 +444,7 @@ def get_payout_date_from_month_key(month_key):
         return datetime(year, month, 15)
     except:
         return None
+
 
 def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
     if is_team_lead:
@@ -440,6 +460,7 @@ def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
     else:
         return 3, 3
 
+
 def calculate_single_deal_commission(candidate_salary, multiplier):
     if multiplier == 0:
         return 0
@@ -452,6 +473,7 @@ def calculate_single_deal_commission(candidate_salary, multiplier):
     else:
         base = candidate_salary * 2.0 * 0.05
     return base * multiplier
+
 
 def calculate_consultant_performance(all_sales_df, consultant_name, base_salary, quarterly_cv_count, role,
                                      is_team_lead=False):
@@ -512,7 +534,8 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
                         payout_date = get_payout_date_from_month_key(str(month_key))
                         for idx in pending_indices:
                             row = paid_sales.loc[idx]
-                            deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * row['Percentage']
+                            deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * row[
+                                'Percentage']
                             paid_sales.at[idx, 'Final Comm'] = deal_comm
                             paid_sales.at[idx, 'Commission Day Obj'] = payout_date
                         pending_indices = []
@@ -552,6 +575,7 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
         "Est. Commission": total_comm
     }
 
+
 # ==========================================
 # 🔗 Google 连接
 # ==========================================
@@ -569,6 +593,7 @@ def connect_to_google():
         st.error(f"Google连接失败: {str(e)}")
         return None
 
+
 def get_quarter_info():
     today = datetime.now()
     year = today.year
@@ -579,12 +604,15 @@ def get_quarter_info():
     tabs = [f"{year}{m:02d}" for m in range(start_month, end_month + 1)]
     return tabs, quarter, start_month, end_month, year
 
+
 def get_all_month_tabs(client, consultant_config):
     try:
-        sheet = safe_google_api_call(client.open_by_key, consultant_config['id'], cache_prefix=f"tabs_{consultant_config['name']}")
+        sheet = safe_google_api_call(client.open_by_key, consultant_config['id'],
+                                     cache_prefix=f"tabs_{consultant_config['name']}")
         if not sheet:
             return []
-        all_tabs = safe_google_api_call(lambda: [ws.title for ws in sheet.worksheets()], cache_prefix=f"ws_list_{consultant_config['name']}")
+        all_tabs = safe_google_api_call(lambda: [ws.title for ws in sheet.worksheets()],
+                                        cache_prefix=f"ws_list_{consultant_config['name']}")
         if not all_tabs:
             return []
         month_pattern = re.compile(r'^\d{6}$')
@@ -594,6 +622,7 @@ def get_all_month_tabs(client, consultant_config):
     except Exception as e:
         st.error(f"获取 {consultant_config['name']} 的所有月份标签失败: {e}")
         return []
+
 
 def fetch_role_from_personal_sheet(client, sheet_id):
     try:
@@ -622,6 +651,7 @@ def fetch_role_from_personal_sheet(client, sheet_id):
         st.warning(f"获取角色信息失败: {str(e)}")
         return "Full-Time", False, "Consultant"
 
+
 # 🆕 修改：只统计 LIVE POSITIONS 岗位的简历
 def fetch_consultant_data(client, consultant_config, target_tab, live_positions):
     sheet_id = consultant_config['id']
@@ -629,14 +659,17 @@ def fetch_consultant_data(client, consultant_config, target_tab, live_positions)
     COMPANY_KEYS = ["Company", "Client", "Cliente", "公司名称", "客户"]
     POSITION_KEYS = ["Position", "Role", "Posición", "职位", "岗位"]
     try:
-        sheet = safe_google_api_call(client.open_by_key, sheet_id, cache_prefix=f"cv_sheet_{consultant_config['name']}_{target_tab}")
+        sheet = safe_google_api_call(client.open_by_key, sheet_id,
+                                     cache_prefix=f"cv_sheet_{consultant_config['name']}_{target_tab}")
         if not sheet:
             return 0, []
-        worksheet = safe_google_api_call(sheet.worksheet, target_tab, cache_prefix=f"cv_ws_{consultant_config['name']}_{target_tab}")
+        worksheet = safe_google_api_call(sheet.worksheet, target_tab,
+                                         cache_prefix=f"cv_ws_{consultant_config['name']}_{target_tab}")
         if not worksheet:
             st.warning(f"工作表 {target_tab} 不存在")
             return 0, []
-        rows = safe_google_api_call(worksheet.get_all_values, cache_prefix=f"cv_rows_{consultant_config['name']}_{target_tab}")
+        rows = safe_google_api_call(worksheet.get_all_values,
+                                    cache_prefix=f"cv_rows_{consultant_config['name']}_{target_tab}")
         if not rows:
             return 0, []
         count = 0
@@ -671,6 +704,7 @@ def fetch_consultant_data(client, consultant_config, target_tab, live_positions)
     except Exception as e:
         st.error(f"获取 {consultant_config['name']} 数据失败: {e}")
         return 0, []
+
 
 def fetch_financial_df(client, start_m, end_m, year):
     try:
@@ -777,9 +811,11 @@ def fetch_financial_df(client, start_m, end_m, year):
         st.error(f"财务数据获取失败: {e}")
         return pd.DataFrame()
 
+
 def get_monthly_commission(client, consultant_name, month_key):
     try:
-        sheet = safe_google_api_call(client.open_by_key, COMMISSION_SUMMARY_ID, cache_prefix=f"comm_sheet_{consultant_name}")
+        sheet = safe_google_api_call(client.open_by_key, COMMISSION_SUMMARY_ID,
+                                     cache_prefix=f"comm_sheet_{consultant_name}")
         if not sheet:
             return 0.0
         ws = safe_google_api_call(sheet.worksheet, COMMISSION_TAB_NAME, cache_prefix=f"comm_ws_{consultant_name}")
@@ -795,11 +831,12 @@ def get_monthly_commission(client, consultant_name, month_key):
         match = df[
             (df['Consultant'].apply(normalize_text) == c_norm) &
             (df['Month'].astype(str) == month_key)
-        ]
+            ]
         return float(match.iloc[0]['Final_Commission']) if not match.empty else 0.0
     except Exception as e:
         st.warning(f"获取月度佣金失败: {e}")
         return 0.0
+
 
 # ==========================================
 # 🎨 UI 渲染函数
@@ -820,6 +857,7 @@ def render_bar(current_total, goal, color_class, label_text, is_monthly_boss=Fal
         </div>
     </div>
     """, unsafe_allow_html=True)
+
 
 def render_player_card(conf, fin_summary, quarterly_cv_count, card_index, monthly_commission=0.0):
     name = conf['name']
@@ -855,8 +893,9 @@ def render_player_card(conf, fin_summary, quarterly_cv_count, card_index, monthl
         render_bar(quarterly_cv_count, QUARTERLY_GOAL_INTERN, "cv-fill", "Q. CVs (LIVE POSITIONS ONLY)")
     else:
         render_bar(booked_gp, target_gp, "money-fill", "GP TARGET")
-        st.markdown(f'<div style="font-size:0.6em; color:#666; margin-top:5px;">AND/OR RECRUITMENT GOAL (LIVE POSITIONS ONLY):</div>',
-                    unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="font-size:0.6em; color:#666; margin-top:5px;">AND/OR RECRUITMENT GOAL (LIVE POSITIONS ONLY):</div>',
+            unsafe_allow_html=True)
         render_bar(quarterly_cv_count, QUARTERLY_INDIVIDUAL_GOAL, "cv-fill", "Q. CVs")
     if is_intern:
         st.markdown(f"""<div class="comm-locked" style="background:#eee; color:#aaa;">INTERNSHIP TRACK</div>""",
@@ -869,6 +908,7 @@ def render_player_card(conf, fin_summary, quarterly_cv_count, card_index, monthl
             st.markdown(f"""<div class="comm-locked">🔒 LOCKED (TARGET NOT MET)</div>""",
                         unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
+
 
 # ==========================================
 # 🚀 主程序（修改：加入 LIVE POSITIONS 过滤）
@@ -884,7 +924,7 @@ def main():
         client = connect_to_google()
         if not client:
             return
-        
+
         # 🆕 第一步：获取 LIVE POSITIONS 列表
         st.info("🔍 正在获取 LIVE POSITIONS 岗位列表...")
         live_positions = get_live_positions(client)
@@ -892,7 +932,7 @@ def main():
             st.success(f"✅ 找到 {len(live_positions)} 个 LIVE POSITIONS 岗位")
         else:
             st.warning("⚠️ 未找到 LIVE POSITIONS 岗位，将统计所有岗位数据")
-        
+
         active_team_config = []
         config_status = st.empty()
         config_status.info("🔐 CONNECTING TO PLAYER PROFILES...")
@@ -904,12 +944,12 @@ def main():
             new_conf['title_display'] = raw_title
             active_team_config.append(new_conf)
         config_status.empty()
-        
+
         monthly_results = []
         quarterly_results = []
         all_month_details = []
         consultant_cv_counts = {}
-        
+
         with st.spinner(f"🛰️ SCANNING LIVE POSITIONS RESUME DATA..."):
             for consultant in active_team_config:
                 total_count = 0
@@ -922,7 +962,7 @@ def main():
                     quarterly_results.append({"name": consultant['name'], "count": 0})
                     consultant_cv_counts[consultant['name']] = 0
                     continue
-                
+
                 for month_tab in all_month_tabs:
                     # 🆕 传入 live_positions 过滤数据
                     c_count, c_details = fetch_consultant_data(client, consultant, month_tab, live_positions)
@@ -930,21 +970,21 @@ def main():
                     all_details.extend(c_details)
                     if month_tab == current_month_tab:
                         m_count = c_count
-                
+
                 monthly_results.append({"name": consultant['name'], "count": m_count})
                 quarterly_results.append({"name": consultant['name'], "count": total_count})
                 consultant_cv_counts[consultant['name']] = total_count
                 all_month_details.extend(all_details)
-            
+
             sales_df = fetch_financial_df(client, start_m, end_m, year)
-        
+
         time.sleep(0.5)
-        
+
         # 🆕 修改标题，明确是 LIVE POSITIONS 数据
         st.markdown(
             f'<div class="header-bordered" style="border-color: #feca57; background: #fff;">🏆 TEAM MONTHLY GOAL ({current_month_tab}) - LIVE POSITIONS ONLY</div>',
             unsafe_allow_html=True)
-        
+
         pit_month_ph = st.empty()
         stats_month_ph = st.empty()
         monthly_total = sum([r['count'] for r in monthly_results])
@@ -968,16 +1008,16 @@ def main():
                             f"""<div class="stat-card"><div class="stat-name">{res['name']}</div><div class="stat-val">{res['count']}</div></div>""",
                             unsafe_allow_html=True)
             time.sleep(0.01)
-        
+
         if monthly_total >= MONTHLY_GOAL:
             st.balloons()
             time.sleep(1)
-        
+
         quarterly_total = sum([r['count'] for r in quarterly_results])
         st.markdown(
             f'<div class="header-bordered" style="border-color: #54a0ff; background: #fff; margin-top: 20px;">🌊 TEAM QUARTERLY GOAL (Q{quarter_num}) - LIVE POSITIONS ONLY</div>',
             unsafe_allow_html=True)
-        
+
         pit_quarter_ph = st.empty()
         for step in range(steps + 1):
             curr_q = (quarterly_total / steps) * step
@@ -991,16 +1031,16 @@ def main():
             """
             pit_quarter_ph.markdown(render_q_html, unsafe_allow_html=True)
             time.sleep(0.01)
-        
+
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown(
             f'<div class="header-bordered" style="border-color: #48dbfb;">❄️ PLAYER STATS (Q{quarter_num}) - LIVE POSITIONS ONLY</div>',
             unsafe_allow_html=True)
-        
+
         row1 = st.columns(2)
         row2 = st.columns(2)
         all_cols = row1 + row2
-        
+
         for idx, conf in enumerate(active_team_config):
             c_name = conf['name']
             c_cvs = consultant_cv_counts.get(c_name, 0)
@@ -1011,7 +1051,7 @@ def main():
             monthly_commission = get_monthly_commission(client, c_name, current_month_key)
             with all_cols[idx]:
                 render_player_card(conf, perf_summary, c_cvs, idx, monthly_commission)
-        
+
         if all_month_details:
             st.markdown("---")
             with st.expander(f"📜 MISSION LOGS ({current_month_tab}) - LIVE POSITIONS ONLY", expanded=False):
@@ -1039,7 +1079,7 @@ def main():
                             )
                         else:
                             st.info(f"NO LIVE POSITIONS DATA FOR {current_consultant}")
-            
+
             with st.expander("📊 CV SUMMARY BY LIVE POSITIONS", expanded=False):
                 df_total = pd.DataFrame(all_month_details)
                 summary_agg = df_total.groupby(['Company', 'Position'])['Count'].sum().reset_index()
@@ -1060,6 +1100,7 @@ def main():
         elif monthly_total == 0:
             st.markdown("---")
             st.info("NO LIVE POSITIONS DATA FOUND IN HISTORICAL RECORDS.")
+
 
 if __name__ == "__main__":
     main()
