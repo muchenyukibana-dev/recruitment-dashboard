@@ -79,11 +79,11 @@ st.markdown("""
         -webkit-text-stroke: 2px #000;
     }
 
-    .stButton {
+     .stButton {
         display: flex;
         justify-content: center;
         width: 100%;
-        margin-left: 0; /* 修复按钮位置偏移问题 */
+        margin-left: 200px; 
     }
     .stButton>button {
         background-color: #FF4757;
@@ -326,23 +326,23 @@ def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
     if is_team_lead:
         t1, t2, t3 = 4.5, 6.75, 11.25  # Team Lead 门槛更低
     else:
-        t1, t2, t3 = 9.0, 13.5, 22.5   # 普通顾问门槛
+        t1, t2, t3 = 9.0, 13.5, 22.5  # 普通顾问门槛
 
     if total_gp < t1 * base_salary:
-        return 0, 0    # 0级：无佣金
+        return 0, 0  # 0级：无佣金
     elif total_gp < t2 * base_salary:
-        return 1, 1    # 1级：1倍佣金
+        return 1, 1  # 1级：1倍佣金
     elif total_gp < t3 * base_salary:
-        return 2, 2    # 2级：2倍佣金
+        return 2, 2  # 2级：2倍佣金
     else:
-        return 3, 3    # 3级：3倍佣金
+        return 3, 3  # 3级：3倍佣金
 
 
 def calculate_single_deal_commission(candidate_salary, multiplier):
     """计算单笔交易佣金"""
-    if multiplier == 0: 
+    if multiplier == 0:
         return 0
-    
+
     # 基础佣金计算规则
     if candidate_salary < 20000:
         base_comm = 1000
@@ -352,7 +352,7 @@ def calculate_single_deal_commission(candidate_salary, multiplier):
         base_comm = candidate_salary * 1.5 * 0.05
     else:
         base_comm = candidate_salary * 2.0 * 0.05
-    
+
     return base_comm * multiplier
 
 
@@ -407,7 +407,7 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
 
             # 筛选已付款的交易
             paid_sales = c_sales[c_sales['Status'] == 'Paid'].copy()
-            
+
             if not paid_sales.empty:
                 # 处理付款日期
                 paid_sales['Payment Date Obj'] = pd.to_datetime(paid_sales['Payment Date'], errors='coerce')
@@ -433,7 +433,8 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
                         # 计算每笔交易的最终佣金
                         for idx in pending_indices:
                             row = paid_sales.loc[idx]
-                            deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * row['Percentage']
+                            deal_comm = calculate_single_deal_commission(row['Candidate Salary'], multiplier) * row[
+                                'Percentage']
                             paid_sales.at[idx, 'Final Comm'] = deal_comm
                             paid_sales.at[idx, 'Commission Day Obj'] = payout_date
                         pending_indices = []
@@ -459,7 +460,7 @@ def calculate_consultant_performance(all_sales_df, consultant_name, base_salary,
 
                 for _, row in pot_overrides.iterrows():
                     pay_date = row['Payment Date Obj']
-                    if pd.isna(pay_date): 
+                    if pd.isna(pay_date):
                         continue
                     comm_pay_obj = datetime(
                         pay_date.year + (pay_date.month // 12),
@@ -566,11 +567,11 @@ def fetch_consultant_data(client, consultant_config, target_tab):
         current_position = "Unknown"
 
         for row in rows:
-            if not row: 
+            if not row:
                 continue
 
             cleaned_row = [str(x).strip() for x in row]
-            
+
             # 查找关键字列（如Name/姓名）
             try:
                 key_index = cleaned_row.index(target_key)
@@ -609,7 +610,7 @@ def fetch_financial_df(client, start_m, end_m, year):
             ws = sheet.worksheet(SALES_TAB_NAME)
         except:
             ws = sheet.get_worksheet(0)
-        
+
         rows = ws.get_all_values()
         # 列索引初始化
         col_cons = -1
@@ -621,40 +622,40 @@ def fetch_financial_df(client, start_m, end_m, year):
         records = []
 
         for row in rows:
-            if not any(cell.strip() for cell in row): 
+            if not any(cell.strip() for cell in row):
                 continue
-                
+
             row_lower = [str(x).strip().lower() for x in row]
-            
+
             # 查找表头行
             if not found_header:
                 if any("linkeazi" in c for c in row_lower) and any("onboarding" in c for c in row_lower):
                     for idx, cell in enumerate(row_lower):
-                        if "linkeazi" in cell and "consultant" in cell: 
+                        if "linkeazi" in cell and "consultant" in cell:
                             col_cons = idx
-                        if "onboarding" in cell and "date" in cell: 
+                        if "onboarding" in cell and "date" in cell:
                             col_onboard = idx
-                        if "candidate" in cell and "salary" in cell: 
+                        if "candidate" in cell and "salary" in cell:
                             col_sal = idx
-                        if "payment" in cell and "onboard" not in cell: 
+                        if "payment" in cell and "onboard" not in cell:
                             col_pay = idx
-                        if "percentage" in cell or "pct" in cell or cell == "%": 
+                        if "percentage" in cell or "pct" in cell or cell == "%":
                             col_pct = idx
                     found_header = True
                     continue
             else:
                 # 数据行处理
                 row_upper = " ".join(row_lower).upper()
-                if "POSITION" in row_upper and "PLACED" not in row_upper: 
+                if "POSITION" in row_upper and "PLACED" not in row_upper:
                     break
-                if len(row) <= max(col_cons, col_onboard, col_sal): 
+                if len(row) <= max(col_cons, col_onboard, col_sal):
                     continue
-                
+
                 # 顾问姓名匹配
                 consultant_name = row[col_cons].strip()
-                if not consultant_name: 
+                if not consultant_name:
                     continue
-                
+
                 # 入职日期解析
                 onboard_str = row[col_onboard].strip()
                 onboard_date = None
@@ -664,34 +665,34 @@ def fetch_financial_df(client, start_m, end_m, year):
                         break
                     except:
                         pass
-                if not onboard_date: 
+                if not onboard_date:
                     continue
-                
+
                 # 筛选本季度数据
-                if not (onboard_date.year == year and start_m <= onboard_date.month <= end_m): 
+                if not (onboard_date.year == year and start_m <= onboard_date.month <= end_m):
                     continue
-                
+
                 # 标准化姓名匹配
                 matched = "Unknown"
                 c_norm = normalize_text(consultant_name)
                 for conf in TEAM_CONFIG_TEMPLATE:
                     conf_norm = normalize_text(conf['name'])
-                    if conf_norm in c_norm or c_norm in conf_norm: 
+                    if conf_norm in c_norm or c_norm in conf_norm:
                         matched = conf['name']
                         break
-                    if conf_norm.split()[0] in c_norm: 
+                    if conf_norm.split()[0] in c_norm:
                         matched = conf['name']
                         break
-                if matched == "Unknown": 
+                if matched == "Unknown":
                     continue
-                
+
                 # 薪资处理
                 salary_raw = str(row[col_sal]).replace(',', '').replace('$', '').replace('MXN', '').strip()
                 try:
                     salary = float(salary_raw)
                 except:
                     salary = 0
-                
+
                 # 百分比处理
                 pct_val = 1.0
                 if col_pct != -1 and len(row) > col_pct:
@@ -701,25 +702,25 @@ def fetch_financial_df(client, start_m, end_m, year):
                         pct_val = p_float / 100.0 if p_float > 1.0 else p_float
                     except:
                         pct_val = 1.0
-                
+
                 # GP计算
                 base_gp_factor = 1.0 if salary < 20000 else 1.5
                 calc_gp = salary * base_gp_factor * pct_val
-                
+
                 # 付款状态
                 pay_date_str = row[col_pay].strip() if (col_pay != -1 and len(row) > col_pay) else ""
                 status = "Paid" if len(pay_date_str) > 5 else "Pending"
-                
+
                 records.append({
-                    "Consultant": matched, 
-                    "GP": calc_gp, 
+                    "Consultant": matched,
+                    "GP": calc_gp,
                     "Candidate Salary": salary,
-                    "Percentage": pct_val, 
-                    "Onboard Date": onboard_date, 
-                    "Payment Date": pay_date_str, 
+                    "Percentage": pct_val,
+                    "Onboard Date": onboard_date,
+                    "Payment Date": pay_date_str,
                     "Status": status
                 })
-        
+
         return pd.DataFrame(records)
     except Exception as e:
         st.error(f"财务数据获取失败: {e}")
@@ -733,7 +734,7 @@ def get_monthly_commission(client, consultant_name, month_key):
         ws = sheet.worksheet(COMMISSION_TAB_NAME)
         df = pd.DataFrame(ws.get_all_records())
 
-        if df.empty: 
+        if df.empty:
             return 0.0
 
         # 标准化匹配
@@ -741,12 +742,13 @@ def get_monthly_commission(client, consultant_name, month_key):
         match = df[
             (df['Consultant'].apply(normalize_text) == c_norm) &
             (df['Month'].astype(str) == month_key)
-        ]
+            ]
 
         return float(match.iloc[0]['Final_Commission']) if not match.empty else 0.0
     except Exception as e:
         st.warning(f"获取月度佣金失败: {e}")
         return 0.0
+
 
 # --- UI渲染函数 ---
 def render_bar(current_total, goal, color_class, label_text, is_monthly_boss=False):
@@ -800,7 +802,7 @@ def render_player_card(conf, fin_summary, quarterly_cv_count, card_index, monthl
 
     # 卡片样式
     border_class = f"card-border-{(card_index % 4) + 1}"
-    
+
     # 渲染卡片
     st.markdown(f"""
     <div class="player-card {border_class}">
@@ -836,6 +838,7 @@ def render_player_card(conf, fin_summary, quarterly_cv_count, card_index, monthl
     st.markdown("</div>", unsafe_allow_html=True)
 
 
+
 # --- 主程序 ---
 def main():
     """应用主函数"""
@@ -852,7 +855,7 @@ def main():
     if start_btn:
         # 连接Google Sheets
         client = connect_to_google()
-        if not client: 
+        if not client:
             return
 
         # 加载团队配置（含角色信息）
@@ -873,29 +876,32 @@ def main():
         # 初始化数据容器
         monthly_results = []
         quarterly_results = []
-        all_month_details = []
+        all_month_details = []  # 实际存储全季度明细（保留原变量名）
         consultant_cv_counts = {}
 
         # 加载数据
         with st.spinner(f"🛰️ SCANNING SECTOR Q{quarter_num}..."):
-            # 1. 获取招聘数据（CV数）
+            # 1. 获取招聘数据（CV数）- 修改核心逻辑
             for consultant in active_team_config:
-                # 月度数据
-                m_count, m_details = fetch_consultant_data(client, consultant, current_month_tab)
-                all_month_details.extend(m_details)
-
-                # 季度数据
                 q_count = 0
-                for q_tab in quarter_tabs:
-                    if q_tab == current_month_tab:
-                        q_count += m_count
-                    else:
-                        c, _ = fetch_consultant_data(client, consultant, q_tab)
-                        q_count += c
+                q_details = []  # 存储该顾问全季度的明细
+                m_count = 0  # 当月数量
 
+                # 遍历季度内所有月份
+                for q_tab in quarter_tabs:
+                    c_count, c_details = fetch_consultant_data(client, consultant, q_tab)
+                    q_count += c_count
+                    q_details.extend(c_details)  # 收集该月份的明细
+
+                    # 记录当月数量
+                    if q_tab == current_month_tab:
+                        m_count = c_count
+
+                # 汇总到全局容器
                 monthly_results.append({"name": consultant['name'], "count": m_count})
                 quarterly_results.append({"name": consultant['name'], "count": q_count})
                 consultant_cv_counts[consultant['name']] = q_count
+                all_month_details.extend(q_details)  # 加入全季度明细
 
             # 2. 获取财务数据
             sales_df = fetch_financial_df(client, start_m, end_m, year)
@@ -924,12 +930,12 @@ def main():
             </div>
             """
             pit_month_ph.markdown(render_pit_html, unsafe_allow_html=True)
-            
+
             # 最后一步显示团队成员数据
             if step == steps:
                 cols_m = stats_month_ph.columns(len(monthly_results))
                 for idx, res in enumerate(monthly_results):
-                    with cols_m[idx]: 
+                    with cols_m[idx]:
                         st.markdown(
                             f"""<div class="stat-card"><div class="stat-name">{res['name']}</div><div class="stat-val">{res['count']}</div></div>""",
                             unsafe_allow_html=True)
@@ -992,12 +998,13 @@ def main():
         if all_month_details:
             st.markdown("---")
 
-            # 按顾问查看明细
+            # 按顾问查看明细（当月）
             with st.expander(f"📜 MISSION LOGS ({current_month_tab})", expanded=False):
                 df_all = pd.DataFrame(all_month_details)
+                # 筛选当月数据显示
                 tab_names = [c['name'] for c in active_team_config]
                 tabs = st.tabs(tab_names)
-                
+
                 for idx, tab in enumerate(tabs):
                     with tab:
                         current_consultant = tab_names[idx]
@@ -1007,8 +1014,8 @@ def main():
                             df_agg = df_agg.sort_values(by='Count', ascending=False)
                             df_agg['Count'] = df_agg['Count'].astype(str)
                             st.dataframe(
-                                df_agg, 
-                                use_container_width=True, 
+                                df_agg,
+                                use_container_width=True,
                                 hide_index=True,
                                 column_config={
                                     "Company": st.column_config.TextColumn("TARGET COMPANY"),
@@ -1019,21 +1026,21 @@ def main():
                         else:
                             st.info(f"NO DATA FOR {current_consultant}")
 
-            # 团队岗位汇总
-            with st.expander("📊 CV SUMMARY BY POSITIONS", expanded=False):
+            # 团队岗位汇总（全季度）
+            with st.expander("📊 CV SUMMARY BY POSITIONS (Q{quarter_num} TOTAL)", expanded=False):
                 df_total = pd.DataFrame(all_month_details)
                 summary_agg = df_total.groupby(['Company', 'Position'])['Count'].sum().reset_index()
                 summary_agg = summary_agg.sort_values(by='Count', ascending=False)
-                summary_agg.columns = ['CLIENT/COMPANY', 'TARGET ROLE', 'TOTAL CVs']
+                summary_agg.columns = ['CLIENT/COMPANY', 'TARGET ROLE', 'TOTAL CVs (Q{quarter_num})']
 
                 st.dataframe(
                     summary_agg,
                     use_container_width=True,
                     hide_index=True,
                     column_config={
-                        "TOTAL CVs": st.column_config.NumberColumn(
-                            "TOTAL CVs",
-                            help="Total number of CVs across the whole team",
+                        "TOTAL CVs (Q{quarter_num})": st.column_config.NumberColumn(
+                            f"TOTAL CVs (Q{quarter_num})",
+                            help="Total number of CVs across the whole team (Quarter {quarter_num})",
                             format="%d ⭐"
                         )
                     }
@@ -1041,7 +1048,8 @@ def main():
 
         elif monthly_total == 0:
             st.markdown("---")
-            st.info("NO DATA FOUND FOR THIS MONTH YET.")
+            st.info("NO DATA FOUND FOR THIS QUARTER YET.")
+
 
 if __name__ == "__main__":
     main()
