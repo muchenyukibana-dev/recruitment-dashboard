@@ -16,6 +16,8 @@ SALES_SHEET_ID = '1jniQ-GpeMINjQMebniJ_J1eLVLQIR1NGbSjTtOFP9Q8'
 SALES_TAB_NAME = 'Positions'
 COMMISSION_SUMMARY_ID = '1A3K3RLlVNzCSCI-AkXAh8-K99gDSpCM7L9oNOCY0Obs'
 COMMISSION_TAB_NAME = 'Commission Detail'
+# 新增：LIVE POSITIONS 相关配置
+LIVE_POSITIONS_TAB = 'LIVE POSITIONS'  # 假设标签名为LIVE POSITIONS，可根据实际调整
 
 TEAM_CONFIG_TEMPLATE = [
     {
@@ -386,6 +388,60 @@ def get_commission_from_sheet(client, consultant_name):
     except Exception as e:
         st.warning(f"读取{consultant_name}佣金失败: {str(e)}")
         return 0.0
+
+# ==========================================
+# 🆕 新增：读取LIVE POSITIONS岗位简历总数
+# ==========================================
+def get_live_positions_cv_summary(client):
+    """读取指定表格中LIVE POSITIONS岗位的所有月份简历总数"""
+    try:
+        # 打开指定表格
+        sheet = safe_google_api_call(client.open_by_key, SALES_SHEET_ID)
+        if not sheet:
+            return pd.DataFrame()
+        
+        # 尝试打开LIVE POSITIONS标签页
+        try:
+            ws = safe_google_api_call(sheet.worksheet, LIVE_POSITIONS_TAB)
+        except Exception as e:
+            st.warning(f"未找到{LIVE_POSITIONS_TAB}标签页: {e}")
+            return pd.DataFrame()
+        
+        # 获取所有数据
+        data = safe_google_api_call(ws.get_all_records)
+        df = pd.DataFrame(data)
+        
+        if df.empty:
+            return pd.DataFrame()
+        
+        # 假设数据结构包含：Client(客户), Position(岗位), Month(月份), CV_Count(简历数)
+        # 可根据实际表格结构调整列名
+        required_cols = ["Client", "Position", "CV_Count"]
+        available_cols = [col for col in required_cols if col in df.columns]
+        
+        if len(available_cols) < 2:
+            st.warning(f"LIVE POSITIONS表格缺少必要列，需要至少包含Client/Position/CV_Count中的两项")
+            return pd.DataFrame()
+        
+        # 处理简历数字段（确保是数值类型）
+        if "CV_Count" in df.columns:
+            df["CV_Count"] = pd.to_numeric(df["CV_Count"], errors='coerce').fillna(0)
+        else:
+            # 如果没有CV_Count列，默认按岗位计数（每个岗位算1条）
+            df["CV_Count"] = 1
+        
+        # 按客户+岗位分组统计总数
+        summary_df = df.groupby(["Client", "Position"])["CV_Count"].sum().reset_index()
+        summary_df = summary_df.rename(columns={
+            "Client": "CLIENT",
+            "Position": "ROLE",
+            "CV_Count": "TOTAL CVs"
+        }).sort_values("TOTAL CVs", ascending=False)
+        
+        return summary_df
+    except Exception as e:
+        st.error(f"读取LIVE POSITIONS简历总数失败: {e}")
+        return pd.DataFrame()
 
 
 # ==========================================
@@ -805,11 +861,16 @@ def main():
                         agg = agg.sort_values("Count", ascending=False)
                         agg["Count"] = agg["Count"].astype(str)
                         st.dataframe(agg, use_container_width=True, hide_index=True)
-        with st.expander("📊 CV SUMMARY", expanded=False):
-            df = pd.DataFrame(all_details)
-            agg = df.groupby(["Company", "Position"])["Count"].sum().reset_index().sort_values("Count", ascending=False)
-            agg.columns = ["CLIENT", "ROLE", "TOTAL CVs"]
-            st.dataframe(agg, use_container_width=True, hide_index=True)
+        
+        # 🆕 修改：CV SUMMARY 改为读取LIVE POSITIONS数据
+        with st.expander("📊 CV SUMMARY (LIVE POSITIONS)", expanded=False):
+            # 调用新增函数获取LIVE POSITIONS简历总数
+            live_cv_summary = get_live_positions_cv_summary(client)
+            
+            if live_cv_summary.empty:
+                st.info("NO LIVE POSITIONS DATA AVAILABLE")
+            else:
+                st.dataframe(live_cv_summary, use_container_width=True, hide_index=True)
 
 
 if __name__ == "__main__":
