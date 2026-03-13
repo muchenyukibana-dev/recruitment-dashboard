@@ -295,6 +295,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+
 # ==========================================
 # 🧮 工具函数
 # ==========================================
@@ -342,40 +343,72 @@ def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
     else:
         return 3, 3
 
+
 # 新增：获取LIVE POSITIONS列表
 def get_live_positions(client):
-    """从Positions标签页读取LIVE POSITIONS的岗位名称列表"""
+    """从Positions标签页读取LIVE POSITIONS的岗位名称列表（精准适配版）"""
     try:
         sheet = safe_google_api_call(client.open_by_key, SALES_SHEET_ID)
         ws = safe_google_api_call(sheet.worksheet, SALES_TAB_NAME)
         rows = safe_google_api_call(ws.get_all_values)
-        
+
         live_positions = []
-        # 标记是否找到LIVE POSITIONS区域
         in_live_section = False
-        
-        for r in rows:
-            row_text = normalize_text(' '.join(r))
-            # 检测LIVE POSITIONS标题行
-            if 'live positions' in row_text:
+        # 精准匹配：只识别完全的「LIVE POSITIONS」（不匹配变体）
+        LIVE_TITLE = "LIVE POSITIONS"
+        END_TITLES = ["FILLED POSITIONS", "CLOSED POSITIONS", "FILLED", "CLOSED"]
+
+        for row_idx, r in enumerate(rows):
+            # 跳过空行
+            if not any(cell.strip() for cell in r):
+                continue
+
+            # 把整行内容拼接成字符串（去空格、大写），用于精准匹配
+            row_combined = ' '.join([cell.strip().upper() for cell in r if cell.strip()])
+
+            # 1. 检测LIVE POSITIONS标题行 → 开始读取岗位
+            if LIVE_TITLE == row_combined:
                 in_live_section = True
+                st.info(f"✅ 第{row_idx + 1}行找到LIVE POSITIONS区域，开始读取岗位")
                 continue
-            # 检测其他区域标题（如FILLED POSITIONS），结束LIVE区域读取
-            elif 'filled positions' in row_text or 'closed positions' in row_text:
+
+            # 2. 检测结束标题 → 停止读取
+            if any(end_title == row_combined for end_title in END_TITLES):
                 in_live_section = False
-                continue
-                
-            # 在LIVE区域内提取岗位名称
-            if in_live_section and r:
-                # 取非空的第一个单元格作为岗位名称（可根据实际表格结构调整）
-                position_name = normalize_text(r[0].strip())
-                if position_name and position_name != '':
-                    live_positions.append(position_name)
-        
-        return live_positions
+                st.info(f"✅ 第{row_idx + 1}行找到结束区域，停止读取岗位")
+                break
+
+            # 3. 在LIVE区域内提取岗位名称（优先第1列，兼容空值）
+            if in_live_section:
+                # 取第1列作为岗位名称（如果为空，尝试第2列）
+                position_name = r[0].strip() if len(r) > 0 else ""
+                if not position_name and len(r) > 1:
+                    position_name = r[1].strip()
+
+                # 规范化+去重+过滤无效值
+                position_norm = normalize_text(position_name)
+                if (position_norm and
+                        position_norm not in ["", " ", "-"] and
+                        position_norm not in live_positions):
+                    live_positions.append(position_norm)
+
+                # 限制最多读取50个岗位（匹配你的场景）
+                if len(live_positions) >= 50:
+                    st.info("⚠️ 已读取50个LIVE岗位，停止读取")
+                    break
+
+        # 结果校验
+        if live_positions:
+            st.success(f"✅ 成功加载 {len(live_positions)} 个LIVE岗位")
+            return live_positions
+        else:
+            st.warning("⚠️ 找到LIVE POSITIONS标题，但未读取到有效岗位，显示所有岗位数据")
+            return []
+
     except Exception as e:
-        st.warning(f"读取LIVE POSITIONS失败: {str(e)}")
+        st.warning(f"读取LIVE POSITIONS失败: {str(e)}，显示所有岗位数据")
         return []
+
 
 # ==========================================
 # 🔍 核心：按【季度】判断是否达标（历史季度不随本月变化）
@@ -843,21 +876,21 @@ def main():
                         agg = agg.sort_values("Count", ascending=False)
                         agg["Count"] = agg["Count"].astype(str)
                         st.dataframe(agg, use_container_width=True, hide_index=True)
-        
+
         # 修改：CV SUMMARY只显示LIVE POSITIONS的岗位
         with st.expander("📊 CV SUMMARY (仅LIVE岗位)", expanded=False):
             df = pd.DataFrame(all_details)
-            
+
             # 规范化岗位名称用于匹配
             df["position_norm"] = df["Position"].apply(normalize_text)
-            
+
             # 过滤出仅包含LIVE POSITIONS的记录
             if live_positions:
                 df_filtered = df[df["position_norm"].isin(live_positions)]
             else:
                 df_filtered = df
                 st.warning("⚠️ 未读取到LIVE POSITIONS，显示所有岗位数据")
-            
+
             if df_filtered.empty:
                 st.info("📭 暂无LIVE岗位的简历数据")
             else:
