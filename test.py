@@ -346,7 +346,7 @@ def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
 
 # 新增：获取LIVE POSITIONS列表
 def get_live_positions(client):
-    """从Positions标签页读取LIVE POSITIONS的岗位名称列表（适配F列岗位）"""
+    """从Positions标签页读取LIVE POSITIONS的岗位名称列表（带完整调试日志）"""
     try:
         sheet = safe_google_api_call(client.open_by_key, SALES_SHEET_ID)
         ws = safe_google_api_call(sheet.worksheet, SALES_TAB_NAME)
@@ -356,7 +356,12 @@ def get_live_positions(client):
         in_live_section = False
         LIVE_TITLE = "LIVE POSITIONS"
         END_TITLES = ["FILLED POSITIONS", "CLOSED POSITIONS", "FILLED", "CLOSED"]
-        POS_COLUMN = 5  # F列对应的索引（A=0, B=1, C=2, D=3, E=4, F=5）
+        POS_COLUMN = 5  # F列（A=0）
+
+        # 新增：打印前20行表格内容，方便整体排查
+        st.write("📋 表格前20行原始内容（用于调试）：")
+        for i, row in enumerate(rows[:20]):
+            st.write(f"第{i + 1}行：{row}")
 
         for row_idx, r in enumerate(rows):
             # 跳过空行
@@ -378,18 +383,22 @@ def get_live_positions(client):
 
             # 核心：在LIVE区域内读取F列（索引5）的岗位名称
             if in_live_section:
+                st.write(
+                    f"🔍 第{row_idx + 1}行 - 行长度：{len(r)} - F列内容：{r[POS_COLUMN] if len(r) > POS_COLUMN else '无'}")
                 # 检查F列是否存在（避免索引越界）
                 if len(r) > POS_COLUMN:
                     position_name = r[POS_COLUMN].strip()  # 读取F列内容
                     position_norm = normalize_text(position_name)
 
+                    # 打印原始值和规范化后的值，排查过滤问题
+                    st.write(f"   → 原始值：'{position_name}' - 规范化后：'{position_norm}'")
+
                     # 过滤无效值+去重
                     if (position_norm and
-                            position_norm not in ["", " ", "-", "nan"] and
+                            position_norm not in ["", " ", "-", "nan", "none"] and
                             position_norm not in live_positions):
                         live_positions.append(position_norm)
-                        # 实时日志（可选，方便调试）
-                        # st.write(f"📌 第{row_idx+1}行F列读取到岗位：{position_name}")
+                        st.write(f"   ✅ 加入有效岗位列表：{position_norm}")
 
                 # 限制最多读取50个岗位
                 if len(live_positions) >= 50:
@@ -399,8 +408,7 @@ def get_live_positions(client):
         # 结果校验
         if live_positions:
             st.success(f"✅ 成功加载 {len(live_positions)} 个LIVE岗位（F列）")
-            # 可选：显示读取到的岗位列表，方便验证
-            # st.write("读取到的LIVE岗位列表：", live_positions)
+            st.write("📌 最终读取到的LIVE岗位列表：", live_positions)
             return live_positions
         else:
             st.warning("⚠️ 找到LIVE POSITIONS标题，但F列未读取到有效岗位，显示所有岗位数据")
