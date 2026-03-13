@@ -16,8 +16,6 @@ SALES_SHEET_ID = '1jniQ-GpeMINjQMebniJ_J1eLVLQIR1NGbSjTtOFP9Q8'
 SALES_TAB_NAME = 'Positions'
 COMMISSION_SUMMARY_ID = '1A3K3RLlVNzCSCI-AkXAh8-K99gDSpCM7L9oNOCY0Obs'
 COMMISSION_TAB_NAME = 'Commission Detail'
-# 🔍 注意：请根据实际表格标签名修改（支持模糊匹配）
-LIVE_POSITIONS_KEYWORDS = ['LIVE', 'Live', 'live', '有效的', '在招', '活跃']  # 增加关键词匹配
 
 TEAM_CONFIG_TEMPLATE = [
     {
@@ -344,6 +342,40 @@ def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
     else:
         return 3, 3
 
+# 新增：获取LIVE POSITIONS列表
+def get_live_positions(client):
+    """从Positions标签页读取LIVE POSITIONS的岗位名称列表"""
+    try:
+        sheet = safe_google_api_call(client.open_by_key, SALES_SHEET_ID)
+        ws = safe_google_api_call(sheet.worksheet, SALES_TAB_NAME)
+        rows = safe_google_api_call(ws.get_all_values)
+        
+        live_positions = []
+        # 标记是否找到LIVE POSITIONS区域
+        in_live_section = False
+        
+        for r in rows:
+            row_text = normalize_text(' '.join(r))
+            # 检测LIVE POSITIONS标题行
+            if 'live positions' in row_text:
+                in_live_section = True
+                continue
+            # 检测其他区域标题（如FILLED POSITIONS），结束LIVE区域读取
+            elif 'filled positions' in row_text or 'closed positions' in row_text:
+                in_live_section = False
+                continue
+                
+            # 在LIVE区域内提取岗位名称
+            if in_live_section and r:
+                # 取非空的第一个单元格作为岗位名称（可根据实际表格结构调整）
+                position_name = normalize_text(r[0].strip())
+                if position_name and position_name != '':
+                    live_positions.append(position_name)
+        
+        return live_positions
+    except Exception as e:
+        st.warning(f"读取LIVE POSITIONS失败: {str(e)}")
+        return []
 
 # ==========================================
 # 🔍 核心：按【季度】判断是否达标（历史季度不随本月变化）
@@ -388,106 +420,6 @@ def get_commission_from_sheet(client, consultant_name):
     except Exception as e:
         st.warning(f"读取{consultant_name}佣金失败: {str(e)}")
         return 0.0
-
-# ==========================================
-# 🆕 修复：读取LIVE POSITIONS岗位简历总数（增加容错和调试）
-# ==========================================
-def get_live_positions_cv_summary(client):
-    """读取指定表格中LIVE POSITIONS岗位的所有月份简历总数（增加容错）"""
-    try:
-        # 打开指定表格
-        sheet = safe_google_api_call(client.open_by_key, SALES_SHEET_ID)
-        if not sheet:
-            st.warning("无法打开指定的表格")
-            return pd.DataFrame()
-        
-        # 🚨 调试：列出所有标签页名称（帮助确认正确名称）
-        all_tabs = safe_google_api_call(lambda: [w.title for w in sheet.worksheets()])
-        st.info(f"表格中所有标签页：{all_tabs}")
-        
-        # 查找包含关键词的标签页
-        live_tab = None
-        for tab_name in all_tabs:
-            if any(keyword in tab_name for keyword in LIVE_POSITIONS_KEYWORDS):
-                live_tab = tab_name
-                break
-        
-        if not live_tab:
-            st.warning(f"未找到包含以下关键词的标签页：{LIVE_POSITIONS_KEYWORDS}")
-            return pd.DataFrame()
-        
-        # 打开找到的标签页
-        ws = safe_google_api_call(sheet.worksheet, live_tab)
-        if not ws:
-            st.warning(f"无法打开标签页：{live_tab}")
-            return pd.DataFrame()
-        
-        # 获取所有数据（增加空值判断）
-        data = safe_google_api_call(ws.get_all_records)
-        if not data:
-            st.warning(f"{live_tab} 标签页中没有数据")
-            return pd.DataFrame()
-        
-        df = pd.DataFrame(data)
-        
-        # 调试：显示表格结构
-        st.info(f"{live_tab} 标签页列名：{df.columns.tolist()}")
-        
-        # 灵活匹配列名
-        client_col = None
-        position_col = None
-        cv_count_col = None
-        
-        # 匹配客户列
-        client_keywords = ['Client', 'client', 'Cliente', '客户', '公司']
-        for col in df.columns:
-            if any(kw in col for kw in client_keywords):
-                client_col = col
-                break
-        
-        # 匹配岗位列
-        position_keywords = ['Position', 'position', 'Role', 'role', '岗位', '职位']
-        for col in df.columns:
-            if any(kw in col for kw in position_keywords):
-                position_col = col
-                break
-        
-        # 匹配简历数列
-        cv_keywords = ['CV', 'cv', 'Resume', 'resume', '简历', '数量', 'Count', 'count']
-        for col in df.columns:
-            if any(kw in col for kw in cv_keywords):
-                cv_count_col = col
-                break
-        
-        # 检查必要列
-        if not client_col or not position_col:
-            st.warning(f"缺少必要列 - 客户列：{client_col}，岗位列：{position_col}")
-            return pd.DataFrame()
-        
-        # 处理简历数
-        if cv_count_col:
-            df[cv_count_col] = pd.to_numeric(df[cv_count_col], errors='coerce').fillna(0)
-        else:
-            # 如果没有简历数列，按行计数
-            df['CV_Count'] = 1
-            cv_count_col = 'CV_Count'
-        
-        # 按客户+岗位分组统计
-        summary_df = df.groupby([client_col, position_col])[cv_count_col].sum().reset_index()
-        summary_df = summary_df.rename(columns={
-            client_col: "CLIENT",
-            position_col: "ROLE",
-            cv_count_col: "TOTAL CVs"
-        }).sort_values("TOTAL CVs", ascending=False)
-        
-        return summary_df
-    
-    except Exception as e:
-        st.error(f"读取LIVE POSITIONS简历总数失败: {str(e)}")
-        # 打印完整错误堆栈（便于调试）
-        import traceback
-        st.code(traceback.format_exc())
-        return pd.DataFrame()
 
 
 # ==========================================
@@ -772,6 +704,10 @@ def main():
     if not client:
         return
 
+    # 新增：读取LIVE POSITIONS列表
+    live_positions = get_live_positions(client)
+    st.info(f"📌 已加载 {len(live_positions)} 个LIVE岗位")
+
     team = []
     status = st.empty()
     status.info("🔐 LOADING TEAM...")
@@ -908,15 +844,28 @@ def main():
                         agg["Count"] = agg["Count"].astype(str)
                         st.dataframe(agg, use_container_width=True, hide_index=True)
         
-        # 🆕 修改：CV SUMMARY 改为读取LIVE POSITIONS数据
-        with st.expander("📊 CV SUMMARY (LIVE POSITIONS)", expanded=False):
-            # 调用修复后的函数获取LIVE POSITIONS简历总数
-            live_cv_summary = get_live_positions_cv_summary(client)
+        # 修改：CV SUMMARY只显示LIVE POSITIONS的岗位
+        with st.expander("📊 CV SUMMARY (仅LIVE岗位)", expanded=False):
+            df = pd.DataFrame(all_details)
             
-            if live_cv_summary.empty:
-                st.info("NO LIVE POSITIONS DATA AVAILABLE")
+            # 规范化岗位名称用于匹配
+            df["position_norm"] = df["Position"].apply(normalize_text)
+            
+            # 过滤出仅包含LIVE POSITIONS的记录
+            if live_positions:
+                df_filtered = df[df["position_norm"].isin(live_positions)]
             else:
-                st.dataframe(live_cv_summary, use_container_width=True, hide_index=True)
+                df_filtered = df
+                st.warning("⚠️ 未读取到LIVE POSITIONS，显示所有岗位数据")
+            
+            if df_filtered.empty:
+                st.info("📭 暂无LIVE岗位的简历数据")
+            else:
+                # 按客户和岗位汇总
+                agg = df_filtered.groupby(["Company", "Position"])["Count"].sum().reset_index()
+                agg = agg.sort_values("Count", ascending=False)
+                agg.columns = ["CLIENT", "ROLE", "TOTAL CVs"]
+                st.dataframe(agg, use_container_width=True, hide_index=True)
 
 
 if __name__ == "__main__":
