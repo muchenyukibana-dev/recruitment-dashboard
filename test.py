@@ -16,8 +16,8 @@ SALES_SHEET_ID = '1jniQ-GpeMINjQMebniJ_J1eLVLQIR1NGbSjTtOFP9Q8'
 SALES_TAB_NAME = 'Positions'
 COMMISSION_SUMMARY_ID = '1A3K3RLlVNzCSCI-AkXAh8-K99gDSpCM7L9oNOCY0Obs'
 COMMISSION_TAB_NAME = 'Commission Detail'
-# 新增：LIVE POSITIONS 相关配置
-LIVE_POSITIONS_TAB = 'LIVE POSITIONS'  # 假设标签名为LIVE POSITIONS，可根据实际调整
+# 🔍 注意：请根据实际表格标签名修改（支持模糊匹配）
+LIVE_POSITIONS_KEYWORDS = ['LIVE', 'Live', 'live', '有效的', '在招', '活跃']  # 增加关键词匹配
 
 TEAM_CONFIG_TEMPLATE = [
     {
@@ -390,57 +390,103 @@ def get_commission_from_sheet(client, consultant_name):
         return 0.0
 
 # ==========================================
-# 🆕 新增：读取LIVE POSITIONS岗位简历总数
+# 🆕 修复：读取LIVE POSITIONS岗位简历总数（增加容错和调试）
 # ==========================================
 def get_live_positions_cv_summary(client):
-    """读取指定表格中LIVE POSITIONS岗位的所有月份简历总数"""
+    """读取指定表格中LIVE POSITIONS岗位的所有月份简历总数（增加容错）"""
     try:
         # 打开指定表格
         sheet = safe_google_api_call(client.open_by_key, SALES_SHEET_ID)
         if not sheet:
+            st.warning("无法打开指定的表格")
             return pd.DataFrame()
         
-        # 尝试打开LIVE POSITIONS标签页
-        try:
-            ws = safe_google_api_call(sheet.worksheet, LIVE_POSITIONS_TAB)
-        except Exception as e:
-            st.warning(f"未找到{LIVE_POSITIONS_TAB}标签页: {e}")
+        # 🚨 调试：列出所有标签页名称（帮助确认正确名称）
+        all_tabs = safe_google_api_call(lambda: [w.title for w in sheet.worksheets()])
+        st.info(f"表格中所有标签页：{all_tabs}")
+        
+        # 查找包含关键词的标签页
+        live_tab = None
+        for tab_name in all_tabs:
+            if any(keyword in tab_name for keyword in LIVE_POSITIONS_KEYWORDS):
+                live_tab = tab_name
+                break
+        
+        if not live_tab:
+            st.warning(f"未找到包含以下关键词的标签页：{LIVE_POSITIONS_KEYWORDS}")
             return pd.DataFrame()
         
-        # 获取所有数据
+        # 打开找到的标签页
+        ws = safe_google_api_call(sheet.worksheet, live_tab)
+        if not ws:
+            st.warning(f"无法打开标签页：{live_tab}")
+            return pd.DataFrame()
+        
+        # 获取所有数据（增加空值判断）
         data = safe_google_api_call(ws.get_all_records)
+        if not data:
+            st.warning(f"{live_tab} 标签页中没有数据")
+            return pd.DataFrame()
+        
         df = pd.DataFrame(data)
         
-        if df.empty:
+        # 调试：显示表格结构
+        st.info(f"{live_tab} 标签页列名：{df.columns.tolist()}")
+        
+        # 灵活匹配列名
+        client_col = None
+        position_col = None
+        cv_count_col = None
+        
+        # 匹配客户列
+        client_keywords = ['Client', 'client', 'Cliente', '客户', '公司']
+        for col in df.columns:
+            if any(kw in col for kw in client_keywords):
+                client_col = col
+                break
+        
+        # 匹配岗位列
+        position_keywords = ['Position', 'position', 'Role', 'role', '岗位', '职位']
+        for col in df.columns:
+            if any(kw in col for kw in position_keywords):
+                position_col = col
+                break
+        
+        # 匹配简历数列
+        cv_keywords = ['CV', 'cv', 'Resume', 'resume', '简历', '数量', 'Count', 'count']
+        for col in df.columns:
+            if any(kw in col for kw in cv_keywords):
+                cv_count_col = col
+                break
+        
+        # 检查必要列
+        if not client_col or not position_col:
+            st.warning(f"缺少必要列 - 客户列：{client_col}，岗位列：{position_col}")
             return pd.DataFrame()
         
-        # 假设数据结构包含：Client(客户), Position(岗位), Month(月份), CV_Count(简历数)
-        # 可根据实际表格结构调整列名
-        required_cols = ["Client", "Position", "CV_Count"]
-        available_cols = [col for col in required_cols if col in df.columns]
-        
-        if len(available_cols) < 2:
-            st.warning(f"LIVE POSITIONS表格缺少必要列，需要至少包含Client/Position/CV_Count中的两项")
-            return pd.DataFrame()
-        
-        # 处理简历数字段（确保是数值类型）
-        if "CV_Count" in df.columns:
-            df["CV_Count"] = pd.to_numeric(df["CV_Count"], errors='coerce').fillna(0)
+        # 处理简历数
+        if cv_count_col:
+            df[cv_count_col] = pd.to_numeric(df[cv_count_col], errors='coerce').fillna(0)
         else:
-            # 如果没有CV_Count列，默认按岗位计数（每个岗位算1条）
-            df["CV_Count"] = 1
+            # 如果没有简历数列，按行计数
+            df['CV_Count'] = 1
+            cv_count_col = 'CV_Count'
         
-        # 按客户+岗位分组统计总数
-        summary_df = df.groupby(["Client", "Position"])["CV_Count"].sum().reset_index()
+        # 按客户+岗位分组统计
+        summary_df = df.groupby([client_col, position_col])[cv_count_col].sum().reset_index()
         summary_df = summary_df.rename(columns={
-            "Client": "CLIENT",
-            "Position": "ROLE",
-            "CV_Count": "TOTAL CVs"
+            client_col: "CLIENT",
+            position_col: "ROLE",
+            cv_count_col: "TOTAL CVs"
         }).sort_values("TOTAL CVs", ascending=False)
         
         return summary_df
+    
     except Exception as e:
-        st.error(f"读取LIVE POSITIONS简历总数失败: {e}")
+        st.error(f"读取LIVE POSITIONS简历总数失败: {str(e)}")
+        # 打印完整错误堆栈（便于调试）
+        import traceback
+        st.code(traceback.format_exc())
         return pd.DataFrame()
 
 
@@ -864,7 +910,7 @@ def main():
         
         # 🆕 修改：CV SUMMARY 改为读取LIVE POSITIONS数据
         with st.expander("📊 CV SUMMARY (LIVE POSITIONS)", expanded=False):
-            # 调用新增函数获取LIVE POSITIONS简历总数
+            # 调用修复后的函数获取LIVE POSITIONS简历总数
             live_cv_summary = get_live_positions_cv_summary(client)
             
             if live_cv_summary.empty:
