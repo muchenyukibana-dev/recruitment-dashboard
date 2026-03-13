@@ -346,7 +346,7 @@ def calculate_commission_tier(total_gp, base_salary, is_team_lead=False):
 
 # 新增：获取LIVE POSITIONS列表
 def get_live_positions(client):
-    """从Positions标签页读取LIVE POSITIONS的岗位名称列表（精准适配版）"""
+    """从Positions标签页读取LIVE POSITIONS的岗位名称列表（适配F列岗位）"""
     try:
         sheet = safe_google_api_call(client.open_by_key, SALES_SHEET_ID)
         ws = safe_google_api_call(sheet.worksheet, SALES_TAB_NAME)
@@ -354,61 +354,61 @@ def get_live_positions(client):
 
         live_positions = []
         in_live_section = False
-        # 精准匹配：只识别完全的「LIVE POSITIONS」（不匹配变体）
         LIVE_TITLE = "LIVE POSITIONS"
         END_TITLES = ["FILLED POSITIONS", "CLOSED POSITIONS", "FILLED", "CLOSED"]
+        POS_COLUMN = 5  # F列对应的索引（A=0, B=1, C=2, D=3, E=4, F=5）
 
         for row_idx, r in enumerate(rows):
             # 跳过空行
             if not any(cell.strip() for cell in r):
                 continue
 
-            # 把整行内容拼接成字符串（去空格、大写），用于精准匹配
+            # 精准匹配LIVE POSITIONS标题行
             row_combined = ' '.join([cell.strip().upper() for cell in r if cell.strip()])
-
-            # 1. 检测LIVE POSITIONS标题行 → 开始读取岗位
             if LIVE_TITLE == row_combined:
                 in_live_section = True
-                st.info(f"✅ 第{row_idx + 1}行找到LIVE POSITIONS区域，开始读取岗位")
+                st.info(f"✅ 第{row_idx + 1}行找到LIVE POSITIONS标题，开始读取F列岗位")
                 continue
 
-            # 2. 检测结束标题 → 停止读取
+            # 检测结束标题，停止读取
             if any(end_title == row_combined for end_title in END_TITLES):
                 in_live_section = False
                 st.info(f"✅ 第{row_idx + 1}行找到结束区域，停止读取岗位")
                 break
 
-            # 3. 在LIVE区域内提取岗位名称（优先第1列，兼容空值）
+            # 核心：在LIVE区域内读取F列（索引5）的岗位名称
             if in_live_section:
-                # 取第1列作为岗位名称（如果为空，尝试第2列）
-                position_name = r[0].strip() if len(r) > 0 else ""
-                if not position_name and len(r) > 1:
-                    position_name = r[1].strip()
+                # 检查F列是否存在（避免索引越界）
+                if len(r) > POS_COLUMN:
+                    position_name = r[POS_COLUMN].strip()  # 读取F列内容
+                    position_norm = normalize_text(position_name)
 
-                # 规范化+去重+过滤无效值
-                position_norm = normalize_text(position_name)
-                if (position_norm and
-                        position_norm not in ["", " ", "-"] and
-                        position_norm not in live_positions):
-                    live_positions.append(position_norm)
+                    # 过滤无效值+去重
+                    if (position_norm and
+                            position_norm not in ["", " ", "-", "nan"] and
+                            position_norm not in live_positions):
+                        live_positions.append(position_norm)
+                        # 实时日志（可选，方便调试）
+                        # st.write(f"📌 第{row_idx+1}行F列读取到岗位：{position_name}")
 
-                # 限制最多读取50个岗位（匹配你的场景）
+                # 限制最多读取50个岗位
                 if len(live_positions) >= 50:
                     st.info("⚠️ 已读取50个LIVE岗位，停止读取")
                     break
 
         # 结果校验
         if live_positions:
-            st.success(f"✅ 成功加载 {len(live_positions)} 个LIVE岗位")
+            st.success(f"✅ 成功加载 {len(live_positions)} 个LIVE岗位（F列）")
+            # 可选：显示读取到的岗位列表，方便验证
+            # st.write("读取到的LIVE岗位列表：", live_positions)
             return live_positions
         else:
-            st.warning("⚠️ 找到LIVE POSITIONS标题，但未读取到有效岗位，显示所有岗位数据")
+            st.warning("⚠️ 找到LIVE POSITIONS标题，但F列未读取到有效岗位，显示所有岗位数据")
             return []
 
     except Exception as e:
         st.warning(f"读取LIVE POSITIONS失败: {str(e)}，显示所有岗位数据")
         return []
-
 
 # ==========================================
 # 🔍 核心：按【季度】判断是否达标（历史季度不随本月变化）
