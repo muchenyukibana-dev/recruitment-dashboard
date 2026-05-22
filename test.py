@@ -530,11 +530,10 @@ def main():
                                 if p_date:
                                     c_sales.at[idx, 'Final Comm'] = comm
                                     c_sales.at[idx, 'Commission Day'] = p_date.strftime("%Y-%m-%d")
-                                    if p_date <= datetime.now() + timedelta(days=20):
-                                        if q_name == CURRENT_Q_STR:
-                                            total_comm_curr += comm
-                                        else:
-                                            total_comm_hist += comm
+                                    if q_name == CURRENT_Q_STR:
+                                        total_comm_curr += comm
+                                    else:
+                                        total_comm_hist += comm
                 updated_sales_records.append(c_sales)
             else:
                 updated_sales_records.append(c_sales)
