@@ -1,13 +1,3 @@
-我直接给你**修复完缩进、字段、重复计算、逻辑错误的完整可运行代码**，复制全部替换即可，所有报错一次性解决。
-
-### 核心修复点
-1. 修正 **主管津贴缩进错误**（之前缩进进了 else 里，只有实习生执行）
-2. 删除**重复计算bonus**的bug
-3. 团队津贴表格新增：**序号、顾问名、上岗时间、候选人薪资、付款日期、付佣金日期**
-4. 去掉20天时间限制，只要Paid就计入
-5. 彻底修复所有「未解析引用」「意外缩进」报错
-
-```python
 import streamlit as st
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
