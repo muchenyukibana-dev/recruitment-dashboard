@@ -538,7 +538,7 @@ def main():
             else:
                 updated_sales_records.append(c_sales)
 
-            # 主管津贴 (Overrides)
+            # 主管津贴 (Overrides) —— 主管不达标也显示
             if is_team_lead and not sales_df_2q.empty:
                 for q_name in [PREV_Q_STR, CURRENT_Q_STR]:
                     q_sales = sales_df_2q[sales_df_2q['Quarter'] == q_name]
@@ -552,6 +552,7 @@ def main():
                             bonus = 1000 * row['Percentage']
                             total_comm_curr += bonus
                             team_lead_overrides.append({
+                                "Leader": c_name,  # 必须保留，用来筛选
                                 "Onboard date": row['Onboard Date Str'],  # 候选人上岗日期
                                 "Source": row['Consultant'],
                                 "Salary": row['Candidate Salary'],
@@ -668,7 +669,20 @@ def main():
                             # 筛选出当前主管的 Overrides
                             my_ov = override_df[override_df['Leader'] == c_name]
                             if not my_ov.empty:
-                                st.dataframe(my_ov, use_container_width=True, hide_index=True)
+                                # 重命名表头，显示你要的名字，同时隐藏Leader列
+                                st.dataframe(
+                                    my_ov[["Onboard date", "Source", "Salary", "Client Paid", "Commission Day",
+                                           "Bonus"]].rename(columns={
+                                        "Onboard date": "候选人上岗日期",
+                                        "Source": "顾问",
+                                        "Salary": "候选人薪资",
+                                        "Client Paid": "客户付款日期",
+                                        "Commission Day": "主管佣金发放日",
+                                        "Bonus": "主管津贴"
+                                    }),
+                                    use_container_width=True,
+                                    hide_index=True
+                                )
                             else:
                                 st.info("No team overrides earned yet for this period.")
                         else:
