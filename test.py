@@ -58,7 +58,7 @@ st.markdown("""
     .stButton>button { background-color: #0056b3; color: white; border: none; border-radius: 4px; padding: 10px 24px; font-weight: bold; }
     .stButton>button:hover { background-color: #004494; color: white; }
     .dataframe { font-size: 14px !important; border: 1px solid #ddd !important; }
-    div[data-testid="metric-container"] { background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 15px; border-radius: 8px; color: #333; box-shadow: 2px 2px 4px rgba(0,0,0,0.05); }
+    div[data-testid="metric-container"] { background-color: #f8f9fa; border: 1px solid #e9ecef; padding: 15px; border-radius: 8px; color: #333; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
     </style>
     """, unsafe_allow_html=True)
 
@@ -391,16 +391,21 @@ def main():
         with st.expander(f"📜 Historical Recruitment Data ({PREV_Q_STR})"):
             rec_stats_prev = rec_stats_df[rec_stats_df['Month'].isin(prev_q_months)]
             if not rec_stats_prev.empty:
+                # 1. 基础汇总
                 summary_prev = rec_stats_prev.groupby('Consultant')[['Sent', 'Int', 'Off']].sum().reset_index()
+
+                # 2. 计算 Role, Target, % 等额外列 (复用 get_role_target 函数)
                 summary_prev[['Role', 'CV Target']] = summary_prev['Consultant'].apply(
                     lambda x: pd.Series(get_role_target(x))
                 )
                 summary_prev['Activity %'] = (summary_prev['Sent'] / summary_prev['CV Target']).fillna(0) * 100
                 summary_prev['Int Rate'] = (summary_prev['Int'] / summary_prev['Sent']).fillna(0) * 100
 
+                # 3. 排序并选择列顺序
                 cols = ['Consultant', 'Role', 'CV Target', 'Sent', 'Activity %', 'Int', 'Off', 'Int Rate']
                 summary_prev = summary_prev[cols].sort_values('Sent', ascending=False)
 
+                # 4. 使用和主表完全一样的 column_config 显示
                 st.dataframe(
                     summary_prev,
                     use_container_width=True,
@@ -430,8 +435,10 @@ def main():
                 st.info(f"No activity recorded for {PREV_Q_STR}")
 
         st.divider()
+        # 2. Financial Performance 标题
         st.markdown(f"### 💰 Financial Performance (Q{CURRENT_QUARTER})")
 
+        # --- [这里是计算逻辑的开始] ---
         financial_summary = []
         financial_curr = []
         financial_hist = []
@@ -443,17 +450,20 @@ def main():
             is_intern, is_team_lead = (role == "Intern"), (role == "Team Lead")
             gp_target = 0 if is_intern else base * (4.5 if is_team_lead else 9.0)
 
+            # 初始化每个顾问的变量
             fin_curr, fin_hist = 0.0, 0.0
             rec_pct_curr, rec_pct_hist = 0.0, 0.0
             total_comm_curr, total_comm_hist = 0.0, 0.0
             is_target_met_curr, is_target_met_hist = False, False
             achieved_curr, achieved_hist = [], []
 
+            # 提取该顾问的数据
             c_sales = sales_df_2q[
                 sales_df_2q['Consultant'] == c_name].copy() if not sales_df_2q.empty else pd.DataFrame()
             c_sales_curr = c_sales[c_sales['Quarter'] == CURRENT_Q_STR] if not c_sales.empty else pd.DataFrame()
             c_sales_hist = c_sales[c_sales['Quarter'] == PREV_Q_STR] if not c_sales.empty else pd.DataFrame()
 
+            # 简历统计
             sent_curr = \
                 rec_stats_df[(rec_stats_df['Consultant'] == c_name) & (rec_stats_df['Month'].isin(curr_q_months))][
                     'Sent'].sum()
@@ -463,11 +473,13 @@ def main():
             rec_pct_curr = (sent_curr / CV_TARGET_QUARTERLY * 100) if CV_TARGET_QUARTERLY > 0 else 0
             rec_pct_hist = (sent_hist / CV_TARGET_QUARTERLY * 100) if CV_TARGET_QUARTERLY > 0 else 0
 
+            # 财务进度 (Booked GP)
             booked_gp_curr = c_sales_curr['GP'].sum() if not c_sales_curr.empty else 0
             booked_gp_hist = c_sales_hist['GP'].sum() if not c_sales_hist.empty else 0
             fin_curr = (booked_gp_curr / gp_target * 100) if gp_target > 0 else 0
             fin_hist = (booked_gp_hist / gp_target * 100) if gp_target > 0 else 0
 
+            # --- 达标判定 (确定 Status) ---
             if is_intern:
                 if rec_pct_curr >= 100: achieved_curr.append("Activity"); is_target_met_curr = True
                 if rec_pct_hist >= 100: achieved_hist.append("Activity"); is_target_met_hist = True
@@ -480,7 +492,9 @@ def main():
             status_text_curr = " & ".join(achieved_curr) if achieved_curr else "In Progress"
             status_text_hist = " & ".join(achieved_hist) if achieved_hist else "Below Target"
 
+            # --- 佣金计算 ---
             if not is_intern and not c_sales.empty:
+                # 自动兼容不同的列名
                 t_col = next(
                     (c for c in ['Onboard Date Obj', 'Onboard Date Str', 'Onboarding Date'] if c in c_sales.columns),
                     None)
@@ -489,6 +503,7 @@ def main():
                     c_sales['Payment Date Obj'] = pd.to_datetime(c_sales['Payment Date Obj'], errors='coerce')
                     c_sales['Applied Level'], c_sales['Final Comm'], c_sales['Commission Day'] = 0, 0.0, ""
 
+                    # 补发比例锁定 (Level 1)
                     trigger_gp = base * (5.0 if is_team_lead else 10.0)
                     _, level1_mult = calculate_commission_tier(trigger_gp, base, is_team_lead)
 
@@ -504,6 +519,7 @@ def main():
                             running_onboard_gp += row['GP']
                             level, multiplier = calculate_commission_tier(running_onboard_gp, base, is_team_lead)
 
+                            # [特赦逻辑] 达标后 Level 0 变 Level 1
                             if target_is_met and level == 0: level, multiplier = 1, level1_mult
 
                             c_sales.at[idx, 'Applied Level'] = level
@@ -523,33 +539,24 @@ def main():
             else:
                 updated_sales_records.append(c_sales)
 
-            # ====================== 【修复后正确缩进】主管津贴计算 ======================
-            if is_team_lead and not sales_df_2q.empty:
+            # 主管津贴 (Overrides)
+            if is_team_lead and is_target_met_curr and not sales_df_2q.empty:
                 for q_name in [PREV_Q_STR, CURRENT_Q_STR]:
                     q_sales = sales_df_2q[sales_df_2q['Quarter'] == q_name]
                     if q_sales.empty:
                         continue
-
-                    ov_mask = (q_sales['Status'] == 'Paid') & (q_sales['Consultant'] != c_name)
+                    ov_mask = (q_sales['Status'] == 'Paid') & (q_sales['Consultant'] != c_name) & (
+                                q_sales['Consultant'] != "Estela Peng")
                     for _, row in q_sales[ov_mask].iterrows():
                         p_date = get_commission_pay_date(row['Payment Date Obj'])
                         if p_date:
                             bonus = 1000 * row['Percentage']
-                            if q_name == CURRENT_Q_STR:
-                                total_comm_curr += bonus
-                            else:
-                                total_comm_hist += bonus
-                            # 存储你需要的全部字段
-                            team_lead_overrides.append({
-                                "Leader": c_name,
-                                "Consultant": row['Consultant'],
-                                "Onboard Date": row['Onboard Date Str'],
-                                "Candidate Salary": row['Candidate Salary'],
-                                "Payment Date": row['Payment Date'],
-                                "Commission Date": p_date.strftime("%Y-%m-%d"),
-                                "Bonus": bonus
-                            })
+                            total_comm_curr += bonus
+                            team_lead_overrides.append(
+                                {"Leader": c_name, "Source": row['Consultant'], "Salary": row['Candidate Salary'],
+                                 "Percentage": row['Percentage'], "Date": p_date.strftime("%Y-%m-%d"), "Bonus": bonus})
 
+            # 汇总显示
             paid_gp_curr_display = c_sales_curr[c_sales_curr['Status'] == 'Paid'][
                 'GP'].sum() if not c_sales_curr.empty else 0
             paid_gp_hist_display = c_sales_hist[c_sales_hist['Status'] == 'Paid'][
@@ -563,12 +570,14 @@ def main():
                  "Fin %": fin_hist, "Status": status_text_hist, "Est. Commission": total_comm_hist})
             financial_summary.append({"Consultant": c_name, "Role": role, "Status": status_text_curr})
 
+        # --- 渲染表格 ---
         df_fin_curr = pd.DataFrame(financial_curr).sort_values('Paid GP', ascending=False)
         df_fin_hist = pd.DataFrame(financial_hist).sort_values('Paid GP', ascending=False)
         df_fin = pd.DataFrame(financial_summary)
         final_sales_df = pd.concat(updated_sales_records) if updated_sales_records else pd.DataFrame()
         override_df = pd.DataFrame(team_lead_overrides)
 
+        # 1. 定义统一的列配置映射
         common_config = {
             "Consultant": st.column_config.TextColumn("Consultant", width=150),
             "GP Target": st.column_config.NumberColumn("GP Target", format="$%d"),
@@ -579,6 +588,7 @@ def main():
             "Est. Commission": st.column_config.NumberColumn("Payable Comm.", format="$%d"),
         }
 
+        # 2. 第一个表格使用配置
         st.dataframe(
             df_fin_curr,
             use_container_width=True,
@@ -586,29 +596,37 @@ def main():
             column_config=common_config
         )
 
+        # 3. 历史记录表格也使用相同的配置
         with st.expander(f"📜 Historical GP Summary ({PREV_Q_STR})"):
             if not df_fin_hist.empty:
                 st.dataframe(
                     df_fin_hist,
                     use_container_width=True,
                     hide_index=True,
-                    column_config=common_config
+                    column_config=common_config  # 使用同一个变量
                 )
 
     with tab_details:
         st.markdown("### 🔍 Drill Down Details")
 
+        # 确保 df_fin 存在且有内容，否则无法查找
         if 'df_fin' in locals() and not df_fin.empty:
             for conf in dynamic_team_config:
                 c_name = conf['name']
-                header = f"👤 {c_name}"
+
+                # --- [核心修复] 从 df_fin 中安全地获取 Role 和 Status ---
+                header = f"👤 {c_name}"  # 默认标题
                 try:
+                    # 在 df_fin 中查找当前顾问的信息
                     fin_row = df_fin[df_fin['Consultant'] == c_name].iloc[0]
+                    # 用查到的信息构建完整的标题
                     header = f"👤 {c_name} ({fin_row['Role']}) | Status: {fin_row['Status']}"
                 except (IndexError, KeyError):
+                    # 如果找不到，就使用默认标题，避免崩溃
                     pass
 
                 with st.expander(header):
+                    # 只有非实习生才显示佣金明细
                     if conf.get('role', 'Consultant') != "Intern":
                         st.markdown("#### 💸 Commission Breakdown")
 
@@ -637,28 +655,16 @@ def main():
                         else:
                             st.info("No deals data available.")
 
+                    # --- [核心修复] 如果是 Team Lead, 显示 Overrides ---
                     if conf.get('role', 'Consultant') == 'Team Lead':
                         st.divider()
                         st.markdown("#### 👥 Team Overrides")
 
                         if not override_df.empty:
+                            # 筛选出当前主管的 Overrides
                             my_ov = override_df[override_df['Leader'] == c_name]
                             if not my_ov.empty:
-                                # 显示：序号、顾问、上岗时间、薪资、付款日期、佣金日期、津贴
-                                st.dataframe(
-                                    my_ov.reset_index(drop=True).reset_index().rename(columns={'index': '序号'}),
-                                    use_container_width=True,
-                                    hide_index=True,
-                                    column_config={
-                                        "序号": st.column_config.NumberColumn("序号"),
-                                        "Consultant": st.column_config.TextColumn("顾问"),
-                                        "Onboard Date": st.column_config.TextColumn("上岗日期"),
-                                        "Candidate Salary": st.column_config.NumberColumn("候选人薪资", format="$%.0f"),
-                                        "Payment Date": st.column_config.TextColumn("客户付款日期"),
-                                        "Commission Date": st.column_config.TextColumn("付佣金日期"),
-                                        "Bonus": st.column_config.NumberColumn("主管津贴", format="$%.0f")
-                                    }
-                                )
+                                st.dataframe(my_ov, use_container_width=True, hide_index=True)
                             else:
                                 st.info("No team overrides earned yet for this period.")
                         else:
@@ -670,19 +676,23 @@ def main():
         st.markdown("### 🚀 Data Sync Center")
         st.info("Sync the calculated monthly commission data to the Game Dashboard.")
 
+        # 1. Calculation Logic
         target_month_prefix = datetime.now().strftime("%Y-%m")
         current_month_key = datetime.now().strftime("%Y%m")
         export_rows = []
 
+        # Preview calculation (so management can check before syncing)
         for conf in dynamic_team_config:
             c_name = conf['name']
             amt = 0.0
+            # Personal Commissions (Scanning all records in final_sales_df)
             if not final_sales_df.empty:
                 amt += final_sales_df[
                     (final_sales_df['Consultant'] == c_name) &
                     (final_sales_df['Commission Day'].str.startswith(target_month_prefix, na=False))
                     ]['Final Comm'].sum()
 
+            # Team Overrides
             if not override_df.empty:
                 amt += override_df[
                     (override_df['Leader'] == c_name) &
@@ -695,24 +705,29 @@ def main():
                 "Total_Commission": round(amt, 2)
             })
 
+        # 2. Display Preview Table
         preview_df = pd.DataFrame(export_rows)
         st.write(f"**📅 Estimated Sync Data ({target_month_prefix})**")
         st.dataframe(preview_df, use_container_width=True, hide_index=True)
 
+        # 3. Sync Button
         st.divider()
         if st.button("🌟 Confirm Sync to Google Sheets", type="primary", use_container_width=True):
             try:
+                # Prepare list for gspread
                 data_to_save = []
                 now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
                 for _, row in preview_df.iterrows():
                     data_to_save.append([row['Consultant'], row['Month'], row['Total_Commission'], now_str])
 
+                # Connect to Sheet
                 sum_sheet = client.open_by_key(COMMISSION_SHEET_ID)
                 try:
                     ws_summary = sum_sheet.worksheet(COMMISSION_TAB_NAME)
                 except:
                     ws_summary = sum_sheet.add_worksheet(title=COMMISSION_TAB_NAME, rows="100", cols="5")
 
+                # Update Sheet
                 ws_summary.clear()
                 ws_summary.update('A1', [['Consultant', 'Month', 'Final_Commission', 'Last_Updated']])
                 ws_summary.update('A2', data_to_save)
