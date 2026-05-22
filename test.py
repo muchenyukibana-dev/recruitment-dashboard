@@ -539,7 +539,7 @@ def main():
                 updated_sales_records.append(c_sales)
 
             # 主管津贴 (Overrides)
-            if is_team_lead and is_target_met_curr and not sales_df_2q.empty:
+            if is_team_lead and not sales_df_2q.empty:
                 for q_name in [PREV_Q_STR, CURRENT_Q_STR]:
                     q_sales = sales_df_2q[sales_df_2q['Quarter'] == q_name]
                     if q_sales.empty:
