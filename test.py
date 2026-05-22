@@ -539,25 +539,36 @@ def main():
             else:
                 updated_sales_records.append(c_sales)
 
-            # 主管津贴 (Overrides) —— 修复：显示【上季度 + 本季度】所有符合条件的津贴
-            if is_team_lead and not sales_df_2q.empty:
-                # 遍历两个季度：上一季度 PREV_Q_STR + 当前季度 CURRENT_Q_STR
-                for q_name in [PREV_Q_STR, CURRENT_Q_STR]:
-                    q_sales = sales_df_2q[sales_df_2q['Quarter'] == q_name]
-                    if q_sales.empty:
-                        continue
+                # 主管津贴 (Overrides) —— 最终版：不限制主管达标 + 显示上季度+本季度 + 包含所有顾问
+                if is_team_lead and not sales_df_2q.empty:
+                    # 遍历两个季度：上一季度 PREV_Q_STR + 当前季度 CURRENT_Q_STR
+                    for q_name in [PREV_Q_STR, CURRENT_Q_STR]:
+                        q_sales = sales_df_2q[sales_df_2q['Quarter'] == q_name]
+                        if q_sales.empty:
+                            continue
 
-                    # 判断季度是否达标（上季度用历史达标，本季度用当前达标）
-                    target_met = is_target_met_curr if q_name == CURRENT_Q_STR else is_target_met_hist
+                        # 筛选：已付款 + 不是主管自己的单子（放开 Estela Peng）
+                        ov_mask = (q_sales['Status'] == 'Paid') & (q_sales['Consultant'] != c_name)
 
-                    # 只有季度达标了，才计算该季度的津贴
-                    if target_met:
-                        ov_mask = (q_sales['Status'] == 'Paid') & (q_sales['Consultant'] != c_name) & (
-                                    q_sales['Consultant'] != "Estela Peng")
                         for _, row in q_sales[ov_mask].iterrows():
                             p_date = get_commission_pay_date(row['Payment Date Obj'])
                             if p_date and p_date <= datetime.now() + timedelta(days=20):
                                 bonus = 1000 * row['Percentage']
+
+                                if q_name == CURRENT_Q_STR:
+                                    total_comm_curr += bonus
+                                else:
+                                    total_comm_hist += bonus
+
+                                team_lead_overrides.append({
+                                    "Quarter": q_name,
+                                    "Leader": c_name,
+                                    "Source": row['Consultant'],
+                                    "Salary": row['Candidate Salary'],
+                                    "Percentage": row['Percentage'],
+                                    "Date": p_date.strftime("%Y-%m-%d"),
+                                    "Bonus": bonus
+                                })
 
                                 # 本季度佣金计入 current，上季度计入 history（不影响当前季度总额，只用于显示）
                                 if q_name == CURRENT_Q_STR:
