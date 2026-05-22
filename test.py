@@ -663,14 +663,7 @@ def main():
                             # 筛选出当前主管的 Overrides
                             my_ov = override_df[override_df['Leader'] == c_name]
                             if not my_ov.empty:
-                                team_lead_overrides.append({
-                                    "Leader": c_name,
-                                    "Consultant": row['Consultant'],
-                                    "Cdd Salary": row['Candidate Salary'],
-                                    "Client Paid": row['Payment Date'],  # 这里直接存客户付款日期
-                                    "Commission Date": p_date.strftime("%Y-%m-%d"),
-                                    "Bonus": bonus
-                                })
+                                st.dataframe(my_ov, use_container_width=True, hide_index=True)
                             else:
                                 st.info("No team overrides earned yet for this period.")
                         else:
