@@ -552,8 +552,8 @@ def main():
                             bonus = 1000 * row['Percentage']
                             total_comm_curr += bonus
                             team_lead_overrides.append(
-                                {"Leader": c_name, "Consultant": row['Consultant'], "Cdd Salary": row['Candidate Salary'],
-                                 "Client Payment": row['Payment Date'], "Commission Day": p_date.strftime("%Y-%m-%d"), "Bonus": bonus})
+                                {"Leader": c_name, "Source": row['Consultant'], "Salary": row['Candidate Salary'],
+                                 "Percentage": row['Percentage'], "Date": p_date.strftime("%Y-%m-%d"), "Bonus": bonus})
 
             # 汇总显示
             paid_gp_curr_display = c_sales_curr[c_sales_curr['Status'] == 'Paid'][
