@@ -18,6 +18,13 @@ now = datetime.now()
 CURRENT_YEAR = now.year
 CURRENT_QUARTER = (now.month - 1) // 3 + 1
 CURRENT_Q_STR = f"{CURRENT_YEAR} Q{CURRENT_QUARTER}"
+# 新增：获取当前自然月范围（用于判断佣金是否本月发放）
+CURRENT_MONTH_START = datetime(CURRENT_YEAR, now.month, 1)
+# 下个月1号（当月结束边界）
+if now.month == 12:
+    CURRENT_MONTH_END = datetime(CURRENT_YEAR + 1, 1, 1)
+else:
+    CURRENT_MONTH_END = datetime(CURRENT_YEAR, now.month + 1, 1)
 
 if CURRENT_QUARTER == 1:
     PREV_Q_STR = f"{CURRENT_YEAR - 1} Q4"
@@ -37,7 +44,7 @@ CV_TARGET_QUARTERLY = 87
 SALES_SHEET_ID = '1jniQ-GpeMINjQMebniJ_J1eLVLQIR1NGbSjTtOFP9Q8'
 SALES_TAB_NAME = 'Positions'
 COMMISSION_SHEET_ID = '1A3K3RLlVNzCSCI-AkXAh8-K99gDSpCM7L9oNOCY0Obs'
-COMMISSION_TAB_NAME = 'Commission Detail'  # 专门存结果的标签页
+COMMISSION_TAB_NAME = 'Commission Detail' # 专门存结果的标签页
 
 TEAM_CONFIG = [
     {"name": "Raul Solis", "id": "1vQuN-iNBRUug5J6gBMX-52jp6oogbA77SaeAf9j_zYs", "keyword": "Name",
@@ -187,11 +194,10 @@ def internal_fetch_sheet_data(client, conf, tab):
         rows = safe_api_call(ws.get_all_values)
         details, cs, ci, co = [], 0, 0, 0
         target_key = conf.get('keyword', 'Name')
-        COMPANY_KEYS, POSITION_KEYS, STAGE_KEYS = ["Company", "Client", "Cliente", "公司", "公司名称", "客户"], [
-            "Position", "Role",
-            "职位"], ["Stage",
-                      "Status",
-                      "阶段"]
+        COMPANY_KEYS, POSITION_KEYS, STAGE_KEYS = ["Company", "Client", "Cliente", "公司", "公司名称","客户"], ["Position", "Role",
+                                                                                                     "职位"], ["Stage",
+                                                                                                               "Status",
+                                                                                                               "阶段"]
         block = {"c": "Unk", "p": "Unk", "cands": {}}
 
         def flush(b):
@@ -368,7 +374,7 @@ def main():
     sales_df_2q = all_sales_df[
         all_sales_df['Quarter'].isin([CURRENT_Q_STR, PREV_Q_STR])].copy() if not all_sales_df.empty else pd.DataFrame()
 
-    tab_dash, tab_details, tab_sync = st.tabs(["📊 DASHBOARD", "📝 DETAILS", "🚀 SYNC TO GAME"])
+    tab_dash, tab_details, tab_sync = st.tabs(["📊 DASHBOARD", "📝 DETAILS", "🚀 SYNC TO GAME" ])
 
     with tab_dash:
         def get_role_target(c_name):
@@ -419,8 +425,7 @@ def main():
                             "Activity %",
                             format="%.0f%%",
                             min_value=0,
-                            max_value=100,
-                            width=150
+                            max_value=100
                         ),
                         "Int": st.column_config.NumberColumn("Int", width=140),
                         "Off": st.column_config.NumberColumn("Off", width=80),
@@ -530,7 +535,8 @@ def main():
                                 if p_date:
                                     c_sales.at[idx, 'Final Comm'] = comm
                                     c_sales.at[idx, 'Commission Day'] = p_date.strftime("%Y-%m-%d")
-                                    if p_date <= datetime.now() + timedelta(days=20):
+                                    # ========== 修改点1：判断佣金日是否在【当前自然月】 ==========
+                                    if CURRENT_MONTH_START <= p_date < CURRENT_MONTH_END:
                                         if q_name == CURRENT_Q_STR:
                                             total_comm_curr += comm
                                         else:
@@ -540,22 +546,18 @@ def main():
                 updated_sales_records.append(c_sales)
 
             # 主管津贴 (Overrides)
-            if is_team_lead and is_target_met_curr and not all_sales_df.empty:
-                # 关键修复：使用全部销售数据，只按【付款日期】筛选本季度应付的津贴
-                ov_mask = (all_sales_df['Status'] == 'Paid') & \
-                          (all_sales_df['Consultant'] != c_name) & \
-                          (all_sales_df['Consultant'] != "Estela Peng")
-
-                for _, row in all_sales_df[ov_mask].iterrows():
+            if is_team_lead and is_target_met_curr and not sales_df_2q.empty:
+                ov_mask = (sales_df_2q['Status'] == 'Paid') & (sales_df_2q['Consultant'] != c_name) & (
+                        sales_df_2q['Consultant'] != "Estela Peng")
+                for _, row in sales_df_2q[ov_mask].iterrows():
                     p_date = get_commission_pay_date(row['Payment Date Obj'])
-                    if p_date:
-                        # 判断是否属于【本季度应付】（按付款时间）
-                        if p_date >= datetime(start_m, 1, 1) and p_date <= datetime(CURRENT_YEAR, start_m + 2, 31):
-                            bonus = 1000 * row['Percentage']
-                            total_comm_curr += bonus
-                            team_lead_overrides.append(
-                                {"Leader": c_name, "Source": row['Consultant'], "Salary": row['Candidate Salary'],
-                                 "Percentage": row['Percentage'], "Date": p_date.strftime("%Y-%m-%d"), "Bonus": bonus})
+                    # ========== 修改点2：主管津贴同样判断佣金日是否在【当前自然月】 ==========
+                    if p_date and CURRENT_MONTH_START <= p_date < CURRENT_MONTH_END:
+                        bonus = 1000 * row['Percentage']
+                        total_comm_curr += bonus
+                        team_lead_overrides.append(
+                            {"Leader": c_name, "Source": row['Consultant'], "Salary": row['Candidate Salary'],
+                             "Percentage": row['Percentage'], "Date": p_date.strftime("%Y-%m-%d"), "Bonus": bonus})
 
             # 汇总显示
             paid_gp_curr_display = c_sales_curr[c_sales_curr['Status'] == 'Paid'][
@@ -577,6 +579,7 @@ def main():
         df_fin = pd.DataFrame(financial_summary)
         final_sales_df = pd.concat(updated_sales_records) if updated_sales_records else pd.DataFrame()
         override_df = pd.DataFrame(team_lead_overrides)
+
 
         # 1. 定义统一的列配置映射
         common_config = {
@@ -737,7 +740,6 @@ def main():
                 st.balloons()
             except Exception as e:
                 st.error(f"❌ An error occurred during sync: {e}")
-
-
+                
 if __name__ == "__main__":
     main()
