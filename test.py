@@ -41,12 +41,12 @@ COMMISSION_TAB_NAME = 'Commission Detail'  # 专门存结果的标签页
 
 TEAM_CONFIG = [
     {"name": "Raul Solis", "id": "1vQuN-iNBRUug5J6gBMX-52jp6oogbA77SaeAf9j_zYs", "keyword": "Name",
-     "base_salary": 11000},
+     "base_salary": 11495},
     {"name": "Estela Peng", "id": "1sUkffAXzWnpzhhmklqBuwtoQylpR1U18zqBQ-lsp7Z4", "keyword": "姓名",
      "base_salary": 20800},
-    {"name": "Ana Cruz", "id": "1VMVw5YCV12eI8I-VQSXEKg86J2IVZJEgjPJT7ggAFD0", "keyword": "Name", "base_salary": 13000},
+    {"name": "Ana Cruz", "id": "1VMVw5YCV12eI8I-VQSXEKg86J2IVZJEgjPJT7ggAFD0", "keyword": "Name", "base_salary": 14300},
     {"name": "Karina Albarran", "id": "1zc4ghvfjIxH0eJ2aXfopOWHqiyTDlD8yFNjBzpH07D8", "keyword": "Name",
-     "base_salary": 15000},
+     "base_salary": 16500},
 ]
 
 st.set_page_config(page_title="Management Dashboard", page_icon="💼", layout="wide")
