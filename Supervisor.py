@@ -37,16 +37,16 @@ CV_TARGET_QUARTERLY = 87
 SALES_SHEET_ID = '1jniQ-GpeMINjQMebniJ_J1eLVLQIR1NGbSjTtOFP9Q8'
 SALES_TAB_NAME = 'Positions'
 COMMISSION_SHEET_ID = '1A3K3RLlVNzCSCI-AkXAh8-K99gDSpCM7L9oNOCY0Obs'
-COMMISSION_TAB_NAME = 'Commission Detail' # 专门存结果的标签页
+COMMISSION_TAB_NAME = 'Commission Detail'  # 专门存结果的标签页
 
 TEAM_CONFIG = [
     {"name": "Raul Solis", "id": "1vQuN-iNBRUug5J6gBMX-52jp6oogbA77SaeAf9j_zYs", "keyword": "Name",
-     "base_salary": 11000},
+     "base_salary": 11495},
     {"name": "Estela Peng", "id": "1sUkffAXzWnpzhhmklqBuwtoQylpR1U18zqBQ-lsp7Z4", "keyword": "姓名",
      "base_salary": 20800},
-    {"name": "Ana Cruz", "id": "1VMVw5YCV12eI8I-VQSXEKg86J2IVZJEgjPJT7ggAFD0", "keyword": "Name", "base_salary": 13000},
+    {"name": "Ana Cruz", "id": "1VMVw5YCV12eI8I-VQSXEKg86J2IVZJEgjPJT7ggAFD0", "keyword": "Name", "base_salary": 14300},
     {"name": "Karina Albarran", "id": "1zc4ghvfjIxH0eJ2aXfopOWHqiyTDlD8yFNjBzpH07D8", "keyword": "Name",
-     "base_salary": 15000},
+     "base_salary": 16500},
 ]
 
 st.set_page_config(page_title="Management Dashboard", page_icon="💼", layout="wide")
@@ -187,10 +187,11 @@ def internal_fetch_sheet_data(client, conf, tab):
         rows = safe_api_call(ws.get_all_values)
         details, cs, ci, co = [], 0, 0, 0
         target_key = conf.get('keyword', 'Name')
-        COMPANY_KEYS, POSITION_KEYS, STAGE_KEYS = ["Company", "Client", "Cliente", "公司", "公司名称","客户"], ["Position", "Role",
-                                                                                                     "职位"], ["Stage",
-                                                                                                               "Status",
-                                                                                                               "阶段"]
+        COMPANY_KEYS, POSITION_KEYS, STAGE_KEYS = ["Company", "Client", "Cliente", "公司", "公司名称", "客户"], [
+            "Position", "Role",
+            "职位"], ["Stage",
+                      "Status",
+                      "阶段"]
         block = {"c": "Unk", "p": "Unk", "cands": {}}
 
         def flush(b):
@@ -367,7 +368,7 @@ def main():
     sales_df_2q = all_sales_df[
         all_sales_df['Quarter'].isin([CURRENT_Q_STR, PREV_Q_STR])].copy() if not all_sales_df.empty else pd.DataFrame()
 
-    tab_dash, tab_details, tab_sync = st.tabs(["📊 DASHBOARD", "📝 DETAILS", "🚀 SYNC TO GAME" ])
+    tab_dash, tab_details, tab_sync = st.tabs(["📊 DASHBOARD", "📝 DETAILS", "🚀 SYNC TO GAME"])
 
     with tab_dash:
         def get_role_target(c_name):
@@ -529,27 +530,30 @@ def main():
                                 if p_date:
                                     c_sales.at[idx, 'Final Comm'] = comm
                                     c_sales.at[idx, 'Commission Day'] = p_date.strftime("%Y-%m-%d")
-                                    if p_date <= datetime.now() + timedelta(days=20):
-                                        if q_name == CURRENT_Q_STR:
-                                            total_comm_curr += comm
-                                        else:
-                                            total_comm_hist += comm
+                                    if q_name == CURRENT_Q_STR:
+                                        total_comm_curr += comm
+                                    else:
+                                        total_comm_hist += comm
                 updated_sales_records.append(c_sales)
             else:
                 updated_sales_records.append(c_sales)
 
             # 主管津贴 (Overrides)
-            if is_team_lead and is_target_met_curr and not sales_df_2q.empty:
-                ov_mask = (sales_df_2q['Status'] == 'Paid') & (sales_df_2q['Consultant'] != c_name) & (
-                        sales_df_2q['Consultant'] != "Estela Peng")
-                for _, row in sales_df_2q[ov_mask].iterrows():
-                    p_date = get_commission_pay_date(row['Payment Date Obj'])
-                    if p_date and p_date <= datetime.now() + timedelta(days=20):
-                        bonus = 1000 * row['Percentage']
-                        total_comm_curr += bonus
-                        team_lead_overrides.append(
-                            {"Leader": c_name, "Source": row['Consultant'], "Salary": row['Candidate Salary'],
-                             "Percentage": row['Percentage'], "Date": p_date.strftime("%Y-%m-%d"), "Bonus": bonus})
+            if is_team_lead and not sales_df_2q.empty:
+                for q_name in [PREV_Q_STR, CURRENT_Q_STR]:
+                    q_sales = sales_df_2q[sales_df_2q['Quarter'] == q_name]
+                    if q_sales.empty:
+                        continue
+                    ov_mask = (q_sales['Status'] == 'Paid') & (q_sales['Consultant'] != c_name) & (
+                                q_sales['Consultant'] != "Estela Peng")
+                    for _, row in q_sales[ov_mask].iterrows():
+                        p_date = get_commission_pay_date(row['Payment Date Obj'])
+                        if p_date:
+                            bonus = 1000 * row['Percentage']
+                            total_comm_curr += bonus
+                            team_lead_overrides.append(
+                                {"Leader": c_name, "Source": row['Consultant'], "Salary": row['Candidate Salary'],
+                                 "Percentage": row['Percentage'], "Date": p_date.strftime("%Y-%m-%d"), "Bonus": bonus})
 
             # 汇总显示
             paid_gp_curr_display = c_sales_curr[c_sales_curr['Status'] == 'Paid'][
@@ -571,7 +575,6 @@ def main():
         df_fin = pd.DataFrame(financial_summary)
         final_sales_df = pd.concat(updated_sales_records) if updated_sales_records else pd.DataFrame()
         override_df = pd.DataFrame(team_lead_overrides)
-
 
         # 1. 定义统一的列配置映射
         common_config = {
@@ -732,6 +735,7 @@ def main():
                 st.balloons()
             except Exception as e:
                 st.error(f"❌ An error occurred during sync: {e}")
-                
+
+
 if __name__ == "__main__":
     main()
