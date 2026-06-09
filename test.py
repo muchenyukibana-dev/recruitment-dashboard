@@ -114,13 +114,24 @@ def calculate_single_deal_commission(candidate_salary, multiplier):
     return base_comm * multiplier
 
 
+def _advance_to_future_15th(candidate_date):
+    """如果计算出的15号已经过了今天，就顺延到下一个月15号，直到找到未来的日期。"""
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    while candidate_date < today:
+        year = candidate_date.year + (candidate_date.month // 12)
+        month = (candidate_date.month % 12) + 1
+        candidate_date = datetime(year, month, 15)
+    return candidate_date
+
+
 def get_commission_pay_date(payment_date):
     if pd.isna(payment_date) or not payment_date: return None
     try:
         p_date = pd.to_datetime(payment_date)
         year = p_date.year + (p_date.month // 12)
         month = (p_date.month % 12) + 1
-        return datetime(year, month, 15)
+        candidate_date = datetime(year, month, 15)
+        return _advance_to_future_15th(candidate_date)
     except:
         return None
 
@@ -130,7 +141,8 @@ def get_payout_date_from_month_key(month_key):
         dt = datetime.strptime(str(month_key), "%Y-%m")
         year = dt.year + (dt.month // 12)
         month = (dt.month % 12) + 1
-        return datetime(year, month, 15)
+        candidate_date = datetime(year, month, 15)
+        return _advance_to_future_15th(candidate_date)
     except:
         return None
 
